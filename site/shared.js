@@ -45,17 +45,6 @@ export const LETTERS = [
   { code: 0xE67E, name: 'Ooze', family: 'qsOoze' },
 ];
 
-export const NAME_TO_CP = Object.fromEntries(
-  LETTERS.map(l => [l.name, l.code])
-);
-
-for (const l of LETTERS) {
-  const normalized = l.name.replace(/[\u2018\u2019]/g, "'");
-  if (normalized !== l.name) NAME_TO_CP[normalized] = l.code;
-}
-
-NAME_TO_CP["Jai"] = NAME_TO_CP["J'ai"];
-
 const PIXEL_FONT_RE = /Abbots Morton Spaceport|Departure Mono/;
 
 // Any code that sets --font-stack must also set --font-smoothing, --font-smoothing-osx, and --font-smooth to match. The first font in the stack decides: pixel fonts get smoothing off, and any other font gets the platform default.

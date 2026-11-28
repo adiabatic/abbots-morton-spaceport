@@ -212,9 +212,9 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     );
 }
 
-/// The case replay echoes each case line before its result in both shapes: the full trace by default, and the settled record's seven fields under `--settled-only`. The case lines on standard input, for the path `-`, give the same output as the file. `liveness-cases` has no trace to leave out, so it rejects the flag as a usage error.
+/// The case replay echoes each case line before its result in both shapes: the full trace by default, and the settled record's seven fields under `--settled-only`. The case lines on standard input, for the path `-`, give the same output as the file.
 #[test]
-fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_flag() {
+fn a_case_replay_writes_either_result_shape_from_a_file_or_stdin() {
     let root = scratch("cli-cases");
     let spec = spec_at(&root);
     let case_line = "edge\t\t\t\t\t\t\t\tqsPea\tqsTea\tedge\tunknown\tunknown";
@@ -244,13 +244,6 @@ fn a_case_replay_writes_either_result_shape_and_the_liveness_verb_refuses_the_fl
         piped.stdout, settled.stdout,
         "stdin and the file are one replay"
     );
-    let refused = run(&[
-        "liveness-cases",
-        word(&spec),
-        word(&cases),
-        "--settled-only",
-    ]);
-    assert_eq!(refused.status.code(), Some(2), "{}", stderr_of(&refused));
 }
 
 /// `guard-sweep --config=` writes one configuration's guard verdict map with as many rows as the default sweep over the feature powerset, and accepts `default` for the no-feature configuration. Each of these is a usage error (exit 2): an empty or non-canonical configuration token, as `--configs=` parses it; a repeated `--config=`; `--features=`, which this subcommand does not take; and any mode flag, because `guard.rs` fixes the guard's modes. A feature the spec never mentions fails the run (exit 1), as it does in `settle-cases`.

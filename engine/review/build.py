@@ -1,8 +1,7 @@
-"""Build the review app's output directory, engine/out/review/ (doc/review-design.md §1.3): the table-diff corpus (`build_table_diff`), the accepted build as a snapshot holds it (`engine/review/snapshot.py`) against a build, with the units `engine/review/diff_units.py` finds, written as manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the app sidecars (`engine/review/app_index.py`), copies of both fonts, and the static app files. The §7 contract checker (`check_manifest`, `check_unit`, `check_shards`, `check_output_dir`) checks a corpus, the one the build has just written included. The `snapshot` subcommand takes a snapshot of a build (`snapshot.take`). `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into engine/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at engine/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
+"""Build the review app's output directory, engine/out/review/ (doc/review-design.md §1.3): the table-diff corpus (`build_table_diff`), the accepted build as a snapshot holds it (`engine/review/snapshot.py`) against a build, with the units `engine/review/diff_units.py` finds, written as manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the app sidecars (`engine/review/app_index.py`), copies of both fonts, and the static app files. The §7 contract checker (`check_manifest`, `check_unit`, `check_shards`, `check_output_dir`) checks a corpus, the one the build has just written included. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into engine/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at engine/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 
 Usage:
     uv run python -m engine.review.build [--snapshot <dir>] [--new engine/out/build] [--out <dir>]
-    uv run python -m engine.review.build snapshot [--tables engine/out/build] [--home var/keep/review-snapshot]
     uv run python -m engine.review.build refresh-assets
 """
 
@@ -1484,9 +1483,6 @@ def main(argv: list[str] | None = None) -> None:
             "restamped and nothing else moved",
             file=sys.stderr,
         )
-        return
-    if argv and argv[0] == "snapshot":
-        snapshot.main(["take", *argv[1:]])
         return
 
     parser = argparse.ArgumentParser(description=__doc__)

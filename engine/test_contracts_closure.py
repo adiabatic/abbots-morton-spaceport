@@ -322,7 +322,7 @@ class TestContractsLifecycle:
 
     def test_an_extra_edit_prevents_a_roster_match_from_skipping(self, contracts_tree):
         _save_contracts_record(contracts_tree)
-        original_key = ac.contracts_fingerprint(contracts_tree)
+        original_key = ac.contracts_closure(contracts_tree)[0]
         _write(contracts_tree, "extra.txt", "two")
         run = cc.prepare_run(contracts_tree)
         assert run.key == original_key
@@ -379,7 +379,7 @@ class TestContractsLifecycle:
         assert cc.prepare_run(contracts_tree).skippable
 
     def test_a_key_only_record_can_skip_on_its_roster(self, contracts_tree):
-        key = ac.contracts_fingerprint(contracts_tree)
+        key = ac.contracts_closure(contracts_tree)[0]
         assert key is not None
         ac.record_green(ac.contracts_green(), key)
         assert cc.prepare_run(contracts_tree).skippable
@@ -546,7 +546,7 @@ def test_queued_contracts_refreshes_selection_after_waiting(contracts_tree, monk
     )
     assert gate.ok and selected == [frozenset()]
     record = ac.read_green_record(ac.contracts_green())
-    assert record is not None and record["fingerprint"] == ac.contracts_fingerprint(contracts_tree)
+    assert record is not None and record["fingerprint"] == ac.contracts_closure(contracts_tree)[0]
 
 
 @pytest.mark.parametrize("caller", ["wrapper", "cycle"])
@@ -799,7 +799,6 @@ def test_the_lane_key_is_the_digest_of_its_labels(tmp_path):
     _write(tmp_path, "glyph_data/runes/qsX.yaml", "rune: qsX\n")
     key, labels = ac.contracts_closure(tmp_path)
     assert key is not None and labels is not None
-    assert key == ac.contracts_fingerprint(tmp_path)
     assert key == ac._digest_lines([f"{label}\t{digest}" for label, digest in labels.items()])
     assert {"engine/test_x.py", "glyph_data/runes/qsX.yaml"} <= labels.keys()
 
@@ -811,7 +810,6 @@ def test_the_cycle_plan_names_the_narrowing(tmp_path, monkeypatch):
     ac.record_green(store, "old", files=stale["files"], closures=stale["closures"])
     before = {**BASE_FILES, "a.yaml": "9"}
     monkeypatch.setattr(ac, "contracts_closure", lambda root: ("new", dict(before)))
-    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "new")
     monkeypatch.setattr(cc, "current_files", lambda root, roster, record: dict(roster))
     plan = ac.build_plan(
         skip_gates=False,

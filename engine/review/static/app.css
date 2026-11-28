@@ -605,22 +605,6 @@ summary:focus-visible {
   @media (width < 75em) {
     grid-template-columns: minmax(0, 1fr);
   }
-
-  &[hidden] {
-    display: none;
-  }
-}
-
-.corpus-refusal {
-  max-width: 50rem;
-  margin: 3rem auto;
-  padding: 1rem 1.25rem;
-  font-size: 16px;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--reject) 8%, var(--card));
-  border: 1px solid var(--reject);
-  border-left-width: 5px;
-  border-radius: 6px;
 }
 
 .class-chip {
@@ -2552,12 +2536,6 @@ body.queue-view main {
     margin: 0.4rem 0;
   }
 
-  .queue-footer {
-    margin-top: 2.5rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid var(--hairline);
-  }
-
   .queue-readiness {
     font-size: 0.9rem;
     font-weight: 600;
@@ -2611,37 +2589,6 @@ body.queue-view main {
     border-radius: 8px;
     padding: 0.1em 0.6em;
     background: light-dark(#f0f0f0, #333);
-  }
-
-  .verdict-chip {
-    font-weight: 700;
-    border-radius: 8px;
-    padding: 0.1em 0.7em;
-    color: light-dark(#fff, #1a1a1a);
-
-    &.approve {
-      background: var(--approve);
-    }
-
-    &.reject {
-      background: var(--reject);
-    }
-
-    &.either {
-      background: var(--either);
-    }
-
-    &.identical {
-      background: var(--identical);
-    }
-
-    &.neither {
-      background: var(--neither);
-    }
-
-    &.skip {
-      background: var(--skip);
-    }
   }
 
   .render-pair {

@@ -17,9 +17,7 @@ from engine.pipeline.settle import (
     cell_label,
     form_ligatures,
     guard_blocks,
-    is_entry_bearing,
     tokens_from_codepoints,
-    word_position,
 )
 
 SPEC = fixtures.mini_spec()
@@ -207,24 +205,6 @@ def test_a_committed_junction_nothing_accepts_is_unreachable():
         "E-UNACCEPTED-EXIT: qsTea.full.ex-y8 committed an exit at top but qsIt has no acceptor cell "
         "(the lookahead closure should have prevented this commitment)"
     )
-
-
-def test_entry_bearing_census():
-    assert is_entry_bearing(SPEC, "qsPea")
-    assert is_entry_bearing(SPEC, "qsTea")
-    assert is_entry_bearing(SPEC, "qsMay")
-    assert is_entry_bearing(SPEC, "qsIt")
-    assert is_entry_bearing(SPEC, "qsOy")
-    assert not is_entry_bearing(SPEC, "qsTea_qsOy")
-
-
-def test_word_position_derivation():
-    assert word_position("edge", "edge") == "isolated"
-    assert word_position("space", "letter") == "initial"
-    assert word_position("letter", "zwnj") == "final"
-    assert word_position("namer-dot", "letter") == "medial"
-    assert word_position("letter", "namer-dot") == "medial"
-    assert word_position("edge", "unknown") is None
 
 
 # --- synthetic specs for the stages the real records leave unexercised ---------------------

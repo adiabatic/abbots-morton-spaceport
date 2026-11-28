@@ -1902,7 +1902,7 @@ pub fn locked_glyph_name(raw_name: &str) -> String {
     format!("{raw_name}.noentry")
 }
 
-/// One right slot's label: a letter's rune name, or a boundary's own label. Public because the `liveness-cases` subcommand uses the same labels.
+/// One right slot's label: a letter's rune name, or a boundary's own label. Public because the string replay and the rule certificates label right slots the same way.
 pub fn right_token_label(index: &SpecIndex, token: RightToken) -> String {
     match token.rune() {
         Some(rune) => index.resolve(rune).to_owned(),
@@ -2043,7 +2043,7 @@ fn rune_of(index: &SpecIndex, label: &str) -> Option<Sym> {
     index.sym_of(label).filter(|name| index.is_modeled(*name))
 }
 
-/// The member labels one deep-slot field stands for, `DecisionTable.token_members`: the class map's entry for a class id, else the label itself, so a caller can expand any right3 or right4 field uniformly.
+/// The member labels one deep-slot field stands for: the class map's entry for a class id, else the label itself, so a caller can expand any right3 or right4 field uniformly.
 fn token_members<'p>(classes: &HashMap<&'p str, &'p [String]>, token: &'p str) -> Vec<&'p str> {
     match classes.get(token) {
         Some(members) => members.iter().map(String::as_str).collect(),

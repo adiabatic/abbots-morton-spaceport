@@ -572,7 +572,7 @@ class MiniBundle:
 
 @pytest.fixture(scope="session")
 def mini_bundle(build_once) -> MiniBundle:
-    """Materialize the spec the mini bundle's rows settled under, once a run (`build_once`). The spec comes out of git from the tree and blob shas `engine/review/fixtures/mini/pin.json` records, so a test reads the settlement the frozen rows were written under, whatever the working tree's runes say.
+    """Materialize the spec the mini bundle's font was built from, once a run (`build_once`). The spec comes out of git from the tree and blob shas `engine/review/fixtures/mini/pin.json` records, so a test reads the spec the frozen font was built from, whatever the working tree's runes say.
 
     The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs.
     """

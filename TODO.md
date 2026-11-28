@@ -4,16 +4,10 @@
 
 - Uppercase Latin letters are 5, 6, or 7 pixels wide. I’d like to see if we can have them be only 6 or 7 pixels wide so there’s less variation. Most are 5 pixels wide currently.
 
-## Ductus work
-
-- Literally all of them.
-
 ## Kerning
 
-- ensure kerning pairs work just as well in Quikscript Junior
 - Kern:
   - ·No·Tea
-  - ·See·Eight
 
 ## More/fewer glyphs
 

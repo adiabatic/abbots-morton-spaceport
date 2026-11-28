@@ -829,7 +829,6 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--conform-max-length",
-        "--conform-horizon",
         type=int,
         default=4,
         help="exhaustive sweep length for --conform-only (the per-edit sweep over the settlement configurations; the overlay configuration keeps its own maximum length); `make conform-deep` runs the same sweep deeper on demand",

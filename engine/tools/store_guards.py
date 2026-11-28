@@ -29,7 +29,7 @@ def pass_lock(store: Path) -> Iterator[None]:
 
 
 def serves(store: Path) -> bool:
-    """Return whether a review server listens that may write `store`: its /capabilities answer names that store, or names none, as a server that predates /capabilities or does not answer does."""
+    """Return whether a review server listens that may write `store`: its /capabilities answer names that store, or names none, as a listener that gives no answer does."""
     if not server_listening():
         return False
     answer = capabilities()

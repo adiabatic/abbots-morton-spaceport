@@ -1220,7 +1220,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--max-length",
-        "--horizon",
         type=int,
         default=None,
         help=f"maximum sweep length (default {DEEP_SWEEP_MAX_LENGTH_DEFAULT}); anything below the per-edit sweep's own {CONFORM_MAX_LENGTH_DEFAULT} is refused, since the per-edit sweep already covers that on every edit",

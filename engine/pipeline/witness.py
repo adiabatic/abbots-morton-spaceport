@@ -39,12 +39,8 @@ def _first_matching_rule(
     right2: str,
     right3: str,
     right4: str,
-    representatives: Mapping[str, str] | None = None,
 ) -> int | None:
-    """Return the index of the first of the configuration's renamed rules that matches one window, as the emitted FEA does, or None. A deep slot holding a class token is tested through its renamed representative member (`representatives`, the map a `conform._DeepTokenIndex` holds). That is exact, and a raw member label matches the same rules, because `fold::assert_deep_class_unions` checks that every emitted lookahead class holds all of a token's members or none."""
-    if representatives:
-        right3 = representatives.get(right3, right3)
-        right4 = representatives.get(right4, right4)
+    """Return the index of the first of the configuration's renamed rules that matches one window, as the emitted FEA does, or None. The deep slots hold raw member labels, which match the rules a class-grain table folds, because `fold::assert_deep_class_unions` checks that every emitted lookahead class holds all of a deep class's members or none."""
     for rule_index, (backtrack, look1, look2, look3, look4) in rules_by_input.get(label, ()):
         if backtrack is not None and left not in backtrack:
             continue
@@ -60,8 +56,8 @@ def _first_matching_rule(
     return None
 
 
-def _matched_windows(spec, text, features, guard_verdicts, expected, rules_by_input, deep_index=None):
-    """Replay the settlement lookup over one string: yield (position, window key, index of the first matching rule or None) for each letter position, as the emitted FEA matches. Labels and rules are in the configuration's marker-renamed names, and the left slot comes from the settled stream. Yields nothing when the text cannot be labeled or `expected` has a different length. The window slots are the raw ones `conform._window_rights` reads. Which slots the table split does not matter here, because a rule that dropped a slot matches whatever is there. `deep_index`, a `conform._DeepTokenIndex` built from the table, maps the deep slots to class tokens after `conform._window_rights` has read the raw labels, and it needs the settled left this loop holds. Without it the deep slots stay raw labels. The first matching rule is the same either way (see `_first_matching_rule`), so `check_rule_certificates` passes none. Only the yielded window key differs: where a class-grain table's row holds a class token, the key with the raw label does not match that row."""
+def _matched_windows(spec, text, features, guard_verdicts, expected, rules_by_input):
+    """Replay the settlement lookup over one string: yield (position, window key, index of the first matching rule or None) for each letter position, as the emitted FEA matches. Labels and rules are in the configuration's marker-renamed names, and the left slot comes from the settled stream. Yields nothing when the text cannot be labeled or `expected` has a different length. The window slots are the raw ones `conform._window_rights` reads. Which slots the table split does not matter here, because a rule that dropped a slot matches whatever is there, and a deep slot holds its raw label, which matches the rules folded from a class-grain table (`_first_matching_rule`). So where a class-grain table's row holds a class token, the yielded key, which holds the raw label, does not match that row."""
     try:
         labels = conform.raw_labels(spec, text, features, guard_verdicts)
     except ValueError:
@@ -79,18 +75,7 @@ def _matched_windows(spec, text, features, guard_verdicts, expected, rules_by_in
         else:
             left = settled[index - 1]
         right1, right2, right3, right4 = conform._window_rights(labels, index)
-        if deep_index is not None:
-            right3, right4 = deep_index.resolve(label, left, right1, right2, right3, right4)
-        matched = _first_matching_rule(
-            rules_by_input,
-            label,
-            left,
-            right1,
-            right2,
-            right3,
-            right4,
-            representatives=deep_index.representatives if deep_index is not None else None,
-        )
+        matched = _first_matching_rule(rules_by_input, label, left, right1, right2, right3, right4)
         yield index, (label, left, right1, right2, right3, right4), matched
 
 

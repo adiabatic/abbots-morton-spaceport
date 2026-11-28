@@ -32,7 +32,7 @@ Every other heavy stage skips on the same principle: a content fingerprint over 
 
 - run_build skips on engine/out/build-green.json (the Stage A fingerprint components plus each rune's kern line, the contact allow-list and uv.lock's dependency pins) while the Stage A record beside its artifacts matches the sources on disk (`stage_a_current`), and re-evaluates its gate from the summary JSONs on disk.
 - gate:conform skips on conform-green.json, keyed on what the conformance sweep tests for, not on run_build's closure: the emitted lookup's behavior classes, the font-compilation code, the uharfbuzz version, and the sweep's maximum length (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_build has already checked the new tables against the engine over every string.
-- The engine suite skips on engine-contracts-green.json, keyed by `contracts_fingerprint` over its closure: the repo files under engine/ and glyph_data/, the harness files in ENGINE_GATE_HARNESS_PATHS, conftest.py, pyproject.toml and uv.lock by its dependency pins. The closure contains no build artifact, so the suite can skip whether or not run_build rebuilt: a rebuild writes only under engine/out, which the closure does not include. The record also stores each test's input closure, so a pass whose inputs changed runs only the tests the diff reaches and those it cannot rule out, and a skip also requires the extra paths the recorded closures name to keep their bytes (`contracts_closure.prepare_run`); engine.tools.contracts_closure owns that selection and the run lifecycle. engine.tools.engine_gate (`make test-engine`) writes the same record, so interactive and cycle greens share it.
+- The engine suite skips on engine-contracts-green.json, keyed by `contracts_closure` over its closure: the repo files under engine/ and glyph_data/, the harness files in ENGINE_GATE_HARNESS_PATHS, conftest.py, pyproject.toml and uv.lock by its dependency pins. The closure contains no build artifact, so the suite can skip whether or not run_build rebuilt: a rebuild writes only under engine/out, which the closure does not include. The record also stores each test's input closure, so a pass whose inputs changed runs only the tests the diff reaches and those it cannot rule out, and a skip also requires the extra paths the recorded closures name to keep their bytes (`contracts_closure.prepare_run`); engine.tools.contracts_closure owns that selection and the run lifecycle. engine.tools.engine_gate (`make test-engine`) writes the same record, so interactive and cycle greens share it.
 - corpus-build skips when the served corpus is a table-diff corpus whose recorded inputs fingerprint equals the one a build would stamp now and whose after font is engine/out/build/Senior-Regular.otf byte for byte (`corpus_build_skippable`). A rebuild would then reproduce its content byte for byte, but `generated_at` is the latest input mtime, floored, so a rebuild after an mtime-only change (a checkout, a touch) could restamp it; skipping keeps the stamp, so the store stays aligned. When the live corpus does not match but a corpus built beside it does (a complete engine/out/review.next a stopped pass left, the last cycle summary's `plan.review_out`, or var/staged-review), the land swaps that directory in instead of a rebuild (`promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the swap keeps the `generated_at` a rebuild could reset.
 
 The corpus skip applies only on passes where run_build skipped, and on a gates-only rerun when the Stage A record on disk already matches the sources on disk (`stage_a_current`). A run writes that record only once its gates pass, so a matching record sits beside the tables and font a passing run over these Stage A inputs wrote, and the rerun reproduces them and writes back the same record (`stage_a_current` says why, and names the two gaps where it does not): the corpus reads nothing the pass changes. That happens on a contact-allow bless, since the allow-list is in no Stage A component. A kern-only rebuild writes a new Senior-Regular.otf and kern.tsv, which the corpus's after font and kerning units show, so it always rebuilds the corpus.
@@ -47,7 +47,7 @@ A fourth mode is the kern-only rebuild. When the diff against the run_build gree
 
 The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites the shards the tab reads by byte range and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes the corpus in place. A corpus-changing pass builds the table-diff corpus at engine/out/review.next, which it empties first, and the land (`engine.review.landing`) then swaps the corpus in and, when the stamp moves, carries the store onto it by unit id (`verdict_store.carry`) in one short section under the store's lock: a verdict whose unit the new corpus still has, its content unchanged and so its id, stays, a skip is dropped, and the rest go to var/verdict-orphans/, which no pass refuses over. The store is small and the review server writes it whole on every save, so the land reads every save made before it takes the lock, and a save made while it holds the lock gets a retryable 503. The land runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed between its swap and its store write leaves a store on the old stamp, which the next save stamped for the served corpus, or the next pass's land, carries onto the new one. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
 
-The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol and freshness code (`probe_server`, `landing.code_digest`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
+The cycle asks a listening server's /capabilities what it is (`probe_server`). A server from this checkout on the working tree's land-protocol and freshness code (`landing.code_digest`) keeps running; one from this checkout on other code is restarted on the tree's code first (`restart_review_server`) when the pass writes the corpus or the store under it, and keeps running through a pass that writes neither (`server_can_keep_running`); and one serving another checkout is left alone and sent no reload. A listener that gives no usable /capabilities answer, such as a server stalled on a long request or a process that is not a review server, is never stopped: a pass that writes neither the corpus nor the store runs beside it, and any other pass refuses. --recipe-serves, which `make review-cycle` passes, says the recipe serves the corpus after the pass, so the readiness checklist leaves the server row to it.
 
 An edit confined to engine/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`engine.review.serve.register_dormant_watch`).
 
@@ -109,7 +109,6 @@ from engine.tools.cycle_timings import (  # noqa: E402
 )
 from engine.tools.peak_rss import reap_peak_rss_bytes  # noqa: E402
 from engine.tools.review_server import (  # noqa: E402
-    NO_CAPABILITIES,
     REVIEW_PORT,
     capabilities,
     force_reload,
@@ -213,7 +212,6 @@ MAKE_TEST_EXEMPT_PREFIXES = (
     ".vscode/",
     ".github/",
     "reference/csur/",
-    "site/icons/",
 )
 MAKE_TEST_EXEMPT_FILES = (
     "Makefile",
@@ -250,7 +248,7 @@ def make_test_exempt(path: str) -> bool:
 
     Nothing the gate runs reads the exempt trees as files, apart from `MAKE_TEST_ENGINE_FILES`, which the exemption leaves in the closure, and the inputs of the published fonts, which `make_test_font_lines` covers. test/, site/, tools/ and conftest.py read neither a rune file nor the registry (glyph_data/script.yaml), and reach the rest of engine/ through the root conftest's imports of engine/tools/ leaf modules (`CONFTEST_EDGES` in engine/test_contracts_closure.py lists them) and through the publish, which runs in a child. The leaf modules are peak_rss for the summary line, cycle_timings for the pool record, memory_budget for the pool width, suite_fonts for the font paths, and pyright_gate for the type check's own skip; none of them can change what the suite asserts, and the engine suite tests each of them. The publish reads the runes and the pipeline, but the fonts it writes change only with what `make_test_font_lines` keys on (the build's Senior, and Mono's and Junior's code and data), so every other edit under engine/ or glyph_data/runes/ or to the registry stays outside the closure; `make_test_font_lines` keys the registry by its parsed document, so a comment in it does not trigger the gate. Markdown is not an input to any gate. .vscode/ is editor configuration, which no test reads. .github/ is CI, which runs the suite and is not read by it.
 
-    reference/csur/ and the reference PDFs and PNGs are human reference material that nothing compiles. reference/DepartureMono-Regular.otf stays in the closure, because engine/pipeline/font_assembly.py bundles it into Mono and test/test_mono_matches_departure_mono.py shapes against it. site/icons/, site/*.svg, site/gear-menu.js and site/shared.css are browser assets the served pages load, and site/print.typ is the source `make all` typesets; nothing the gate runs reads any of them. site/shared.js stays, because test/test_shared.py runs it under node. The dotfile configs and the OFL text are read by git, the linters and the formatters, not by the suite.
+    reference/csur/ and the reference PDFs and PNGs are human reference material that nothing compiles. reference/DepartureMono-Regular.otf stays in the closure, because engine/pipeline/font_assembly.py bundles it into Mono and test/test_mono_matches_departure_mono.py shapes against it. site/*.svg, site/gear-menu.js and site/shared.css are browser assets the served pages load, and site/print.typ is the source `make all` typesets; nothing the gate runs reads any of them. site/shared.js stays, because test/test_shared.py runs it under node. The dotfile configs and the OFL text are read by git, the linters and the formatters, not by the suite.
 
     The name globs match only in their own directory, so site/*.svg does not match in a nested directory and reference/*.pdf does not match in reference/csur/. The Makefile is exempt as a file because the rule the suite runs is keyed by its `make -n` output instead (`make_test_recipe_lines`), so a comment, `all`, or a cycle or kernel target does not trigger the gate, while an edit to `test`, or one that stops the file parsing, still does.
     """
@@ -764,8 +762,8 @@ def deep_replay_structure_stamp(root: Path | None = None, spec: ResolvedSpec | N
 
 
 def recorded_max_length(record: dict) -> object:
-    """Return the maximum length a deep sweep or deep replay green record reached: its `max_length` field, or the `horizon` field an older record stores it under."""
-    return record.get("max_length", record.get("horizon"))
+    """Return the maximum length a deep sweep or deep replay green record reached: its `max_length` field."""
+    return record.get("max_length")
 
 
 def deep_replay_moved(record: dict | None, runes: dict[str, str]) -> list[str]:
@@ -897,11 +895,6 @@ def engine_gate_closure_files(root: Path) -> list[str] | None:
     )
 
 
-def contracts_fingerprint(root: Path) -> str | None:
-    """Return the contracts roster key from `contracts_closure`, whose per-label digests define what the key covers."""
-    return contracts_closure(root)[0]
-
-
 def contracts_closure(root: Path) -> tuple[str | None, dict[str, str] | None]:
     """Return the engine suite's input closure as the key and the per-label digest map the key is computed from. One pass over the files produces both, and because the map is the key's only source, every input that can change the key is a label the per-test selection can see change. The closure covers the repo files from `engine_gate_closure_files`, which has already dropped the exempt paths, so a contact-signature bless changes nothing here. The closure contains no build artifact (the audit guard in engine/conftest.py keeps every test off the site fonts too), so an artifact-only cycle re-runs nothing here, and a rebuild, which writes only under engine/out, cannot change the key during a pass. A version bump re-runs the whole lane through pyproject.toml, which is hashed raw. The harness list is included because the suite reads those files outside engine/ and glyph_data/. The rune files get prose-insensitive hashes, because the tests that load the live spec read structure, not prose. The verdict store is not in the closure (the suite uses it only through fixtures), so a verdict leaves the suite's key as it was. None when git is unavailable, in which case the caller must run the suite."""
 
@@ -915,7 +908,7 @@ def contracts_closure(root: Path) -> tuple[str | None, dict[str, str] | None]:
 def corpus_build_skippable(
     root: Path = ROOT, review_out: Path | None = None, ignore: tuple[str, ...] = ()
 ) -> bool:
-    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the verdict store keeps its stamp. The cycle builds the table-diff corpus (`engine.review.build`), so True only for a corpus of that mode whose manifest's recorded inputs fingerprint equals the one a build would stamp now (`status.table_diff_inputs` over the current snapshot under `root` and the tables' stamp of engine/out/build, which a build copies, `snapshot.tables_stamp`), every shard the manifest names present, engine/out/build/Senior-Regular.otf byte for byte the after font the manifest records, as the readiness check's freshness row compares it, and the corpus complete (`corpus_complete`). A corpus of another mode never is, so the first pass of a tree that serves one builds the table-diff corpus. `generated_at` is derived from the inputs' mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content; skipping keeps the stamp, and with it the store's alignment with the corpus.
+    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the verdict store keeps its stamp. The cycle builds the table-diff corpus (`engine.review.build`), so True only for a corpus whose manifest's recorded inputs fingerprint equals the one a build would stamp now (`status.table_diff_inputs` over the current snapshot under `root` and the tables' stamp of engine/out/build, which a build copies, `snapshot.tables_stamp`), every shard the manifest names present, engine/out/build/Senior-Regular.otf byte for byte the after font the manifest records, as the readiness check's freshness row compares it, and the corpus complete (`corpus_complete`). A corpus of another mode never is, so the first pass of a tree that serves one builds the table-diff corpus. `generated_at` is derived from the inputs' mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content; skipping keeps the stamp, and with it the store's alignment with the corpus.
 
     The after font is compared whole, `kern` lookup included, because the corpus's kerning units show that lookup and its kern bucket reads engine/out/build/kern.tsv, which a kern edit rewrites with the font; the `font_inputs` component hashes the runes' kern blocks too. So a kern-only rebuild rebuilds the corpus.
 
@@ -929,7 +922,7 @@ def corpus_build_skippable(
         manifest = json.loads((corpus / "manifest.json").read_text())
     except OSError, ValueError:
         return False
-    if not isinstance(manifest, dict) or manifest.get("mode") != "table-diff":
+    if not isinstance(manifest, dict):
         return False
     recorded = manifest.get("inputs_fingerprint")
     if not isinstance(recorded, dict):
@@ -2003,21 +1996,21 @@ def resolve_short_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def server_can_keep_running(*, skip_corpus: bool, writes_store: bool, promotes_corpus: bool = False) -> bool:
-    """Return whether a review server that predates the land protocol (`probe_server`'s `legacy`: no /capabilities) can keep running through this pass. Such a server takes no part in the land, so the answer depends on what the plan writes under it: the corpus's units and stamp, which the land swaps, and the verdict store the app saves into. A pass that moves no corpus (a pass with no artifact work, or an assets refresh, which rewrites no shard and leaves `generated_at` unchanged) writes neither, so that server keeps running. A promotion sets the corpus skip flag but swaps in the staged corpus, so `promotes_corpus` requires stopping the server even when the store is untouched. A server that speaks the land protocol keeps running through every pass (`_preflight`)."""
-    return skip_corpus and not promotes_corpus and not writes_store
+def server_can_keep_running(*, skip_corpus: bool, promotes_corpus: bool = False) -> bool:
+    """Return whether this pass writes nothing under a listening review server: neither the corpus's units and stamp, which the land swaps, nor the verdict store the app saves into, which only the land writes. A pass that moves no corpus (a pass with no artifact work, or an assets refresh, which rewrites no shard and leaves `generated_at` unchanged) lands nothing, so it writes neither. A promotion sets the corpus skip flag but lands the staged corpus, so `promotes_corpus` makes it a write. `_preflight` keeps a server running other code, and a listener that gives no /capabilities answer, through a pass that writes nothing under it; a server on the tree's code keeps running through every pass."""
+    return skip_corpus and not promotes_corpus
 
 
 @dataclass(frozen=True)
 class ServerProbe:
-    """What listens on the review server's port, as `probe_server` classifies it. `kind` is `none` (nothing listens), `current` (a server from this checkout whose land-protocol and freshness code (`landing.code_digest`) is the working tree's), `stale` (a server from this checkout running other code), `foreign` (a server from another checkout, whose root is `root`), `legacy` (a server that answers /capabilities with 404, from before the land protocol), or `unanswered` (a listener that gave no usable /capabilities answer in `CAPABILITIES_ATTEMPTS` tries, such as a current server stalled on a long request)."""
+    """What listens on the review server's port, as `probe_server` classifies it. `kind` is `none` (nothing listens), `current` (a server from this checkout whose land-protocol and freshness code (`landing.code_digest`) is the working tree's), `stale` (a server from this checkout running other code), `foreign` (a server from another checkout, whose root is `root`), or `unanswered` (a listener that gave no usable /capabilities answer in `CAPABILITIES_ATTEMPTS` tries, such as a current server stalled on a long request or a process that is not a review server)."""
 
     kind: str
     root: str | None = None
 
 
 def probe_server() -> ServerProbe:
-    """Classify what listens on the review server's port from its /capabilities answer (`review_server.capabilities`), comparing its root with this checkout's and its code digest with the working tree's (`landing.code_digest`). A server whose digest differs was started from other code, possibly an intermediate commit, so the cycle never trusts it to run through a pass. Only a 404 marks a server from before the land protocol; a listener that does not answer is asked again, `CAPABILITIES_RETRY_S` apart, and is `unanswered` after `CAPABILITIES_ATTEMPTS` tries, because a current server can stall for seconds on a request that rewrites or sends the whole store."""
+    """Classify what listens on the review server's port from its /capabilities answer (`review_server.capabilities`), comparing its root with this checkout's and its code digest with the working tree's (`landing.code_digest`). A server whose digest differs was started from other code, possibly an intermediate commit, so the cycle never trusts it to run through a pass. A listener that does not answer is asked again, `CAPABILITIES_RETRY_S` apart, and is `unanswered` after `CAPABILITIES_ATTEMPTS` tries, because a current server can stall for seconds on a request that rewrites or sends the whole store; a process that is not a review server, which answers with an error status or not at all, ends there too, as does an answer that names no land protocol."""
     if not server_listening():
         return ServerProbe("none")
     answer = capabilities()
@@ -2026,8 +2019,6 @@ def probe_server() -> ServerProbe:
             break
         time.sleep(CAPABILITIES_RETRY_S)
         answer = capabilities()
-    if answer == NO_CAPABILITIES:
-        return ServerProbe("legacy")
     if not isinstance(answer, dict) or not isinstance(answer.get("land_protocol"), int):
         return ServerProbe("unanswered")
     root = answer.get("root")
@@ -2085,7 +2076,7 @@ def restart_review_server(timeout: float | None = None) -> bool:
 
 
 def stop_review_server(timeout: float = SERVER_STOP_TIMEOUT) -> bool:
-    """Stop the review server and wait for port 7294 to come free: before a pass that writes under a server that predates the land protocol, and before `restart_review_server` starts one on the working tree's code. Returns False when something is still listening at the deadline (a server started another way, or one stuck in shutdown); the caller then reports it and does not run the pass."""
+    """Stop the review server and wait for port 7294 to come free, before `restart_review_server` starts one on the working tree's code. Returns False when something is still listening at the deadline (a server started another way, or one stuck in shutdown); the caller then reports it and does not run the pass."""
     subprocess.run(["pkill", "-f", SERVER_STOP_PATTERN], check=False, capture_output=True)
     deadline = time.monotonic() + timeout
     while server_listening():
@@ -2817,25 +2808,6 @@ def _do_assets_refresh(
         _broadcast_review_reload(emit, "assets-refresh", "assets")
     _close_step(emit, report, "assets-refresh", result)
     return True
-
-
-def _in_process_step(
-    report: CycleReport, emit: console.CycleConsole, plan: Plan, name: str, work
-) -> str | None:
-    """Run one in-process step between its banner and its closing line, and return its detail, or None when `work` raised, which is reported as the step's failure. The step's seconds and return code are recorded as a spawned step's are."""
-    emit.step_start(name, None, plan.describe(name))
-    started = time.perf_counter()
-    try:
-        detail = work()
-    except Exception as exc:
-        report.step_seconds[name] = time.perf_counter() - started
-        report.step_returncodes[name] = 1
-        emit.note(name, f"ERROR: {exc!r}")
-        emit.step_end(name, None, "FAILED", repr(exc))
-        return None
-    report.step_seconds[name] = time.perf_counter() - started
-    emit.step_end(name, None, "ok", detail)
-    return detail
 
 
 def _land_report(plan: Plan) -> dict | None:
@@ -3793,7 +3765,7 @@ def _emit_cycle_summary(
 def _preflight(
     args: argparse.Namespace, *, can_keep_running: bool = False, probe: ServerProbe | None = None
 ) -> bool:
-    """Decide what happens to a listening review server before the pass, and return whether the pass may run. A staging pass writes nothing the server reads and skips the check. A server from this checkout that speaks the land protocol with the working tree's code keeps running through every pass, and one running other code is restarted on the tree's code first (`restart_review_server`) when the pass writes under it, and otherwise keeps running. A server serving another checkout is left alone. A listener that gave no /capabilities answer (`unanswered`) is never stopped: a pass that writes nothing under it runs beside it, and any other refuses, since it cannot tell a stalled current server from anything else. `can_keep_running` (`server_can_keep_running`) says whether the pass writes under the server. A server from before the land protocol keeps running only when it is set; otherwise `--stop-server` stops it once, `--yes` runs beside it, and a bare run refuses. `probe` is `probe_server`'s answer when the caller already has it."""
+    """Decide what happens to a listening review server before the pass, and return whether the pass may run. A staging pass writes nothing the server reads and skips the check. A server from this checkout that speaks the land protocol with the working tree's code keeps running through every pass, and one running other code is restarted on the tree's code first (`restart_review_server`) when the pass writes under it, and otherwise keeps running. A server serving another checkout is left alone. A listener that gave no /capabilities answer (`unanswered`) is never stopped: a pass that writes nothing under it runs beside it, and any other refuses, since it cannot tell a stalled current server from a process that is not a review server. `can_keep_running` (`server_can_keep_running`) says whether the pass writes nothing under the server. `probe` is `probe_server`'s answer when the caller already has it."""
     if args.review_out is not None:
         print(
             f"Staging pass: corpus writes redirected to {args.review_out}; the live corpus at engine/out/review is never written."
@@ -3816,7 +3788,7 @@ def _preflight(
     if probe.kind == "unanswered":
         if can_keep_running:
             print(
-                f"The review server keeps running: it gave no /capabilities answer, and this pass {SERVER_KEEPS_RUNNING_NOTE}."
+                f"What listens on 127.0.0.1:{REVIEW_PORT} keeps running: it gave no /capabilities answer, and this pass {SERVER_KEEPS_RUNNING_NOTE}."
             )
             return True
         print("=" * 68)
@@ -3826,64 +3798,28 @@ def _preflight(
             "stops nothing."
         )
         print(
-            "Re-run once it answers: a review server busy with a long request answers again within seconds."
+            "Re-run once it answers: a review server busy with a long request answers again within seconds. "
+            "A process that is not a review server never answers: stop it, or pass --review-out <dir> for a "
+            "staging pass, which leaves it alone."
         )
         print("=" * 68)
         return False
-    if probe.kind == "stale":
-        if can_keep_running:
-            print(
-                f"The review server runs older code than this checkout and keeps running: this pass {SERVER_KEEPS_RUNNING_NOTE}. The next pass that writes under it restarts it on this tree's code."
-            )
-            return True
-        print("The review server runs older code than this checkout; restarting it on this tree's code.")
-        if restart_review_server():
-            print("The review server is back on this tree's code and keeps running through the pass.")
-            return True
-        print("=" * 68)
-        print(
-            f"REFUSING TO RUN: the review server on 127.0.0.1:{REVIEW_PORT} did not come back on this "
-            f"tree's code within {SERVER_START_TIMEOUT:.0f}s (log: tmp/review-serve.log)."
-        )
-        print("Start it by hand (make review-serve) and re-run.")
-        print("=" * 68)
-        return False
+    assert probe.kind == "stale", probe.kind
     if can_keep_running:
-        print(f"The review server keeps running: this pass {SERVER_KEEPS_RUNNING_NOTE}.")
+        print(
+            f"The review server runs older code than this checkout and keeps running: this pass {SERVER_KEEPS_RUNNING_NOTE}. The next pass that writes under it restarts it on this tree's code."
+        )
         return True
-    if args.stop_server:
-        print(
-            "Stopping the review server: it predates the land protocol, and this pass writes the corpus or the verdict store under it. A server started from this checkout keeps running through every pass, so this is the last stop a pass needs."
-        )
-        if stop_review_server():
-            return True
-        print("=" * 68)
-        print(
-            f"REFUSING TO RUN: something is still listening on 127.0.0.1:{REVIEW_PORT} "
-            f"{SERVER_STOP_TIMEOUT:.0f}s after the stop."
-        )
-        print("Stop it by hand and re-run.")
-        print("=" * 68)
-        return False
-    if args.yes:
-        print("=" * 68)
-        print("WARNING: a review server from before the land protocol is listening on")
-        print("127.0.0.1:7294. Proceeding with --yes. This pass swaps the corpus and the")
-        print("verdict store under the open review tabs. AFTER this cycle:")
-        print("  1. restart the review server:  uv run python -m engine.review.serve")
-        print("  2. open tabs move onto the new corpus by themselves on their next")
-        print("     save or status check.")
-        print("=" * 68)
+    print("The review server runs older code than this checkout; restarting it on this tree's code.")
+    if restart_review_server():
+        print("The review server is back on this tree's code and keeps running through the pass.")
         return True
     print("=" * 68)
-    print("REFUSING TO RUN: a review server from before the land protocol is listening")
-    print("on 127.0.0.1:7294, and this pass swaps the corpus and the verdict store")
-    print("under it. Restart it once on this checkout's code and it keeps running")
-    print("through every later pass. Before re-running:")
-    print(r"  1. stop the review server:  pkill -f 'engine\.review\.serve'")
-    print("     (or pass --stop-server and let this command stop it for you)")
-    print("  2. re-run this command (or pass --yes to override at your own risk)")
-    print("  (or pass --review-out <dir> for a staging pass that never touches the live corpus)")
+    print(
+        f"REFUSING TO RUN: the review server on 127.0.0.1:{REVIEW_PORT} did not come back on this "
+        f"tree's code within {SERVER_START_TIMEOUT:.0f}s (log: tmp/review-serve.log)."
+    )
+    print("Start it by hand (make review-serve) and re-run.")
     print("=" * 68)
     return False
 
@@ -4002,7 +3938,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--conform-max-length",
-        "--conform-horizon",
         type=int,
         default=CONFORM_MAX_LENGTH_DEFAULT,
         help=f"exhaustive sweep length for gate:conform, passed through to run_build --conform-only (default {CONFORM_MAX_LENGTH_DEFAULT}, the per-edit sweep); going deeper here is `make conform-deep`'s job, which runs out of band and keys its own green on the emitted lookup's behavior classes",
@@ -4025,14 +3960,9 @@ def main(argv: list[str] | None = None) -> int:
         help="skip the green-finish retention pass (every build log stays on disk)",
     )
     parser.add_argument(
-        "--yes",
+        "--recipe-serves",
         action="store_true",
-        help="run beside a listening review server from before the land protocol (one with no /capabilities) instead of refusing",
-    )
-    parser.add_argument(
-        "--stop-server",
-        action="store_true",
-        help="stop a listening review server from before the land protocol (one with no /capabilities) instead of refusing, when this pass writes under it — the served corpus's units or stamp, or the verdict store it holds; a server from this checkout that answers /capabilities keeps running through every pass whether or not this is passed, and one running older code is restarted on the tree's code. `make review-cycle` passes this. It also says the recipe answers the server question after the pass, so the readiness checklist a green finish prints leaves the server row to it",
+        help="say that the calling recipe serves the corpus after the pass, so the readiness checklist a green finish prints leaves out the server row, which the recipe answers instead: `make review-cycle` passes this, and after the pass starts the server when none is up or names the checkout a foreign server serves",
     )
     parser.add_argument(
         "--dry-run",
@@ -4194,7 +4124,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         conform_proven=auto_skip_conform,
         record_greens=not args.dry_run,
         keep_history=args.keep_history,
-        recipe_serves=args.stop_server,
+        recipe_serves=args.recipe_serves,
         scratch_dir=cycle_paths.CYCLE_VAR / f"{stamp}-{short_id}" if args.review_out is None else None,
     )
 
@@ -4217,9 +4147,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         if not _preflight(
             args,
             can_keep_running=server_can_keep_running(
-                skip_corpus=skip_corpus,
-                writes_store=False,
-                promotes_corpus=plan.promote_corpus is not None,
+                skip_corpus=skip_corpus, promotes_corpus=plan.promote_corpus is not None
             ),
             probe=probe,
         ):
@@ -4256,7 +4184,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
 
 
 def readiness_block(plan: Plan) -> tuple[list[str], str | None]:
-    """Return the checklist `make verdict-ready` prints, so a green pass ends with it, and the summary's line counting the table-diff corpus's unaccepted changes (`verdict_ready.diff_summary_line`), None for another corpus. It reads the cycle summary, so it must run after `_emit_cycle_summary`. A staging pass returns neither, since its corpus is not the served one. When `--stop-server` is passed (as `make review-cycle` does), the server row is left out, because the recipe starts the server after the pass, or reports that it left it stopped. The diff is a row and a line, never a red gate: a pass whose corpus holds unaccepted changes ends green and READY. The engine suite switches this off with `cycle_paths.READINESS_ENABLED`, because it reads the live corpus."""
+    """Return the checklist `make verdict-ready` prints, so a green pass ends with it, and the summary's line counting the table-diff corpus's unaccepted changes (`verdict_ready.diff_summary_line`), None for another corpus. It reads the cycle summary, so it must run after `_emit_cycle_summary`. A staging pass returns neither, since its corpus is not the served one. When `--recipe-serves` is passed (as `make review-cycle` does), the server row is left out, because the recipe starts the server after the pass when none is up, or reports that it left none running. The diff is a row and a line, never a red gate: a pass whose corpus holds unaccepted changes ends green and READY. The engine suite switches this off with `cycle_paths.READINESS_ENABLED`, because it reads the live corpus."""
     if plan.review_out is not None:
         return [], None
     from engine.tools import verdict_ready

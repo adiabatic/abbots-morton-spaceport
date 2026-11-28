@@ -98,7 +98,7 @@ pub fn replay_case(
     Ok(format!("{}\t{result}", case.line))
 }
 
-/// Replays a whole case file through one engine in file order; the body of the `settle-cases` subcommand. A first line starting with `# ` is a head and is skipped: the modes a batch is settled under come from CLI flags, never from the file.
+/// Replays a whole case file through one engine in file order; the body of the `settle-cases` subcommand. Every line is a case line: the modes a batch is settled under come from CLI flags, never from the file.
 ///
 /// The engine is shared across the file, so later cases reuse its memo. This changes no case result: a memo hit replays the journaled fired delta, so a cached result and an uncached one have the same fired set.
 pub fn replay_cases(
@@ -108,9 +108,6 @@ pub fn replay_cases(
 ) -> Result<Vec<String>, String> {
     let mut lines = Vec::new();
     for (position, line) in text.lines().enumerate() {
-        if position == 0 && line.starts_with("# ") {
-            continue;
-        }
         let numbered = |error: String| format!("line {}: {error}", position + 1);
         let case = parse_case(engine.index(), line).map_err(numbered)?;
         lines.push(replay_case(engine, &case, shape).map_err(numbered)?);
@@ -613,10 +610,10 @@ mod tests {
     }
 
     #[test]
-    fn a_head_line_is_skipped_and_every_case_after_it_is_settled() {
+    fn every_case_in_a_file_is_settled_in_file_order() {
         let index = fixtures::mini();
         let mut engine = replaying_engine(&index);
-        let text = format!("# ams-cases\tdefault\n{UNJOINED}\n{UNACCEPTED_EXIT}\n");
+        let text = format!("{UNJOINED}\n{UNACCEPTED_EXIT}\n");
         let lines =
             replay_cases(&mut engine, &text, CaseResult::SettledOnly).expect("the file replays");
         assert_eq!(lines.len(), 2);

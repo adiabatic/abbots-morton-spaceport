@@ -1,4 +1,4 @@
-"""Compute the review corpus's readiness: whether the served corpus is the table-diff corpus (doc/review-design.md §2.3), whether it matches the runes and code on disk (`fingerprint.TABLE_DIFF_COMPONENTS`, its after font is engine/out/build/Senior-Regular.otf byte for byte, and both app sidecars are stamped for its manifest, the check of a finished corpus the cycle shares, `app_index.outputs_not_current`), whether a green artifact cycle produced it, whether the snapshot it compares with is the one the tracked pointer names (`_snapshot_check`), whether the verdict store is stamped for it, how many of its human units read blank, and how many unaccepted changes it shows (`_diff_check`, which never fails). The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs."""
+"""Compute the review corpus's readiness: whether the table-diff corpus (doc/review-design.md §2.3) is served, whether it matches the runes and code on disk (`fingerprint.TABLE_DIFF_COMPONENTS`, its after font is engine/out/build/Senior-Regular.otf byte for byte, and both app sidecars are stamped for its manifest, the check of a finished corpus the cycle shares, `app_index.outputs_not_current`), whether a green artifact cycle produced it, whether the snapshot it compares with is the one the tracked pointer names (`_snapshot_check`), whether the verdict store is stamped for it, how many of its human units read blank, and how many unaccepted changes it shows (`_diff_check`, which never fails). The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs."""
 
 from __future__ import annotations
 
@@ -20,7 +20,6 @@ CORPUS_REMEDY = "make artifact-cycle"
 # Where the snapshots and the tracked pointer are under the repo root (`engine.review.snapshot.DEFAULT_HOME`, `POINTER_PATH`), named here so this module imports the snapshot only at a call.
 SNAPSHOT_HOME = Path("var") / "keep" / "review-snapshot"
 POINTER = Path("engine") / "review-snapshot.json"
-TABLE_DIFF_MODE = "table-diff"
 
 
 def count_effective(records: Mapping[str, dict]) -> int:
@@ -29,17 +28,11 @@ def count_effective(records: Mapping[str, dict]) -> int:
 
 
 def _corpus_check(manifest) -> dict:
-    """Check that a corpus is served and that it is the table-diff corpus the cycle builds."""
+    """Check that a corpus is served."""
     if manifest is None:
         return {
             "level": "fail",
             "detail": "The review corpus has no readable manifest.json.",
-            "remedy": CORPUS_REMEDY,
-        }
-    if manifest.get("mode") != TABLE_DIFF_MODE:
-        return {
-            "level": "fail",
-            "detail": f"The review corpus's manifest names the mode {manifest.get('mode')!r}, not the table-diff corpus the cycle builds.",
             "remedy": CORPUS_REMEDY,
         }
     return {"level": "ok", "detail": "The review corpus manifest is present and readable.", "remedy": None}
@@ -444,7 +437,7 @@ def compute_status(
     pointer_path=None,
     snapshot_home=None,
 ) -> dict:
-    """Return the readiness dict: `ready` when every check in `BLOCKING` is there and passes. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name the cycle as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed store when the caller already holds it (serve.py passes its in-memory store, so that each /status request does not read the file again), and None to read `autosave_path`. `recompute_table_diff` gives the corpus's components now, `table_diff_inputs` by default; `pointer_path` is the tracked pointer, by default `engine/review-snapshot.json` under `repo_root`; and `snapshot_home` holds the snapshots, by default `var/keep/review-snapshot` under it. A corpus that is not a table-diff corpus gets no freshness or diff row, and fails the corpus row."""
+    """Return the readiness dict: `ready` when every check in `BLOCKING` is there and passes. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name the cycle as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed store when the caller already holds it (serve.py passes its in-memory store, so that each /status request does not read the file again), and None to read `autosave_path`. `recompute_table_diff` gives the corpus's components now, `table_diff_inputs` by default; `pointer_path` is the tracked pointer, by default `engine/review-snapshot.json` under `repo_root`; and `snapshot_home` holds the snapshots, by default `var/keep/review-snapshot` under it. A corpus with no readable manifest fails the corpus row and gets no freshness or diff row."""
     repo_root = Path(repo_root)
     review_dir = Path(review_dir)
     manifest = _load_json_dict(review_dir / "manifest.json")
@@ -464,12 +457,11 @@ def compute_status(
     if human_ids is None:
         human_ids = _human_ids_or_none(review_dir)
     corpus = _corpus_check(manifest)
-    table_diff = manifest is not None and corpus["level"] == "ok"
     verdict_store, records = _verdict_store_check(
         autosave_path, generated_at, artifact_cycle_remedy, autosave
     )
     checks: dict[str, dict] = {"corpus": corpus}
-    if table_diff:
+    if manifest is not None:
         checks["freshness"] = _freshness_check(
             manifest,
             manifest_fp,
@@ -487,7 +479,7 @@ def compute_status(
     checks["snapshot"] = _snapshot_check(pointer_path, snapshot_home)
     checks["verdict_store"] = verdict_store
     checks["blanks"] = _blanks_check(records, human_ids)
-    if table_diff:
+    if manifest is not None:
         checks["diff"] = _diff_check(manifest, records, human_ids, repo_root)
     ready = all(name in checks and checks[name]["level"] != "fail" for name in BLOCKING)
     kept_aside = summarize_orphans(orphans_dir_for(Path(autosave_path)))

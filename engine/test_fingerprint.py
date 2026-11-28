@@ -854,38 +854,6 @@ def test_path_lines_hash_everything_but_code_raw(tmp_path):
         assert digests[fingerprint._label(root, path)] != fingerprint.file_sha256(path)
 
 
-def test_moved_note_expands_a_changed_label_through_its_sub_diff():
-    """A changed label with a note in `expand` is shown as `label: note`. A label whose note is None, an added or removed label, and a label not in `expand` are shown as they are without `expand`. `limit` counts labels."""
-    recorded = {"code": "a", "data": "x", "old": "1"}
-    current = {"code": "b", "data": "y", "new": "2"}
-    assert (
-        fingerprint.moved_note(recorded, current) == "code (changed), data (changed), new (new), old (gone)"
-    )
-    assert (
-        fingerprint.moved_note(recorded, current, expand={"code": "engine/review/ink.py (changed)"})
-        == "code: engine/review/ink.py (changed), data (changed), new (new), old (gone)"
-    )
-    assert fingerprint.moved_note(
-        recorded, current, expand={"code": None, "new": "never", "old": "never"}
-    ) == ("code (changed), data (changed), new (new), old (gone)")
-    assert (
-        fingerprint.moved_note(recorded, current, limit=2, expand={"code": "ink.py (changed)"})
-        == "code: ink.py (changed), data (changed) and 2 more"
-    )
-    assert fingerprint.moved_note(recorded, recorded, expand={"code": "ink.py (changed)"}) is None
-
-
-def test_an_environment_stamp_hashes_its_lines_and_carries_its_detail_outside_them():
-    """`value` and `labels` depend only on `lines`, so a store that starts recording `detail` keeps its recorded value."""
-    lines = ("format\tf/1", "corpus_code\tabc", "data\tddd")
-    bare = fingerprint.EnvironmentStamp(lines=lines)
-    detailed = fingerprint.EnvironmentStamp(
-        lines=lines, detail=(("corpus_code", ("engine/review/ink.py\t1", "engine/review/build.py\t2")),)
-    )
-    assert detailed.value == bare.value == hashlib.sha256("\n".join(lines).encode()).hexdigest()
-    assert detailed.labels == bare.labels == {"format": "f/1", "corpus_code": "abc", "data": "ddd"}
-
-
 def _code_keyed(root):
     return (
         _components(root)["pipeline_code"],
@@ -925,14 +893,14 @@ def test_the_gate_closures_stay_raw_through_a_docstring_edit(tmp_path):
     table.write_text('"""The table."""\n\nTABLE = 1\n')
     reflow.write_text('"""The reflow."""\n\nREFLOW = 1\n')
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
-    contracts = artifact_cycle.contracts_fingerprint(root)
+    contracts = artifact_cycle.contracts_closure(root)[0]
     make_test = artifact_cycle.make_test_closure_fingerprint(root)
     assert contracts is not None and make_test is not None
     components = _components(root)
     table.write_text('"""The table, reworded."""\n\nTABLE = 1\n')
     reflow.write_text('"""The reflow, reworded."""\n\nREFLOW = 1\n')
     assert _components(root) == components
-    assert artifact_cycle.contracts_fingerprint(root) != contracts
+    assert artifact_cycle.contracts_closure(root)[0] != contracts
     assert artifact_cycle.make_test_closure_fingerprint(root) != make_test
 
 

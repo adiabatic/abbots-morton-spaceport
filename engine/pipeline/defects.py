@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, Mapping
+from typing import Iterable, Mapping
 
 import yaml
 
@@ -108,15 +108,6 @@ def _resolve_endpoint(value, glyphs: Mapping[CellId, GlyphRecord], index: dict[s
     if isinstance(value, CellId):
         return value if value in glyphs else None
     return index.get(str(value))
-
-
-def _reachable_cells(decision) -> frozenset[CellId]:
-    accessor: Callable[[], Iterable[CellId]] | Iterable[CellId] | None = getattr(
-        decision, "reachable_cells", None
-    )
-    if callable(accessor):
-        return frozenset(accessor())
-    return frozenset(accessor or ())
 
 
 def _report(

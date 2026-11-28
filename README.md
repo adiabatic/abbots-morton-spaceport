@@ -138,7 +138,7 @@ In order to exactly match the contents of [The Manual][tm] without peppering the
 - `ss03`: allow ·Tea to be joined to at the x-height as a full-size ·Tea (it stays full — descending to the baseline — when a following letter joins it there; otherwise the half ·Tea)
 - `ss04`: allow ·It to join at the baseline on both sides at once, whatever the neighbors
 - `ss05`: allow ·Tea to join at the baseline on both sides at once, whatever the neighbors
-- `ss06`: use gapped ·Owe (doesn’t connect at the top)
+- `ss06`: use gapped ·Owe (open at the top) wherever ·Owe joins neither neighbor
 - `ss07`: allow ·Owe·Day to join at the x-height
 - `ss10`: break up all letters — no joins and no ligatures. More convenient than sprinkling ZWNJs.
 

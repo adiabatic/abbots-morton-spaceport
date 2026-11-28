@@ -15,10 +15,6 @@ import yaml
 
 from engine.pipeline import conform, fingerprint, fixtures, kernel_exec, settle_memo_keys
 
-PEA = 0xE650
-TEA = 0xE652
-OY = 0xE679
-
 
 def _script(root: Path) -> Path:
     return root / "glyph_data" / "script.yaml"
@@ -45,6 +41,16 @@ def _stamp(root: Path, spec, config: str = "default"):
     return settle_memo_keys.settle_memo_stamp(
         settle_memo_keys.settle_memo_inputs(root), spec, config, conform.features_for_config(config)
     )
+
+
+def _labels(stamp) -> list[str]:
+    return [line.partition("\t")[0] for line in stamp.lines]
+
+
+def _moved_labels(before, after) -> set[str]:
+    """Return the labels of the lines that differ between two stamps, which must hold the same labels in the same order."""
+    assert _labels(after) == _labels(before)
+    return {label for label, line, other in zip(_labels(before), before.lines, after.lines) if line != other}
 
 
 def _perturb_rune(path: Path) -> None:
@@ -131,7 +137,7 @@ def test_the_stamp_moves_with_each_spec_global_route(route, repo, monkeypatch):
     moved_root, moved_spec = mutate(repo, spec, monkeypatch)
     now = _stamp(moved_root, moved_spec)
     assert now.value != base.value
-    assert fingerprint.moved_note(base.labels, now.labels) == f"{label} (changed)"
+    assert _moved_labels(base, now) == {label}
 
 
 def test_the_stamp_carries_the_configuration_and_its_features(repo):
@@ -139,9 +145,8 @@ def test_the_stamp_carries_the_configuration_and_its_features(repo):
     spec = fixtures.mini_spec()
     stamps = {config: _stamp(repo, spec, config) for config in conform.SETTLEMENT_CONFIGS}
     assert len({stamp.value for stamp in stamps.values()}) == len(conform.SETTLEMENT_CONFIGS)
-    default, ss03 = stamps["default"].labels, stamps["ss03"].labels
-    assert fingerprint.moved_note(default, ss03) == "config (changed), features (changed)"
-    assert set(stamps["default"].labels) == {
+    assert _moved_labels(stamps["default"], stamps["ss03"]) == {"config", "features"}
+    assert set(_labels(stamps["default"])) == {
         "config",
         "features",
         "code",
@@ -188,7 +193,7 @@ def test_a_schema_hover_or_a_registry_comment_leaves_the_stamp_untouched(repo):
     assert _stamp(repo, spec).lines == base.lines
     schema["$defs"]["stance"]["minProperties"] = 1
     schema_path.write_text(json.dumps(schema, indent=4), encoding="utf-8")
-    assert fingerprint.moved_note(base.labels, _stamp(repo, spec).labels) == "data (changed)"
+    assert _moved_labels(base, _stamp(repo, spec)) == {"data"}
 
 
 # --- the family key's grain --------------------------------------------------------------
@@ -202,27 +207,6 @@ def test_the_family_keys_move_per_family(repo):
     _perturb_rune(repo / "glyph_data" / "runes" / "qsPea.yaml")
     moved = settle_memo_keys.settle_family_keys(settle_memo_keys.settle_memo_inputs(repo), spec)
     assert settle_memo_keys.moved_families(base, moved) == frozenset({"qsPea"})
-
-
-def test_a_ligature_rune_edit_invalidates_only_masks_carrying_all_its_components():
-    """A ligature rune declares a `sequence` and no codepoint, so no codepoint names it, yet `settle.form_ligatures` routes the pair through its file. A key over only the families of a mask's codepoints would therefore miss a ligature edit. The ligature clause fires when all the components' bits are present and ignores order: a text with the components in the other order can never form the ligature but is marked stale anyway. Over-invalidation is the safe direction, and a mask cheap enough to test on every entry cannot check order."""
-    spec = fixtures.mini_spec()
-    tea_oy = (TEA, OY)
-    tea_pea = (TEA, PEA)
-    for moved, expected in (
-        ({"qsTea_qsOy"}, {tea_oy}),
-        ({"qsPea"}, {tea_pea}),
-        ({"qsSee"}, set()),
-    ):
-        mask = settle_memo_keys.StaleMask(spec, moved)
-        assert {row for row in (tea_oy, tea_pea) if mask.stale(mask.mask_of(row))} == expected
-
-    ligature = settle_memo_keys.StaleMask(spec, {"qsTea_qsOy"})
-    assert not ligature.stale(ligature.mask_of((TEA,)))
-    assert not ligature.stale(ligature.mask_of((OY,)))
-    assert ligature.stale(ligature.mask_of((OY, TEA)))
-    assert "qsTea_qsOy" in ligature.families_of(ligature.mask_of(tea_oy))
-    assert "qsTea_qsOy" not in ligature.families_of(ligature.mask_of(tea_pea))
 
 
 def test_a_ligature_rune_edit_stales_the_windows_carrying_its_formed_label():
@@ -246,7 +230,7 @@ def test_a_moved_family_the_registry_cannot_place_stales_every_entry():
     spec = fixtures.mini_spec()
     mask = settle_memo_keys.StaleMask(spec, {"qsNotInTheRegistry"})
     assert mask.everything
-    assert mask.stale(mask.mask_of((PEA,)))
+    assert mask.stale(mask.bit_of("qsPea"))
     assert mask.stale(0)
 
 

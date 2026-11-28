@@ -15,7 +15,6 @@ from engine.review.serve import REPO_ROOT
 
 FORCE_RELOAD_TIMEOUT_S = 2.0
 CAPABILITIES_TIMEOUT_S = 2.0
-NO_CAPABILITIES = "no-capabilities"
 
 
 def server_listening(port: int = REVIEW_PORT) -> bool:
@@ -34,22 +33,22 @@ def force_reload(path: str, port: int = REVIEW_PORT) -> bool:
         return False
 
 
-def capabilities(port: int = REVIEW_PORT) -> dict | str | None:
-    """Return the review server's /capabilities answer (`engine.review.serve.capabilities_payload`); `NO_CAPABILITIES` when the server answers 404 there, as a server that predates the land protocol does; or None when no answer came: no server, a timeout, another error status, or a body that is not a JSON object."""
+def capabilities(port: int = REVIEW_PORT) -> dict | None:
+    """Return the review server's /capabilities answer (`engine.review.serve.capabilities_payload`), or None when no answer came: no server, a timeout, an error status, a listener that does not speak HTTP, or a body that is not a JSON object."""
     url = f"http://127.0.0.1:{port}/capabilities"
     try:
         with urllib.request.urlopen(url, timeout=CAPABILITIES_TIMEOUT_S) as response:
             answer = json.loads(response.read())
     except urllib.error.HTTPError as error:
         error.close()
-        return NO_CAPABILITIES if error.code == 404 else None
+        return None
     except OSError, ValueError, http.client.HTTPException:
         return None
     return answer if isinstance(answer, dict) else None
 
 
 def other_checkout_root(root: Path, port: int = REVIEW_PORT) -> str | None:
-    """Return the repo root the review server on `port` names in its /capabilities answer when that root is not `root`, or None: nothing answers, the server predates /capabilities, or it serves `root`."""
+    """Return the repo root the review server on `port` names in its /capabilities answer when that root is not `root`, or None: nothing answers, the answer names no root, or it serves `root`."""
     answer = capabilities(port)
     named = answer.get("root") if isinstance(answer, dict) else None
     if not isinstance(named, str) or Path(named).resolve() == root.resolve():

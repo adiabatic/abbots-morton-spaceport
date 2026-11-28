@@ -75,10 +75,6 @@ class Window:
     def key(self) -> tuple[str, str, str, str, str, str]:
         return (self.input_glyph, self.left, self.right1, self.right2, self.right3, self.right4)
 
-    @property
-    def is_identity(self) -> bool:
-        return self.outcome == self.input_glyph
-
 
 @dataclass(frozen=True, slots=True)
 class Transition(Window):
@@ -161,16 +157,6 @@ class DecisionTable:
 
     def joint_rows(self) -> frozenset[int]:
         return frozenset(index for index, rule in enumerate(self.rules) if rule.joint)
-
-    def token_members(self, token: str) -> tuple[str, ...]:
-        """Return the member labels a deep-slot field stands for: the class's members for a class id, else the label itself (bare labels, boundary labels, and `#NA` included), so a caller can expand any right3 or right4 field the same way."""
-        members = self.deep_classes.get(token)
-        return members if members is not None else (token,)
-
-    def token_representative(self, token: str) -> str:
-        """Return the first member of a class id, else the label itself: one concrete label to put in a deep slot. This is exact for rule-membership tests, because `fold::assert_deep_class_unions` checks that every emitted lookahead class holds all of a token's members or none."""
-        members = self.deep_classes.get(token)
-        return members[0] if members else token
 
     def expanded_transitions(self) -> Iterator[Window]:
         """Yield the label-grain row stream: each class row expanded to its full member product at right3 × right4, with boundary labels and `#NA` passed through. Each expanded row copies the class row's outcome, which is valid because a class's members settle identically. Rows come in `Window.key` order with no duplicate keys, because the member sets at one base are disjoint. On a label-grain table this is `transitions` unchanged."""

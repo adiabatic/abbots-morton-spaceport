@@ -2,7 +2,7 @@
 
 The accept, `uv run python -m engine.review.accept [--apply] [--retake]` (`make review-accept`), makes the build the corpus shows the accepted one. Without `--apply` it is a dry run: it prints every refusal `--apply` would make and what `--apply` would write, writes nothing but the four-letter sweep's record (below), and exits 1 when `--apply` would refuse. Its refusals, each with nothing written but that record, in this order:
 
-- the corpus under engine/out/review is not a table-diff corpus, which alone holds changes against the accepted snapshot;
+- the corpus under engine/out/review has no manifest that reads;
 - `make verdict-ready`'s blocking checks fail (`store_guards.readiness_refusal`), among them the snapshot row and the freshness of the corpus against the sources;
 - the corpus does not show engine/out/build: its after font is not Senior-Regular.otf byte for byte, or its `tables` component is not the stamp of that build's windows heads (`snapshot.tables_stamp`);
 - a pass holds the artifact cycle's pass lock (taken without waiting and held to the end, `store_guards.pass_lock`);
@@ -74,17 +74,13 @@ class Refused(RuntimeError):
 
 
 def read_corpus(corpus: Path) -> dict:
-    """The corpus's manifest, refused unless it is a table-diff corpus's, which alone holds changes against the accepted snapshot."""
+    """The corpus's manifest, refused when it does not read as a JSON object."""
     try:
         manifest = json.loads((Path(corpus) / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise Refused(f"the corpus {corpus} has no manifest that reads ({error})") from None
-    if not isinstance(manifest, dict) or manifest.get("mode") != "table-diff":
-        found = manifest.get("mode") if isinstance(manifest, dict) else None
-        raise Refused(
-            f"the corpus {corpus} is an {found!r} corpus, not a table-diff corpus, so it shows no change against "
-            "the accepted snapshot; run `make artifact-cycle`, which builds the table-diff corpus"
-        )
+    if not isinstance(manifest, dict):
+        raise Refused(f"the corpus {corpus} has no manifest that reads (it is not a JSON object)")
     return manifest
 
 

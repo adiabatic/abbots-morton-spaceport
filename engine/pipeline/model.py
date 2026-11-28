@@ -382,10 +382,6 @@ class CellPlan:
     safety_checks: tuple[tuple[str, Height], ...] = ()
     unlock: Unlock | None = None  # set when the cell exists only via this unlock row
 
-    @property
-    def needs_safety_check(self) -> bool:
-        return bool(self.safety_checks)
-
 
 @dataclass(frozen=True)
 class GlyphRecord:

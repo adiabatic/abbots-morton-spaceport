@@ -58,12 +58,8 @@ export function explainRuns(text) {
 }
 
 export function renderGroupsOf(unit) {
-  const raw =
-    Array.isArray(unit.render_groups) && unit.render_groups.length > 0
-      ? unit.render_groups
-      : [{ configs: unit.configs }];
   const groups = [];
-  for (const group of raw) {
+  for (const group of unit.render_groups) {
     groups.push({
       configs: [...group.configs],
       label: group.configs.join(', '),
@@ -469,14 +465,6 @@ export const SECTION_LABELS = {
     legend: 'The class takes no verdict, or the machine approves every unit because it draws exactly as in the accepted build. Their units stay hidden unless “Show units that need no review” is on.',
   },
 };
-
-export const PREDATES_APP = 'This corpus predates the app; run the review cycle.';
-
-// The banner text for a manifest the app cannot sort into sections, or null. Without `section` the Queue would read every class as ruled and show nothing, so the app refuses the corpus instead.
-export function manifestRefusal(manifest) {
-  const classes = Array.isArray(manifest?.classes) ? manifest.classes : [];
-  return classes.some((cls) => !SECTION_ORDER.includes(cls?.section)) ? PREDATES_APP : null;
-}
 
 export function classInfo(manifest) {
   const info = new Map();

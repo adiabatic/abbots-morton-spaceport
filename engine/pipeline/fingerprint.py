@@ -335,53 +335,18 @@ def kern_only_lookups(table: Any) -> frozenset[int]:
     return frozenset(reached(kern_roots) - reached(other_roots))
 
 
-def _labels_of(lines: Iterable[str]) -> dict[str, str]:
-    labels: dict[str, str] = {}
-    for line in lines:
-        label, _, digest = line.partition("\t")
-        labels[label] = digest
-    return labels
-
-
 @dataclass(frozen=True)
 class EnvironmentStamp:
-    """A whole-store stamp kept as `label\\tdigest` lines, so a store that records them can name the input that changed on a miss. `value` is the digest of `lines` alone. `detail` maps a label to the lines behind that label's digest (for a code closure, its `path_lines`), so a miss can name the file inside the closure. `detail` is not part of `value` or `labels`, so adding it leaves both unchanged.
+    """A whole-store stamp kept as `label\\tdigest` lines, one for each input it covers. `value`, the digest of `lines`, is what a store records.
 
     The settle memo's stamp takes this form (`settle_memo_keys.settle_memo_stamp`).
     """
 
     lines: tuple[str, ...]
-    detail: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def value(self) -> str:
         return digest_lines(self.lines)
-
-    @property
-    def labels(self) -> dict[str, str]:
-        """The same lines as a `label -> digest` map, which is the shape `moved_note` compares."""
-        return _labels_of(self.lines)
-
-
-def moved_note(
-    recorded: Mapping[str, str],
-    current: Mapping[str, str],
-    limit: int = 8,
-    expand: Mapping[str, str | None] | None = None,
-) -> str | None:
-    """Return a note naming the labels that differ between two `label -> digest` maps, or None when none differ. A changed label that `expand` maps to a note is shown as `label: note`; any other changed label is shown as `label (changed)`, and added or removed labels as `label (new)` or `label (gone)`. At most `limit` labels are listed, followed by a count of the rest. `artifact_cycle.moved_inputs_note` formats its notes the same way."""
-    moved: list[str] = []
-    for name in sorted(recorded.keys() & current.keys()):
-        if recorded[name] == current[name]:
-            continue
-        inner = expand.get(name) if expand else None
-        moved.append(f"{name}: {inner}" if inner else f"{name} (changed)")
-    moved += [f"{name} (new)" for name in sorted(current.keys() - recorded.keys())]
-    moved += [f"{name} (gone)" for name in sorted(recorded.keys() - current.keys())]
-    if not moved:
-        return None
-    shown = ", ".join(moved[:limit])
-    return f"{shown} and {len(moved) - limit} more" if len(moved) > limit else shown
 
 
 def cursive_anchor_map(font) -> dict[str, list]:

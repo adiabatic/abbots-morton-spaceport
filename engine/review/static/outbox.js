@@ -35,7 +35,7 @@ export function scopedOutboxKey(scope) {
   return typeof scope === 'string' && scope !== '' ? `${OUTBOX_KEY}:${scope}` : OUTBOX_KEY;
 }
 
-// A storage object whose outbox is the one for `scope` (the server's repo root), and whose other keys are the storage's own. An outbox kept under the unscoped key, which a page wrote before outboxes were kept per checkout, is moved into this scope, keeping any entry the scope already has for the same unit. With no scope the storage is returned as it is.
+// A storage object whose outbox is the one for `scope` (the server's repo root), and whose other keys are the storage's own. An outbox kept under the unscoped key, which a page writes when the server's `/capabilities` answer names no root, is moved into this scope, keeping any entry the scope already has for the same unit. With no scope the storage is returned as it is.
 export function scopeOutbox(storage, scope) {
   const key = scopedOutboxKey(scope);
   if (key === OUTBOX_KEY) return storage;

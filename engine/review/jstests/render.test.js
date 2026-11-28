@@ -39,8 +39,6 @@ import {
   classIsDone,
   SECTION_ORDER,
   SECTION_LABELS,
-  PREDATES_APP,
-  manifestRefusal,
   classInfo,
   classChip,
   codeRuns,
@@ -310,14 +308,10 @@ test('renderGroupsOf stacks a synthetic two-group unit with per-group feature se
   });
 });
 
-test('renderGroupsOf collapses a single-group unit and tolerates missing render_groups', () => {
+test('renderGroupsOf collapses a single-group unit', () => {
   const single = { configs: ['ss03', 'ss02+ss03'], render_groups: [{ configs: ['ss03', 'ss02+ss03'] }] };
   assert.equal(renderGroupsOf(single).length, 1);
   assert.equal(renderGroupsOf(single)[0].featureSettings, '"ss03" 1');
-  const legacy = { configs: ['ss05'] };
-  assert.deepEqual(renderGroupsOf(legacy), [
-    { configs: ['ss05'], label: 'ss05', featureSettings: '"ss05" 1', primary: true },
-  ]);
 });
 
 test('every fixture unit carries exactly one render group covering its configs', () => {
@@ -1012,15 +1006,6 @@ test('searchUnits caps the matches at the limit but reports the true total', () 
 
 test('searchUnits returns nothing for a blank query', () => {
   assert.deepEqual(searchUnits(allUnits, '   '), { matches: [], total: 0 });
-});
-
-test('manifestRefusal refuses a manifest without sections, which would otherwise leave the Queue empty', () => {
-  assert.equal(manifestRefusal(manifest), null);
-  const unsectioned = { ...manifest, classes: manifest.classes.map(({ section, ...rest }) => rest) };
-  assert.equal(manifestRefusal(unsectioned), PREDATES_APP);
-  assert.equal(manifestRefusal({ classes: [{ ...manifest.classes[0], section: 'ruled' }] }), PREDATES_APP);
-  assert.equal(manifestRefusal({ classes: [] }), null);
-  assert.equal(PREDATES_APP, 'This corpus predates the app; run the review cycle.');
 });
 
 test('classChip names a class by its title, with its id and plain-text summary to hover', () => {

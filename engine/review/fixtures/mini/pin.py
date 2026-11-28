@@ -1,6 +1,6 @@
-"""Pin the spec the frozen mini bundle settled under by git object ids, instead of keeping a copy of it in the tree.
+"""Pin the spec the frozen mini bundle's font was built from by git object ids, instead of keeping a copy of it in the tree.
 
-The enricher re-settles every frozen window from the runes, so the bundle's rows are valid only under the spec they settled under. A checked-in copy of that spec would look like source and invite edits to the wrong file. `pin.json` records the tree and blob shas of `PINNED_PATHS` at the commit the bundle was regenerated on, and `materialize` writes those objects out of git on demand. A sha names content, so the pin survives any rebase that leaves those files' bytes unchanged. When the repository no longer holds a pinned object, `materialize` raises `MissingPinnedObjects` with the command that regenerates the bundle.
+The bundle's font matches only the spec it was built from. A checked-in copy of that spec would look like source and invite edits to the wrong file. `pin.json` records the tree and blob shas of `PINNED_PATHS` at the commit the bundle was regenerated on, and `materialize` writes those objects out of git on demand. A sha names content, so the pin survives any rebase that leaves those files' bytes unchanged. When the repository no longer holds a pinned object, `materialize` raises `MissingPinnedObjects` with the command that regenerates the bundle.
 """
 
 import io

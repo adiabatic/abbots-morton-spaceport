@@ -204,7 +204,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--max-length",
-        "--horizon",
         type=int,
         default=DEEP_REPLAY_MAX_LENGTH_DEFAULT,
         help=f"walk length (default {DEEP_REPLAY_MAX_LENGTH_DEFAULT}); anything at or below the build's own {CONFORM_MAX_LENGTH_DEFAULT} is refused, since every build already walks that depth. Without --families or --all, a walk covers every text when there is no record, since there is no last walk to cut a delta against, or when its length is past the record's maximum length, since only that raises the record's depth",

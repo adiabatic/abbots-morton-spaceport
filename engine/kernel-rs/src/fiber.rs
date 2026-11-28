@@ -532,7 +532,7 @@ mod tests {
         spec_of(&[pea, tea, acceptor("qsMay"), acceptor("qsIt")])
     }
 
-    /// One context's partition formatted as the `liveness-cases` subcommand formats it, with every token passed through [`right_token_label`], so an expected string here reads like that subcommand's output.
+    /// One context's partition as one line of text, with every token passed through [`right_token_label`], so an expected string here names each slot by the label the tables give it.
     fn spelled(index: &SpecIndex, context: &ContextFibers) -> String {
         let names = |tokens: &[RightToken]| -> Vec<String> {
             tokens

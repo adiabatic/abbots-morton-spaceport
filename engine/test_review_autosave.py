@@ -1,6 +1,6 @@
 """Tests for the review server's logic.
 
-The /autosave receiver: delta validation and the store written whole through a temporary file renamed over it before each reply. A whole-store POST is refused without changing the store, token, or tombstones, regardless of either stamp or whether the store exists. Export parsing and the full-store GET payload remain available. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a stale skip is dropped and clears the record it replaced; a delta stamped for the served corpus carries a store on another stamp onto it by unit id, and one made on neither corpus gets a retryable 503 and writes nothing.
+The /autosave receiver: delta validation, the 400 any other body gets without touching the file (a whole-store document among them), export parsing and the full-store GET payload, and the store written whole through a temporary file renamed over it before each reply. A delta on another stamp is carried onto a store on the served corpus by unit id, with the `base_at`, `at` and tombstone tests deciding each unit, and the orphans and conflicts it cannot apply are kept in the orphan document; a stale skip is dropped and clears the record it replaced; a delta stamped for the served corpus carries a store on another stamp onto it by unit id, and one made on neither corpus gets a retryable 503 and writes nothing.
 
 The POST path takes the verdict store's lock without waiting, and answers a retryable 503 while another writer holds it. The resident store behind it (`engine.review.verdict_store`): the delta POST the app sends, the no-op delta that writes nothing, the save whose write fails, which is put back, a real server that writes each save before it replies, the change token a sync GET returns, the reload after an external rewrite of the file, which keeps tokens valid when the stamp is unchanged, and the store file holding a record the store refuses, which serves no verdict and refuses every save until it is replaced.
 
@@ -89,64 +89,13 @@ def test_valid_delta_writes_the_export_file_atomically(tmp_path):
     assert not (tmp_path / "verdicts-autosave.json.tmp").exists()
 
 
-@pytest.mark.parametrize("existing", ["missing", "corrupt", "unstamped", "same-stamp", "other-stamp"])
-@pytest.mark.parametrize("incoming_stamp", ["2026-07-03T23:31:04Z", "2026-07-03T06:13:47Z"])
-def test_a_whole_store_post_is_refused_without_changing_any_state(tmp_path, existing, incoming_stamp):
-    path = tmp_path / "verdicts-autosave.json"
-    if existing == "corrupt":
-        path.write_bytes(b"garbage from a crashed write")
-    elif existing != "missing":
-        stamp = "2026-07-03T06:13:47Z" if existing == "other-stamp" else "2026-07-03T23:31:04Z"
-        document = json.loads(payload(stamp, [verdict("u-1")]))
-        document["cleared"] = [{"unit": "u-deleted", "at": "t5"}]
-        if existing == "unstamped":
-            document["manifest_generated_at"] = None
-        path.write_bytes(json.dumps(document).encode())
-    if path.exists():
-        os.utime(path, ns=(1, 1))
-    store = VerdictStore(path)
-    before = {
-        "files": {file.name: (file.read_bytes(), file.stat().st_mtime_ns) for file in tmp_path.iterdir()},
-        "stamp": store.stamp,
-        "records": {unit: dict(record) for unit, record in store.records.items()},
-        "cleared": dict(store.cleared),
-        "token": store.token,
-    }
-
-    status, body = store.receive(
-        payload(incoming_stamp, [verdict("u-incoming", "reject")]), served("u-1", "u-incoming")
-    )
-
-    assert status == 400
-    assert body["ok"] is False and body["reason"] == "whole-store-post-unsupported"
-    assert not {"corpus_stamp", "token", "saved"}.intersection(body)
-    error = body["error"].lower()
-    for instruction in (
-        "export",
-        "pending",
-        "reload",
-        "current",
-        "import",
-        "file",
-        "reapply",
-        "clear",
-        "note",
-    ):
-        assert instruction in error
-    assert "close" in error or "closing" in error
-    after_files = {file.name: (file.read_bytes(), file.stat().st_mtime_ns) for file in tmp_path.iterdir()}
-    assert after_files == before["files"]
-    assert store.stamp == before["stamp"]
-    assert store.records == before["records"]
-    assert store.cleared == before["cleared"]
-    assert store.token == before["token"]
-
-
 def test_invalid_payloads_are_rejected_without_touching_the_file(tmp_path):
+    """Any body but a delta gets a 400 and writes nothing, a whole-store document like the file itself among them."""
     path = tmp_path / "verdicts-autosave.json"
-    good = payload("2026-07-03T23:31:04Z", [verdict("u-0001")])
-    path.write_bytes(good)
+    stored = payload("2026-07-03T23:31:04Z", [verdict("u-0001")])
+    path.write_bytes(stored)
     for raw in (
+        stored,
         b"not json",
         b'"a string"',
         payload("2026-07-03T23:31:04Z", fmt="something-else/9"),
@@ -156,7 +105,7 @@ def test_invalid_payloads_are_rejected_without_touching_the_file(tmp_path):
         status, body = receive_autosave(raw, path)
         assert status == 400
         assert body["ok"] is False
-    assert path.read_bytes() == good
+    assert path.read_bytes() == stored
     assert list(tmp_path.iterdir()) == [path]
 
 
@@ -177,25 +126,6 @@ def test_parse_rejects_non_export_documents():
     assert parse_autosave_payload(payload("2026-07-03T23:31:04Z")) is not None
     assert parse_autosave_payload(b"[]") is None
     assert parse_autosave_payload(b"{}") is None
-
-
-def test_an_old_tabs_whole_store_post_cannot_erase_another_tabs_verdict_or_tombstone(tmp_path):
-    path = tmp_path / "verdicts-autosave.json"
-    stamp = "2026-07-03T23:31:04Z"
-    store = VerdictStore(path)
-    assert store.receive(delta(stamp, [verdict("u-1", at="t1"), verdict("u-3", at="t1")]))[0] == 200
-    stale_snapshot = payload(stamp, list(store.records.values()))
-    assert (
-        store.receive(delta(stamp, [verdict("u-2", "reject", at="t5")], [{"unit": "u-3", "at": "t5"}]))[0]
-        == 200
-    )
-    before = path.read_bytes(), store.token
-    status, body = store.receive(stale_snapshot)
-    assert status == 400 and body["reason"] == "whole-store-post-unsupported"
-    assert (path.read_bytes(), store.token) == before
-    assert set(store.records) == {"u-1", "u-2"}
-    assert store.records["u-2"]["verdict"] == "reject"
-    assert store.cleared == {"u-3": "t5"}
 
 
 def test_the_precompressed_sidecars_go_out_gzip_encoded():
@@ -403,7 +333,7 @@ def test_a_delta_applies_sets_and_clears_and_writes_the_store_before_it_replies(
     store = VerdictStore(path)
     assert store.receive(delta(stamp, [verdict("u-1"), verdict("u-2")]))[0] == 200
     status, body = store.receive(
-        delta(stamp, [verdict("u-2", "reject", at="2026-07-03T01:00:00Z"), verdict("u-3")], ["u-1"])
+        delta(stamp, [verdict("u-2", "reject", at="2026-07-03T01:00:00Z"), verdict("u-3")], [{"unit": "u-1"}])
     )
     assert status == 200
     assert body["ok"] and body["saved"] == 2 and body["token"] == store.token
@@ -444,7 +374,7 @@ def test_a_delta_that_changes_nothing_leaves_the_file_untouched(tmp_path):
     store.receive(delta(stamp, [verdict("u-1")]))
     os.utime(path, ns=(1, 1))
     before = path.read_bytes()
-    status, body = store.receive(delta(stamp, [verdict("u-1")], ["u-9"]))
+    status, body = store.receive(delta(stamp, [verdict("u-1")], [{"unit": "u-9"}]))
     assert status == 200 and body["ok"]
     assert path.read_bytes() == before
     assert path.stat().st_mtime_ns == 1
@@ -553,10 +483,10 @@ def test_a_save_whose_write_fails_is_put_back(tmp_path, monkeypatch):
     with monkeypatch.context() as patched:
         patched.setattr("engine.review.verdict_store.os.replace", disk_full)
         with pytest.raises(OSError):
-            store.receive(delta(stamp, [verdict("u-3")], ["u-1"]))
+            store.receive(delta(stamp, [verdict("u-3")], [{"unit": "u-1"}]))
     assert set(store.records) == {"u-1", "u-2"} and store.cleared == {}
     assert path.read_bytes() == before and list(tmp_path.iterdir()) == [path]
-    status, _ = store.receive(delta(stamp, [verdict("u-3")], ["u-1"]))
+    status, _ = store.receive(delta(stamp, [verdict("u-3")], [{"unit": "u-1"}]))
     assert status == 200 and set(store.records) == {"u-2", "u-3"}
     assert {record["unit"] for record in on_disk(path)["verdicts"]} == {"u-2", "u-3"}
 
@@ -574,7 +504,7 @@ def test_changes_since_hands_back_only_what_moved_after_the_token(tmp_path):
         "sets": [],
         "clears": [],
     }
-    store.receive(delta(stamp, [verdict("u-3")], ["u-1"]))
+    store.receive(delta(stamp, [verdict("u-3")], [{"unit": "u-1"}]))
     moved = changes(store, token)
     assert moved["token"] == store.token
     assert [record["unit"] for record in moved["sets"]] == ["u-3"]
@@ -764,8 +694,10 @@ def new_store(tmp_path, records):
     return path, store
 
 
-def test_parse_delta_payload_accepts_both_clear_shapes():
-    parsed = parse_delta_payload(delta(NEW, clears=["u-1", {"unit": "u-2", "base_at": "t1", "at": "t2"}]))
+def test_parse_delta_payload_normalizes_each_clear():
+    parsed = parse_delta_payload(
+        delta(NEW, clears=[{"unit": "u-1"}, {"unit": "u-2", "base_at": "t1", "at": "t2"}])
+    )
     assert parsed is not None
     assert parsed["clears"] == [
         {"unit": "u-1", "base_at": None, "at": None},
@@ -832,14 +764,17 @@ def test_a_delta_holding_a_malformed_set_is_refused_naming_the_first_such_set(tm
     [
         ({"at": "t"}, "at index 1 of its `clears` list"),
         ({"unit": 5}, "at index 1 of its `clears` list"),
+        ("u-1", "at index 1 of its `clears` list"),
         ({"unit": "u-1", "at": 5}, "on u-1"),
     ],
-    ids=["no-unit", "numeric-unit", "numeric-at"],
+    ids=["no-unit", "numeric-unit", "bare-unit-id", "numeric-at"],
 )
 def test_a_delta_holding_a_malformed_clear_is_refused_naming_the_first_such_clear(tmp_path, malformed, named):
     """The 400 names the first malformed clear by its unit, or by its index when it names no unit or a unit that is not a string, as it names a malformed set."""
     store = VerdictStore(tmp_path / "verdicts-autosave.json")
-    status, body = store.receive(delta(NEW, [verdict("u-0")], ["u-0", malformed, {"unit": "u-2", "at": 6}]))
+    status, body = store.receive(
+        delta(NEW, [verdict("u-0")], [{"unit": "u-0"}, malformed, {"unit": "u-2", "at": 6}])
+    )
     assert status == 400 and body["ok"] is False
     assert body["error"].startswith(f"the {DELTA_FORMAT} document holds a malformed clear {named}:")
     assert not (tmp_path / "verdicts-autosave.json").exists()
@@ -1020,14 +955,14 @@ def test_a_replayed_set_on_a_unit_whose_tombstone_is_newer_is_a_conflict(tmp_pat
 
 def test_tombstones_survive_a_reload_of_the_file(tmp_path):
     path, store = new_store(tmp_path, [verdict("u-1", at="t1"), verdict("u-2", at="t1")])
-    store.receive(delta(NEW, clears=[{"unit": "u-1", "base_at": "t1", "at": "t5"}, "u-2"]))
+    store.receive(delta(NEW, clears=[{"unit": "u-1", "base_at": "t1", "at": "t5"}, {"unit": "u-2"}]))
     reloaded = VerdictStore(path)
     assert reloaded.cleared["u-1"] == "t5"
     assert set(reloaded.cleared) == {"u-1", "u-2"}
     assert reloaded.records == {}
 
 
-def test_a_stale_clear_follows_the_same_tests_and_a_bare_clear_is_orphaned(tmp_path):
+def test_a_stale_clear_follows_the_same_tests_and_a_clear_with_no_at_is_orphaned(tmp_path):
     path, store = new_store(
         tmp_path, [verdict("u-1", at="t5"), verdict("u-2", at="t5"), verdict("u-3", at="t5")]
     )
@@ -1037,7 +972,7 @@ def test_a_stale_clear_follows_the_same_tests_and_a_bare_clear_is_orphaned(tmp_p
             clears=[
                 {"unit": "u-1", "base_at": "t5", "at": "t2"},
                 {"unit": "u-2", "base_at": "t1", "at": "t2"},
-                "u-3",
+                {"unit": "u-3"},
             ],
         ),
         served("u-1", "u-2", "u-3"),

@@ -1,16 +1,11 @@
-"""Tests for the row diff the table-diff corpus reads its evidence from (`engine/review/tablediff.py`): added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, the table widths and gzipped tables the loaders read, the byte comparison that passes over an unchanged table, and the settled configurations the diff reads. `engine/test_review_diff_units.py` covers the units the corpus makes of the rows, and `engine/test_review_snapshot.py` the snapshot. The classification and self-diff tests use the synthetic pair or the frozen mini bundle's tables."""
+"""Tests for the row diff the table-diff corpus reads its evidence from (`engine/review/tablediff.py`): added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, the table widths and gzipped tables the loaders read, the byte comparison that passes over an unchanged table, and the settled configurations the diff reads. `engine/test_review_diff_units.py` covers the units the corpus makes of the rows, and `engine/test_review_snapshot.py` the snapshot. The tables the tests read are synthetic, written inline."""
 
 import gzip
-import shutil
-from pathlib import Path
 
 import pytest
 
 from engine.pipeline import conform
 from engine.review import tablediff
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-MINI = REPO_ROOT / "engine" / "review" / "fixtures" / "mini"
 
 SETTLEMENT_OLD = """# settlement table, config default
 input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance
@@ -168,35 +163,24 @@ def test_diff_is_deterministic(table_dirs):
     ]
 
 
-def test_a_join_table_with_the_old_kern_column_reads_as_the_same_rows(tmp_path):
-    """A baseline build directory written while the join table had a `kern` column (always 0) still loads: the fifth field is ignored, and the rows equal the four-column table's."""
-    current = MINI / "joins-default.tsv"
-    lines = current.read_text().splitlines()
-    widened = [
-        line if line.startswith("#") else line + ("\tkern" if line.startswith("left\t") else "\t0")
-        for line in lines
-    ]
-    old = tmp_path / "joins-default.tsv"
-    old.write_text("\n".join(widened) + "\n")
-    assert tablediff.load_joins(old) == tablediff.load_joins(current)
-    assert len(tablediff.load_joins(old)) == len(
-        [line for line in lines if not line.startswith(("#", "left\t"))]
-    )
-
-
-def test_a_gzipped_table_reads_as_the_plain_one_and_compares_by_its_rows(tmp_path):
-    """A snapshot holds its tables gzipped; they load as the plain tables do, take their configuration from the name before `.tsv.gz`, and `same_table` compares them with a plain table byte for byte."""
-    for name, loader in (
-        ("settlement-default.tsv", tablediff.load_settlement),
-        ("joins-default.tsv", tablediff.load_joins),
+def test_a_gzipped_table_reads_as_the_plain_one_and_compares_by_its_rows(tmp_path, monkeypatch):
+    """A snapshot holds its tables gzipped; they load as the plain tables do, take their configuration from the name before `.tsv.gz`, and `same_table` compares them with a plain table byte for byte. The compare chunk is shrunk so the tables span many chunks and the changed byte lies past the first."""
+    monkeypatch.setattr(tablediff, "_COMPARE_CHUNK", 16)
+    for name, body, loader in (
+        ("settlement-default.tsv", SETTLEMENT_OLD, tablediff.load_settlement),
+        ("joins-default.tsv", JOINS_OLD, tablediff.load_joins),
     ):
+        plain = tmp_path / "plain" / name
+        plain.parent.mkdir(exist_ok=True)
+        plain.write_text(body)
         packed = tmp_path / f"{name}.gz"
-        with open(MINI / name, "rb") as source, gzip.GzipFile(packed, "wb") as target:
-            shutil.copyfileobj(source, target)
-        assert loader(packed) == loader(MINI / name)
-        assert tablediff.same_table(packed, MINI / name)
+        with gzip.GzipFile(packed, "wb") as target:
+            target.write(body.encode())
+        assert loader(packed) == loader(plain)
+        assert {key.config for key in loader(packed)} == {"default"}
+        assert tablediff.same_table(packed, plain)
         changed = tmp_path / name
-        changed.write_bytes((MINI / name).read_bytes() + b"x")
+        changed.write_text(body + "x")
         assert not tablediff.same_table(packed, changed)
         assert not tablediff.same_table(changed, packed)
 

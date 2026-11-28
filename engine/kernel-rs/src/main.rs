@@ -1,6 +1,6 @@
-//! `ams-kernel` is the command-line binary of the settlement kernel. It reads an `ams-spec/1` dump into the interned model and serves one subcommand per task, listed below: echoing the dump, settling windows for the Python callers, sweeping the late-formation guard, building and folding the tables, checking the built tables by replay, and answering deep-slot liveness and fiber queries.
+//! `ams-kernel` is the command-line binary of the settlement kernel. It reads an `ams-spec/1` dump into the interned model and serves one subcommand per task, listed below: echoing the dump, settling windows for the Python callers, sweeping the late-formation guard, building and folding the tables, and checking the built tables by replay.
 //!
-//! **This crate is the definition of settlement.** The ranking, the refusals, the specificity order, the prospect, and the late-formation guard are implemented only here, so a settlement-semantics change is written here and nowhere else. Python defines the kernel interface. `engine/pipeline/kernel_io.py` defines the dump: its format is what `kernel_io.spec_json` writes, and its strictness is what `kernel_io.spec_of` enforces. `engine/pipeline/model.py` defines the fields a dump carries. `engine/pipeline/table.py` reads the files [`ams_kernel::fold`] and [`ams_kernel::artifacts`] write and computes their digests. `engine/pipeline/settle.py` keeps settlement's vocabulary and none of its logic: the token and boundary types, `cell_label`, `is_entry_bearing`, `word_position`, and ligature formation, which runs before settlement and takes its verdicts from `guard-sweep`. Every other Python consumer (the conform sweep, the witness stage, explain, probe, and the review corpus) settles through `settle-cases`. `doc/engine-design.md` §14.1 records the measurements behind the port, including that packing the model into integer keys, not the change of language, gives the speedup, and that the hasher in [`ams_kernel::hash`] is faster than SipHash on these keys only with its finalizer.
+//! **This crate is the definition of settlement.** The ranking, the refusals, the specificity order, the prospect, and the late-formation guard are implemented only here, so a settlement-semantics change is written here and nowhere else. Python defines the kernel interface. `engine/pipeline/kernel_io.py` defines the dump: its format is what `kernel_io.spec_json` writes, and its strictness is what `kernel_io.spec_of` enforces. `engine/pipeline/model.py` defines the fields a dump carries. `engine/pipeline/table.py` reads the files [`ams_kernel::fold`] and [`ams_kernel::artifacts`] write and computes their digests. `engine/pipeline/settle.py` keeps settlement's vocabulary and none of its logic: the token and boundary types, `cell_label`, and ligature formation, which runs before settlement and takes its verdicts from `guard-sweep`. Every other Python consumer (the conform sweep, the witness stage, explain, probe, and the review corpus) settles through `settle-cases`. `doc/engine-design.md` §14.1 records the measurements behind the port, including that packing the model into integer keys, not the change of language, gives the speedup, and that the hasher in [`ams_kernel::hash`] is faster than SipHash on these keys only with its finalizer.
 //!
 //! **A change to `engine/pipeline/model.py` must also be made in this crate.** The Python codec is driven by `dataclasses.fields`, so a new field enters the dump with no edit there. This crate lists its field sets by hand, so it rejects a dump with an unknown field instead of dropping the field. The spec-echo parity test in `engine/test_kernel_io.py`, which runs on every `make test-engine`, fails until the crate catches up.
 //!
@@ -16,7 +16,6 @@
 //! - `ams-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--trace-memo-buckets=N] [--trace-memo-entries=N] [--trace-memo-policy=clear|half] [--no-trace-memo-skip] [--snapshot-cache-blocks=N] [--snapshot-restart-records=R] [--no-snapshot-filter] [--no-grouped-sweeps | --check-grouped-sweeps] [--previous=<config>=<base>:N,<segment>:N,…] [--windows=<config>=<path>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs the same fixpoints and folds each product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/joins-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…,"windows_bytes":…}` line per configuration to stdout in command-line order, where `windows_bytes` is how many bytes the configuration's window file took. `--windows=<config>=<path>`, given at most once a configuration and only for one `--configs=` names, writes that configuration's window file at `<path>` instead of under `<outdir>`. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.stream_payloads` hands one, so the payload reaches its reader through no path another process can open, and the reader checks the bytes it received against `windows_bytes`. `default` enumerates first and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold preparation taking one of the worker slots. `--scratch-beside-default=N` starts up to `N` of the heaviest from scratch beside `default` instead, in whole tiers of equal unlocking-rune count and capped at one less than `--threads`, so they read no memo of `default`'s and need not wait for it, and the rest run as deltas once `default` has enumerated. Before any table is written, the configurations exchange the windows each keeps live that another's rules would answer wrongly in the order the font ships ([`ams_kernel::crossconfig`]), so a configuration's tables depend on the set `--configs=` names. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_kernel::memo`]) and writes the same tables a from-scratch enumeration writes. `--no-default-memo-sharing` enumerates every configuration from scratch, and a set without `default` does so anyway. Any configuration enumerated from scratch writes the same tables. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts there, and a delta served one reruns only the probe's asks that name one of its unlocking runes ([`ams_kernel::liveness`]); `--no-verdict-sharing` runs every probe whole, which writes the same tables. The fourth-slot prospect probe, wherever it runs whole, answers an ask from the transcript an earlier ask of the same probe recorded when the ask's token answers every question in it alike, instead of settling the ask's own window again ([`ams_kernel::liveness`]). `--no-grouped-sweeps` runs every ask in full instead, and `--check-grouped-sweeps` groups the asks and also runs every ask a transcript answered in full, exiting 1 with a message naming the probe and the two tokens when the full ask returns another result or fires a pointer the build had not. All three write the same tables and digests, and the two flags cannot be given together. A memo lives only inside the process: `default` keeps its finished memo while a delta is left to read it, every other configuration releases its own before it drains and sorts its rows, and the build reads no memo file and writes none. Each configuration's engine clears its prospect memo in place once it holds what a table of 2^20 buckets holds, and its candidate memo at 2^22 buckets ([`ams_kernel::fixpoint::TABLE_MEMO_CEILINGS`]); `--prospect-memo-buckets=N` and `--candidates-memo-buckets=N` set other ceilings, each a power of two of at least eight. Each configuration whose memo no delta reads, every delta and `default` once every delta starts from scratch, holds its trace memo's sixteen shards to 2^25 buckets in all, clearing a shard whose next insert would double its table, and stores none of the windows with a concrete third slot and a known fourth ([`ams_kernel::fixpoint::TABLE_TRACE_CEILING`]); `--trace-memo-buckets=N` sets another ceiling, a power of two of at least 128, `--trace-memo-entries=N` has the shards make room once they hold N entries together, at least sixteen and no more than the buckets hold, for a ceiling between two powers of two, `--trace-memo-policy=half` has a shard drop about half its entries instead of clearing, and `--no-trace-memo-skip` stores those windows too. Any ceiling writes the same tables and digests. While a delta reads it, `default` packs its memo at its release into sorted blocks of 512 records behind fences and a negative filter, and each delta's engine keeps a cache of 455 decoded blocks of it ([`ams_kernel::memo::SnapshotEntries`]); `--snapshot-cache-blocks=N` sets another cache, zero for none, under which a lookup decodes its block in place, `--snapshot-restart-records=R` also codes a whole record every R records inside a block, R dividing 512, and `--no-snapshot-filter` builds no filter. Any of them writes the same tables and digests. No stream is written or read, because the fold runs on the product the worklist still holds; this saves writing and reading back several hundred megabytes per configuration. `--previous=<config>=<base>:N,<segment>:N,…`, given at most once a configuration and only for one `--configs=` names, lists that configuration's previous windows rows, its base and then its segments in order, each a path and the rows its head lists: the base's window rows, and each segment's upserts and tombstones, with every header line stripped ([`ams_kernel::row_merge`]). Each path may name `/dev/fd/N`, a pipe the process inherits, as `run_build.build_tables` hands them, and each is opened and read once, front to back, at that configuration's finish. Its `windows-<config>.tsv` then holds its head line and only the rows that differ from the merged previous rows, an upsert for a new key or a changed outcome and a tombstone for a key that is gone, with no column line ([`ams_kernel::artifacts::write_windows`]); a part whose keys do not strictly ascend or whose rows are not the count it names exits 1 naming the part, and the digest is over the table's own rows either way. `run_build.build_tables` gzips the windows payload into the next base or segment of the configuration's windows output and keeps its head line as the output's head file, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries. `<spec>` may name `/dev/fd/N`, a pipe the process inherits from a caller that writes the dump into it, as `kernel_exec.build_table_files` hands it; the spec is read once, front to back, before any output is opened.
 //! - `ams-kernel replay-strings <spec> <outdir> --configs=a,b,… --max-length=N [--families=a,b,…] [--last=U+XXXX] [--memo-dir=<dir> | --memo-file=<path> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_kernel::replay`]), one last symbol at a time: the texts ending in each symbol are a unit, after which the walk releases its memos, keeping only the windows a later unit can meet. With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. With `--last=`, it walks only the texts whose last symbol is the alphabet symbol at that code point, a letter or a boundary token, written as `U+` and four to six uppercase hexadecimal digits; a code point outside the alphabet exits 1. The walks over every symbol partition the texts between them, as a walk's own units do, and `skipped` counts only the texts ending in that symbol that `--families=` leaves out; such a walk is one unit and releases nothing after it. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_build` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-dir=<dir>` has each walk keep a row for every window it settles and then write a passing walk's window memo there as `replay-windows-<config>.bin`, the input to the build's settle memo ([`ams_kernel::replay::Replay::write_window_memo`]). `--memo-file=<path>`, for a run that names one configuration, writes that walk's memo at `<path>` instead, which may name `/dev/fd/N`, a pipe the process inherits: `run_build` hands each walk one (`kernel_exec.replay_memo_walk`) and reads it as the rows arrive; a reader that closes it before the end stops the write, and the run still answers on stdout and exits 0, with nothing on stderr. `--memo-windows=N` caps each walk's memos at `N` windows, or at one text's windows when `N` is below the maximum length: before any text that could push them past the cap, the walk releases its memos and its engine's memos. The walk's memory then does not grow with the size of the text set, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-dir=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The maximum length is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
 //! - `ams-kernel replay-emitted <windows> --config=<token> --table=<settlement.tsv> --order=<order.tsv> --order-rules=N --context=<context.tsv> [--base-rows=N [--segments=<segment>:N,…]] [--timings]` walks one configuration's window enumeration (the plain `ams-windows/3` payload at `<windows>`, or standard input for `-`) against the settlement order the font ships ([`ams_kernel::shipped_order`]). With `--base-rows=`, `<windows>` is a base of the configuration's windows output, whose rows after its head and column lines must be that many, and `--segments=` lists the segments to merge over it in order, each a path, `/dev/fd/N` as `kernel_exec.replay_emitted` hands them, and the rows its head lists, with its header line stripped; the walk reads the base's head and column lines and then the merged rows in key order ([`ams_kernel::row_merge::MergedPayload`]), so it walks what the whole payload holds and answers as it would, and a part whose keys do not strictly ascend or whose rows are not its count exits 1 naming the part. `--segments=` without `--base-rows=` is a usage error. `--order=` holds every configuration's rules in the order the emitter ships them, written as a settlement TSV whose provenance column names the table rules each row was folded from, and `--order-rules=` is how many rules it holds: an order that parses to any other count exits 1 naming both, so an order that ends short at a line boundary is refused instead of walked as a shorter one. `--order=` and `--context=` may name `/dev/fd/N`, a pipe the process inherits from a caller that writes into it, as `kernel_exec.replay_emitted` hands both; the table, the order and the context are each read once, front to back, in that order, before the windows. `--context=` holds the configuration's marker renames, deep classes, and foreign labels (the bare runes, marker copies and locked copies its stream never carries, as `emit_gsub.emitted_context_tsv` lists them), one `rename`, `class`, or `foreign` record per line. `--table=` is the configuration's own settlement TSV, read only to name the table's rule in a disagreement. Each row is renamed through the configuration's marker renames, and the first emitted rule for its input that matches it must give the row's outcome, on the row itself and on every continuation of a `#NA` it leaves open after a letter. A clean run writes one `{"config":…,"rows":…,"checked_per_member":…,"open_rows":…,"continued":…}` line to stdout, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class matched only part of their deep class, `open_rows` the rows that leave a slot open after a letter, and `continued` those whose continuations the walk searched because their deciding rule constrains the open slot or a later one. A row for which the shipped order gives a different outcome exits 1 with a message naming the configuration, the row, the continuation, the emitted rule that fired, and the table's rule; so does a row that carries a foreign label. No spec is read: the tables already hold the settled answers, and the walk checks that the shipped lookup reproduces them.
-//! - `ams-kernel liveness-cases <spec> <keys> [--features=a,b,…] [--candidacy-prospect] [--follower-prefer-slots-off]` reads one deep-slot query per line of the key file. `3<tab><input><tab><r1><tab><r2>` and `4<tab><input><tab><r1><tab><r2><tab><r3>` return `live` or `dead`, the full filter verdict (the chain check and the liveness check together). `fibers<tab><input><tab><r1><tab><r2>` returns the context's fiber partition as compact JSON. Every name must be a rune family name, and any other name stops the run. Each output line is the key line, a tab, and the answer, in file order.
 //!
 //! Concurrency is per configuration. `enumerate-configs`, `build-tables`, and `replay-strings` run at most `--threads` configurations at once: one when the flag is absent, and never more than the machine's available parallelism or the number of configurations. When the set includes `default` and `--no-default-memo-sharing` is not given, `build-tables` enumerates `default` first, beside the configurations `--scratch-beside-default=` starts from scratch, and then runs the other configurations at that width, with `default`'s fold preparation in one of the worker slots, and holds every configuration's prepared product until the exchange ends. [`ams_kernel::fanout`] explains why the output bytes do not depend on the schedule and why one configuration's worklist stays sequential. Peak memory grows roughly linearly with the width, because each configuration in flight holds its whole working set, so a machine with less memory than cores should pass a smaller `--threads`.
 //!
@@ -24,7 +23,7 @@
 //!
 //! `--timings` is accepted by `enumerate`, `enumerate-configs`, `build-tables`, `replay-strings`, and `replay-emitted`. It writes `[t] <label> <secs>s` lines to stderr at one decimal place, the format `engine/tools/console.py` defines and `engine/tools/cycle_timings.py` parses. The lines are `spec_parse` (reading, parsing, and indexing the spec) where a spec is read, then each configuration's phases (such as `enumerate[<config>]`, `emit[<config>]`, `fold[<config>]`, or `replay[<config>]`), then the run's total. A table build also reports `fold.prefixes[<config>]`, `fold.exchange[<config>]` and `fold.partition[<config>]` at millisecond precision before each `fold[<config>]` line. Every line is buffered and written after the last configuration finishes, in `--configs` order, so stderr is the same at any thread count. With neither diagnostic flag, nothing is written to stderr on a clean exit, because `kernel_exec` treats any stderr on a clean exit as a failure unless it asked for timings.
 //!
-//! A usage mistake (a wrong argument count, an unknown subcommand, an unknown flag, a flag the subcommand does not accept, or an argument that is not valid Unicode) exits 2. An input file that cannot be read, parsed, or validated, a directory that cannot be written, a case or key file this build cannot answer, and a window that will not settle exit 1 with a one-line message on stderr.
+//! A usage mistake (a wrong argument count, an unknown subcommand, an unknown flag, a flag the subcommand does not accept, or an argument that is not valid Unicode) exits 2. An input file that cannot be read, parsed, or validated, a directory that cannot be written, a case file this build cannot answer, and a window that will not settle exit 1 with a one-line message on stderr.
 
 #![forbid(unsafe_code)]
 
@@ -33,23 +32,17 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use ams_kernel::deep_slots::{FourthSlotFilter, ThirdSlotFilter};
 use ams_kernel::emit::json_string;
 use ams_kernel::engine::{Engine, EngineModes, GroupedSweeps, MemoCeilings, TraceCeiling};
-use ams_kernel::fiber::{ContextFibers, DeepFiberDeriver};
-use ams_kernel::fixpoint::{
-    EnumerationModes, TABLE_MEMO_CEILINGS, TABLE_TRACE_CEILING, right_token_label,
-};
+use ams_kernel::fixpoint::{EnumerationModes, TABLE_MEMO_CEILINGS, TABLE_TRACE_CEILING};
 use ams_kernel::hash::Eviction;
 use ams_kernel::index::SpecIndex;
-use ams_kernel::liveness::ProspectLiveness;
 use ams_kernel::memo::{SNAPSHOT_CACHE_BLOCKS, SnapshotPacking};
 use ams_kernel::model::Sym;
-use ams_kernel::options::WindowOptions;
 use ams_kernel::stream::feature_config_token;
 use ams_kernel::{artifacts, cases, emit, fanout, guard, parse, row_merge, shipped_order};
 
-const USAGE: &str = "usage: ams-kernel spec-echo <spec>\n       ams-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--trace-memo-buckets=N] [--trace-memo-entries=N] [--trace-memo-policy=clear|half] [--no-trace-memo-skip] [--snapshot-cache-blocks=N] [--snapshot-restart-records=R] [--no-snapshot-filter] [--no-grouped-sweeps | --check-grouped-sweeps] [--previous=<config>=<base>:N,<segment>:N] [--windows=<config>=<path>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--last=U+E650] [--memo-dir=<dir> | --memo-file=<path> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --order-rules=N --context=<context.tsv> [--base-rows=N [--segments=<segment>:N,<segment>:N]] [--timings]\n       ams-kernel liveness-cases <spec> <keys> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off]";
+const USAGE: &str = "usage: ams-kernel spec-echo <spec>\n       ams-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-kernel enumerate <spec> [--features=a,b] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-kernel enumerate-configs <spec> <outdir> --configs=default,ss03 [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--trace-memo-buckets=N] [--trace-memo-entries=N] [--trace-memo-policy=clear|half] [--no-trace-memo-skip] [--snapshot-cache-blocks=N] [--snapshot-restart-records=R] [--no-snapshot-filter] [--no-grouped-sweeps | --check-grouped-sweeps] [--previous=<config>=<base>:N,<segment>:N] [--windows=<config>=<path>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--last=U+E650] [--memo-dir=<dir> | --memo-file=<path> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --order-rules=N --context=<context.tsv> [--base-rows=N [--segments=<segment>:N,<segment>:N]] [--timings]";
 
 /// The flags and positionals a command line named, before the subcommand checks its positional count. The three mode flags are written as negations because the default modes turn all three on.
 struct Flags<'a> {
@@ -121,7 +114,7 @@ struct Vocabulary {
     stdin: bool,
 }
 
-/// The flag sets of the subcommands that take flags. `settle-cases` and `liveness-cases` share one set except for `--settled-only`, since a liveness answer has no trace, and `-`, which only the `settle-cases` caller in `kernel_exec` uses.
+/// The flag sets of the subcommands that take flags.
 const CASES_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: true,
@@ -135,11 +128,6 @@ const CASES_FLAGS: Vocabulary = Vocabulary {
     memo_flags: false,
     settled: true,
     stdin: true,
-};
-const LIVENESS_FLAGS: Vocabulary = Vocabulary {
-    settled: false,
-    stdin: false,
-    ..CASES_FLAGS
 };
 const ENUMERATE_FLAGS: Vocabulary = Vocabulary {
     grain: true,
@@ -331,15 +319,6 @@ struct EmittedPlan<'a> {
     timings: bool,
 }
 
-/// What a `liveness-cases` command line asked for. It has no grain flag, because a fiber partition is derived in any deep mode set, whatever grain an enumeration would use.
-struct LivenessPlan<'a> {
-    spec: &'a str,
-    keys: &'a str,
-    features: Vec<&'a str>,
-    simulated_prospect: bool,
-    follower_prefer_slots: bool,
-}
-
 fn main() -> ExitCode {
     let Ok(arguments) = std::env::args_os()
         .skip(1)
@@ -399,12 +378,6 @@ fn main() -> ExitCode {
                 return usage();
             };
             replay_emitted(&plan)
-        }
-        "liveness-cases" => {
-            let Some(plan) = plan_liveness(rest) else {
-                return usage();
-            };
-            liveness_cases(&plan)
         }
         _ => return usage(),
     };
@@ -953,20 +926,6 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
     })
 }
 
-fn plan_liveness(rest: &[String]) -> Option<LivenessPlan<'_>> {
-    let flags = scan_flags(rest, LIVENESS_FLAGS)?;
-    let [spec, keys] = flags.positionals.as_slice() else {
-        return None;
-    };
-    Some(LivenessPlan {
-        spec,
-        keys,
-        features: flags.features,
-        simulated_prospect: flags.simulated_prospect,
-        follower_prefer_slots: flags.follower_prefer_slots,
-    })
-}
-
 /// `--max-length=` is required because the caller records the depth the walk covered. `--memo-windows=` with `--memo-dir=` or `--memo-file=` is rejected: a walk that released its memo holds only the windows it settled since the release, so the file would be missing windows the build's settle memo needs. `--memo-file=` beside `--memo-dir=`, or for a run that names more than one configuration, is rejected too, since it names one walk's memo.
 fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
     let flags = scan_flags(rest, REPLAY_FLAGS)?;
@@ -1057,7 +1016,7 @@ fn feature_syms(index: &SpecIndex, spec: &str, names: &[&str]) -> Result<Vec<Sym
     Ok(features)
 }
 
-/// An engine in the given modes with the trace memo on. Its callers, `settle-cases` and `liveness-cases`, reach many windows repeatedly, and a memo hit replays the fired records it journaled, so a hit gives the same answer as a fresh settle.
+/// An engine in the given modes with the trace memo on. Its caller, `settle-cases`, reaches many windows repeatedly, and a memo hit replays the fired records it journaled, so a hit gives the same answer as a fresh settle.
 fn engine_for<'i>(
     index: &'i SpecIndex,
     features: Vec<Sym>,
@@ -1480,177 +1439,6 @@ fn guard_sweep(plan: &GuardPlan<'_>) -> Result<(), String> {
     write_lines(&lines)
 }
 
-/// Answers a key file through one engine, in file order.
-///
-/// One engine, one liveness probe, one filter per depth, and one deriver are built once and shared across keys, as in the fixpoint, so their memos carry from key to key.
-fn liveness_cases(plan: &LivenessPlan<'_>) -> Result<(), String> {
-    let index = read_index(plan.spec)?;
-    let features = feature_syms(&index, plan.spec, &plan.features)?;
-    let mut engine = engine_for(
-        &index,
-        features,
-        plan.simulated_prospect,
-        plan.follower_prefer_slots,
-    );
-    let text =
-        std::fs::read_to_string(plan.keys).map_err(|error| format!("{}: {error}", plan.keys))?;
-    let mut scaffolding =
-        LivenessScaffolding::new(&index).map_err(|error| format!("{}: {error}", plan.spec))?;
-    let mut lines: Vec<String> = Vec::new();
-    for (position, line) in text.lines().enumerate() {
-        let answer = scaffolding
-            .answer(&mut engine, line)
-            .map_err(|error| format!("{}: line {}: {error}", plan.keys, position + 1))?;
-        lines.push(format!("{line}\t{answer}"));
-    }
-    write_lines(&lines)
-}
-
-/// The state every key shape is answered through, kept together so one mutable borrow covers any key.
-struct LivenessScaffolding<'i> {
-    options: WindowOptions<'i>,
-    liveness: ProspectLiveness<'i>,
-    third: ThirdSlotFilter<'i>,
-    fourth: FourthSlotFilter<'i>,
-    deriver: DeepFiberDeriver,
-}
-
-impl<'i> LivenessScaffolding<'i> {
-    fn new(index: &'i SpecIndex) -> Result<Self, String> {
-        Ok(Self {
-            options: WindowOptions::new(index).map_err(|error| error.to_string())?,
-            liveness: ProspectLiveness::new(index),
-            third: ThirdSlotFilter::new(index),
-            fourth: FourthSlotFilter::new(index),
-            deriver: DeepFiberDeriver::new(),
-        })
-    }
-
-    /// One key line's answer: `live` or `dead` for a `3` or `4` key, and the context's fiber partition as compact JSON for a `fibers` key.
-    ///
-    /// The filters get the liveness probe only in a deep mode set (`simulated_prospect` or `follower_prefer_slots` on), which is the only place they have a liveness check. In the pinned mode set they are the chain sets alone, and passing a probe would answer a question the enumeration never asks. The deriver accepts any `fibers` key; choosing contexts where a partition is meaningful is up to the caller.
-    fn answer(&mut self, engine: &mut Engine<'i>, line: &str) -> Result<String, String> {
-        let index = engine.index();
-        let deep_modes = engine.simulated_prospect() || engine.follower_prefer_slots();
-        let fields: Vec<&str> = line.split('\t').collect();
-        match fields.as_slice() {
-            ["3", input, right1, right2] => {
-                let [input, right1, right2] = families(index, [input, right1, right2])?;
-                let live = self
-                    .third
-                    .matters(
-                        engine,
-                        probe_in(deep_modes, &mut self.liveness),
-                        input,
-                        right1,
-                        right2,
-                    )
-                    .map_err(|error| error.to_string())?;
-                Ok(verdict(live))
-            }
-            ["4", input, right1, right2, right3] => {
-                let [input, right1, right2, right3] =
-                    families(index, [input, right1, right2, right3])?;
-                let live = self
-                    .fourth
-                    .matters(
-                        engine,
-                        probe_in(deep_modes, &mut self.liveness),
-                        input,
-                        right1,
-                        right2,
-                        right3,
-                    )
-                    .map_err(|error| error.to_string())?;
-                Ok(verdict(live))
-            }
-            ["fibers", input, right1, right2] => {
-                let [input, right1, right2] = families(index, [input, right1, right2])?;
-                let context = self
-                    .deriver
-                    .context(
-                        engine,
-                        &mut self.liveness,
-                        &mut self.fourth,
-                        &mut self.options,
-                        input,
-                        right1,
-                        right2,
-                    )
-                    .map_err(|error| error.to_string())?;
-                Ok(fibers_json(index, &context))
-            }
-            _ => Err(format!(
-                "not a liveness key — expected 3, 4 or fibers and its family names, tab-separated: {line:?}"
-            )),
-        }
-    }
-}
-
-/// The probe to pass a filter: `Some` when `simulated_prospect` or `follower_prefer_slots` is on, and `None` when both are off, where the chain check alone decides the verdict.
-fn probe_in<'l, 'i>(
-    deep_modes: bool,
-    liveness: &'l mut ProspectLiveness<'i>,
-) -> Option<&'l mut ProspectLiveness<'i>> {
-    deep_modes.then_some(liveness)
-}
-
-/// The answer word for a `3` or `4` key.
-fn verdict(live: bool) -> String {
-    if live { "live" } else { "dead" }.to_owned()
-}
-
-/// Resolves a key's rune names against the spec. A name the spec does not model is an error, not a `dead` answer, because the key was written for a different spec.
-fn families<const N: usize>(index: &SpecIndex, names: [&&str; N]) -> Result<[Sym; N], String> {
-    let mut out = [None; N];
-    for (position, name) in names.iter().enumerate() {
-        out[position] = Some(
-            index
-                .sym_of(name)
-                .filter(|rune| index.is_modeled(*rune))
-                .ok_or_else(|| format!("{name} is not a rune this spec models"))?,
-        );
-    }
-    Ok(out.map(|rune| rune.expect("every position was filled before the loop ended")))
-}
-
-/// One context's fiber partition as compact JSON: the boundary options, then one object per fiber with its members, its fourth-slot verdict, and its r4 groups.
-///
-/// Every list keeps the deriver's order ([`ContextFibers`] and [`ams_kernel::fiber::Fiber`] describe it), because class ids and the row stream are derived from that order, and comparing partitions as sets would call two different tables equal. A dead fourth slot writes `r4_groups` as `[]`.
-fn fibers_json(index: &SpecIndex, context: &ContextFibers) -> String {
-    let boundaries = labels_json(index, &context.boundary_options);
-    let fibers: Vec<String> = context
-        .fibers
-        .iter()
-        .map(|fiber| {
-            let groups: Vec<String> = fiber
-                .r4_groups
-                .iter()
-                .map(|group| labels_json(index, group))
-                .collect();
-            format!(
-                "{{\"members\":{},\"fourth_matters\":{},\"r4_groups\":[{}]}}",
-                labels_json(index, &fiber.members),
-                fiber.fourth_matters,
-                groups.join(",")
-            )
-        })
-        .collect();
-    format!(
-        "{{\"boundaries\":{boundaries},\"fibers\":[{}]}}",
-        fibers.join(",")
-    )
-}
-
-/// One token list as a compact JSON array of [`right_token_label`] labels.
-fn labels_json(index: &SpecIndex, tokens: &[ams_kernel::types::RightToken]) -> String {
-    let quoted: Vec<String> = tokens
-        .iter()
-        .map(|token| json_string(&right_token_label(index, *token)))
-        .collect();
-    format!("[{}]", quoted.join(","))
-}
-
 fn write_lines(lines: &[String]) -> Result<(), String> {
     let mut out = String::new();
     for line in lines {
@@ -1737,20 +1525,6 @@ mod tests {
         let plan = plan_cases(&arguments)?;
         Some(Named {
             positionals: vec![plan.spec.to_owned(), plan.cases.to_owned()],
-            features: owned(&plan.features),
-            simulated_prospect: plan.simulated_prospect,
-            follower_prefer_slots: plan.follower_prefer_slots,
-            deep_classes: true,
-            timings: false,
-            cache_stats: false,
-        })
-    }
-
-    fn livened(words: &[&str]) -> Option<Named> {
-        let arguments = owned(words);
-        let plan = plan_liveness(&arguments)?;
-        Some(Named {
-            positionals: vec![plan.spec.to_owned(), plan.keys.to_owned()],
             features: owned(&plan.features),
             simulated_prospect: plan.simulated_prospect,
             follower_prefer_slots: plan.follower_prefer_slots,
@@ -2074,9 +1848,6 @@ mod tests {
         assert!(plan.features.is_empty());
         let cases = cased(&["spec.json", "cases.txt"]).expect("two positionals");
         assert!(cases.simulated_prospect && cases.follower_prefer_slots);
-        let liveness = livened(&["spec.json", "keys.txt"]).expect("two positionals");
-        assert_eq!(liveness.positionals, ["spec.json", "keys.txt"]);
-        assert!(liveness.simulated_prospect && liveness.follower_prefer_slots);
     }
 
     /// Each mode flag turns off only its own mode: the two engine mode flags together give the pinned mode set, and `--deep-classes-off` alone gives label grain with both engine modes on.
@@ -2100,9 +1871,6 @@ mod tests {
         let cases = cased(&["spec.json", "cases.txt", "--candidacy-prospect"])
             .expect("the case replay names its mode set the same way");
         assert!(!cases.simulated_prospect && cases.follower_prefer_slots);
-        let liveness = livened(&["spec.json", "keys.txt", "--follower-prefer-slots-off"])
-            .expect("and so does the liveness sweep");
-        assert!(liveness.simulated_prospect && !liveness.follower_prefer_slots);
         let fan_out = fanned(&[
             "spec.json",
             "out",
@@ -2114,7 +1882,7 @@ mod tests {
         assert!(!fan_out.simulated_prospect && !fan_out.follower_prefer_slots);
     }
 
-    /// Only `settle-cases` accepts `--settled-only`; a liveness answer has no trace to omit.
+    /// Only `settle-cases` accepts `--settled-only`, because only a case replay returns a trace to omit.
     #[test]
     fn only_the_case_replay_spells_the_settled_only_flag() {
         let bare = owned(&["spec.json", "cases.txt"]);
@@ -2125,14 +1893,13 @@ mod tests {
                 .expect("the flag is optional")
                 .settled_only
         );
-        assert!(livened(&["spec.json", "keys.txt", "--settled-only"]).is_none());
+        assert!(enumerated(&["spec.json", "--settled-only"]).is_none());
     }
 
     /// Only the subcommands that write rows accept the grain flag.
     #[test]
     fn only_the_enumerating_verbs_spell_the_grain_flag() {
         assert!(cased(&["spec.json", "cases.txt", "--deep-classes-off"]).is_none());
-        assert!(livened(&["spec.json", "keys.txt", "--deep-classes-off"]).is_none());
         let label_grain = fanned(&[
             "spec.json",
             "out",
@@ -2158,8 +1925,6 @@ mod tests {
         assert!(enumerated(&[]).is_none());
         assert!(enumerated(&["spec.json", "extra.json"]).is_none());
         assert!(enumerated(&["spec.json", "--live-only"]).is_none());
-        assert!(livened(&["spec.json"]).is_none());
-        assert!(livened(&["spec.json", "keys.txt", "extra.txt"]).is_none());
         assert!(cased(&["spec.json"]).is_none());
         assert!(fanned(&["spec.json", "--configs=default"]).is_none());
         assert!(fanned(&["spec.json", "out", "extra", "--configs=default"]).is_none());
@@ -2269,7 +2034,7 @@ mod tests {
         assert!(cased(&["spec.json", "cases.txt", "--configs=default"]).is_none());
     }
 
-    /// `--timings` is optional on the enumerating subcommands and a usage error on the two case subcommands.
+    /// `--timings` is optional on the enumerating subcommands and a usage error on the case replay.
     #[test]
     fn only_the_enumerating_verbs_spell_the_timings_flag() {
         assert!(
@@ -2288,10 +2053,9 @@ mod tests {
                 .timings
         );
         assert!(cased(&["spec.json", "cases.txt", "--timings"]).is_none());
-        assert!(livened(&["spec.json", "keys.txt", "--timings"]).is_none());
     }
 
-    /// `--cache-stats` is accepted by the enumerating subcommands and the string replay, independently of `--timings`; the two case subcommands reject it.
+    /// `--cache-stats` is accepted by the enumerating subcommands and the string replay, independently of `--timings`; the case replay rejects it.
     #[test]
     fn the_enumerating_verbs_and_the_replay_spell_the_cache_stats_flag() {
         let with_stats = enumerated(&["spec.json", "--cache-stats"])
@@ -2322,6 +2086,5 @@ mod tests {
                 .cache_stats
         );
         assert!(cased(&["spec.json", "cases.txt", "--cache-stats"]).is_none());
-        assert!(livened(&["spec.json", "keys.txt", "--cache-stats"]).is_none());
     }
 }

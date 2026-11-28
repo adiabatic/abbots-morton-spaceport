@@ -196,35 +196,6 @@ def normalize_expected(names: list[str]) -> list[str]:
     return [ZWNJ_SENTINEL if name in ("uni200C", "zwnj", ZWNJ) else name for name in names]
 
 
-def settled_names(
-    spec: ResolvedSpec, settled: Iterable, glyph_names: Mapping[CellId, str] | None = None
-) -> list[str]:
-    """The glyph name for each settled item. An item's own `glyph_name` is used first. Otherwise a boundary cell becomes its token glyph, and a rune cell is looked up in `glyph_names` or falls back to its display name."""
-    names: list[str] = []
-    for item in settled:
-        direct = getattr(item, "glyph_name", None)
-        if isinstance(direct, str):
-            names.append(direct)
-            continue
-        cell = getattr(item, "cell", None)
-        if cell is None:
-            names.append(str(item))
-            continue
-        if isinstance(cell, CellId) and getattr(cell, "stance", None) == "boundary":
-            names.append(
-                {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}.get(cell.rune, cell.rune)
-            )
-            continue
-        if isinstance(cell, CellId) and cell.rune in spec.runes:
-            if glyph_names and cell in glyph_names:
-                names.append(glyph_names[cell])
-            else:
-                names.append(geometry.display_name(spec, cell))
-        else:
-            names.append(getattr(cell, "rune", str(cell)))
-    return names
-
-
 def check_glyph_names(text, config, shaped, expected, divergences: DivergenceSink, modes) -> None:
     actual = normalize_actual(text, shaped)
     expected = normalize_expected(expected)
@@ -566,67 +537,6 @@ def _window_rights(labels: list[str], index: int) -> tuple[str, str, str, str]:
 
 def _label_family(label: str) -> str:
     return label.split(".")[0]
-
-
-def _token_members(decision, label: str) -> tuple[str, ...]:
-    """The raw member labels a table's deep-slot field stands for: the class map's entry for a class id, or else the label itself."""
-    deep = getattr(decision, "deep_classes", None)
-    if deep:
-        members = deep.get(label)
-        if members:
-            return members
-    return (label,)
-
-
-def _token_representative(decision, label: str) -> str:
-    return _token_members(decision, label)[0]
-
-
-class _DeepTokenIndex:
-    """Maps a window's raw third and fourth right slots to one configuration's deep-slot class tokens, for the rule replay (`witness._matched_windows` takes one as `deep_index`). `_SettledWindowWalk` does not use it.
-
-    It has two levels, because fourth-slot fibers depend on the third-slot token as well as the base: `{(renamed input, settled left, renamed r1, renamed r2) -> {renamed member label -> r3 token}}`, and the same keyed one level deeper on the resolved r3 token. That token is the class id when the row's r3 is a class, and otherwise the bare r3 in renamed space, which is what `resolve` returns in each case (a class token is never renamed, and a bare label reaches `resolve` already marker-renamed).
-
-    It is built once per configuration from `decision.transitions`, `decision.deep_classes`, and the rename map. Callers run `resolve` where they hold the settled left, after `_window_rights` has read the raw labels, so a class id never stands where a raw label is expected. A boundary label passes through unchanged. A member the index lacks stays a raw label and then matches no row, as for any window the table lacks; the enumeration is exact, so this should not happen. `representatives` maps each class token to its renamed first member for rule matching. That is exact because the build asserts that every emitted lookahead class holds either all of a token's members or none of them.
-    """
-
-    def __init__(self, decision, renames: Mapping[str, str]):
-        self.representatives: dict[str, str] = {}
-        self._by_base: dict[tuple[str, str, str, str], dict[str, str]] = {}
-        self._by_base_r3: dict[tuple[tuple[str, str, str, str], str], dict[str, str]] = {}
-        deep = getattr(decision, "deep_classes", None) or {}
-        for token, members in deep.items():
-            self.representatives[token] = renames.get(members[0], members[0])
-        for row in decision.transitions:
-            members3 = deep.get(row.right3)
-            members4 = deep.get(row.right4)
-            if members3 is None and members4 is None:
-                continue
-            base = (
-                renames.get(row.input_glyph, row.input_glyph),
-                row.left,
-                renames.get(row.right1, row.right1),
-                renames.get(row.right2, row.right2),
-            )
-            if members3 is not None:
-                bucket = self._by_base.setdefault(base, {})
-                for member in members3:
-                    bucket[renames.get(member, member)] = row.right3
-            if members4 is not None:
-                token3 = row.right3 if members3 is not None else renames.get(row.right3, row.right3)
-                bucket4 = self._by_base_r3.setdefault((base, token3), {})
-                for member in members4:
-                    bucket4[renames.get(member, member)] = row.right4
-
-    def resolve(
-        self, label: str, left: str, right1: str, right2: str, right3: str, right4: str
-    ) -> tuple[str, str]:
-        base = (label, left, right1, right2)
-        bucket = self._by_base.get(base)
-        token3 = bucket.get(right3, right3) if bucket is not None else right3
-        bucket4 = self._by_base_r3.get((base, token3))
-        token4 = bucket4.get(right4, right4) if bucket4 is not None else right4
-        return token3, token4
 
 
 _Window = tuple[str, str, str, str, str, str]

@@ -51,23 +51,6 @@ A rehearsal runs the workflow's GitHub steps on the tip of `master` without depl
 
 The run proves what a tag push does on GitHub short of its public effects: that the workflow's token lists the draft, that the fonts download by asset id and match `fonts.json` and the commit the run checks out, the WOFF2 conversion, the assembled site (the run's `github-pages` artifact, which GitHub keeps for a day) and the release files (`font-files`), the release notes from `FONTLOG.md`, the zip, and its upload to the draft by the draft's id. It cannot prove the tag push's trigger, the Pages deployment or the `PATCH` that publishes the draft, which run only on a tag push.
 
-## WIP word highlighting
-
-`site/the-manual.html` is the only JavaScript consumer of `site/wip.json`. On load it fetches that file, parses it as a JSON array of strings, and adds the `.wip` class from `site/shared.css` to matching entries in the manual. If the file is missing, empty, or malformed, the code silently does nothing.
-
-Each array item is a whitespace-separated sequence of Quikscript letter names using the names from `site/shared.js` (`Day`, `Roe`, `Eight`, `J'ai`, and so on). Tokens may also include a `.variant` suffix when you want to match a specific `data-expect` token variant.
-
-```json
-[
-  "Day Roe Eight",
-  "Way.alt At"
-]
-```
-
-The matcher scans `[data-expect]`, `.pairings td`, `.pairings dd`, `.word-list td`, and `.word-list dd`. A sequence marks an element as WIP if either its `data-expect` contains the requested tokens in order or its text content contains the raw PUA substring built from the base letter names.
-
-With no active WIP list, `site/wip.json` stays checked in as `[]`, so adding an entry is a one-line edit.
-
 ## Understanding
 
 Really, you ought to ask an LLM set to maximum thinking mode to give you the 10¢ tour. Anything written down here would probably be out of date by the time you read it.

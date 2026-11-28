@@ -2,7 +2,7 @@
 
 A `RightToken` is one raw lookahead slot. A `LeftContext` is the settled neighbor to the left. A `Candidate` is one option ranked at a position: a stance of the rune there, with its entry and the junction toward the next letter. `RankedCandidate` and `Elimination` are the ranked and eliminated candidates an explain trace lists, and a `TransitionTrace` is the full result for one position. `kernel_exec` decodes the crate's results into these types, so explain reports, review units, and conform windows all read the same objects.
 
-Space and ZWNJ split runs and determine word position. The namer dot does not split runs. A condition can address it as `is: namer-dot`, and because it has no join surface it breaks adjacency. A boundary position settles to `boundary_settled`, which this module computes without asking the kernel. `word_position` derives the §3.4 word position from the splitting kinds alone.
+Space and ZWNJ split runs and determine word position. The namer dot does not split runs. A condition can address it as `is: namer-dot`, and because it has no join surface it breaks adjacency. A boundary position settles to `boundary_settled`, which this module computes without asking the kernel.
 
 `form_ligatures` runs before every other stage, the stylistic-set markers included. It matches the modeled ligature runes greedily left to right, longest sequence first, and each match is subject to the §5.7 late-formation guard over the two raw tokens after the sequence. The guard verdicts come from the crate through `kernel_exec.guard_sweep`, are passed in as an argument, and are read only in `guard_blocks`.
 """
@@ -15,7 +15,6 @@ from typing import NamedTuple
 
 from engine.pipeline.model import CellId, Height, Provenance, ResolvedSpec, Settled
 
-SPLITTING_KINDS = ("edge", "space", "zwnj")
 BOUNDARY_KINDS = ("edge", "space", "zwnj", "namer-dot")
 BOUNDARY_STANCE = "boundary"
 
@@ -151,32 +150,6 @@ def cell_label(spec: ResolvedSpec, cell: CellId) -> str:
         parts.append(f"ex-y{spec.registry.y_of(cell.exit)}")
     parts.extend(cell.adjustments)
     return ".".join(parts)
-
-
-def is_entry_bearing(spec: ResolvedSpec, rune_name: str) -> bool:
-    """Whether the ZWNJ lock replaces this rune: some stance has a selectable declared entry row or an entry unlock. Features are ignored, as they are by the ZWNJ lock."""
-    rune = spec.runes[rune_name]
-    for stance in rune.stances.values():
-        if any(row.selectable for row in stance.surface.entries.values()):
-            return True
-        if any(unlock.entry is not None for unlock in stance.surface.unlocks):
-            return True
-    return False
-
-
-def word_position(left_kind: str, right1_kind: str) -> str | None:
-    """Return the word position (design §3.4) derived from run-splitting boundaries only. The namer dot does not split runs, so it leaves the position medial on both sides. Returns None when the right token is unknown."""
-    initial = left_kind in SPLITTING_KINDS
-    if right1_kind == "unknown":
-        return None
-    final = right1_kind in SPLITTING_KINDS
-    if initial and final:
-        return "isolated"
-    if initial:
-        return "initial"
-    if final:
-        return "final"
-    return "medial"
 
 
 def tokens_from_codepoints(spec: ResolvedSpec, codepoints: Sequence[int]) -> list[RightToken]:

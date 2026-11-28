@@ -230,10 +230,6 @@ dt.highlighted,
   background: light-dark(#ffe0b2, #6b4400);
 }
 
-.wip {
-  background: light-dark(#c4d4e8, #2a3a5a);
-}
-
 .stressed {
   position: relative;
 

@@ -36,10 +36,6 @@ class FakeJoinRow:
 @dataclass
 class FakeDecision:
     rules: list = field(default_factory=list)
-    cells: frozenset = frozenset()
-
-    def reachable_cells(self):
-        return self.cells
 
 
 @dataclass

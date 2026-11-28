@@ -4300,76 +4300,9 @@
       });
     </script>
 
-    <script type="module">
-      import { NAME_TO_CP } from "./shared.js";
-
-      function parseToken(raw) {
-        const dotIdx = raw.indexOf(".");
-        if (dotIdx === -1) return { base: raw, variant: null };
-        return { base: raw.slice(0, dotIdx), variant: raw.slice(dotIdx + 1) };
-      }
-
-      function matchesDataExpect(expectStr, tokens) {
-        const parts = expectStr.split(/[|·~+\s]+/).filter(Boolean);
-        let ti = 0;
-        for (const part of parts) {
-          if (ti >= tokens.length) break;
-          const parsed = parseToken(part);
-          if (parsed.base === tokens[ti].base) {
-            if (tokens[ti].variant && !part.includes("." + tokens[ti].variant)) continue;
-            ti++;
-          }
-        }
-        return ti === tokens.length;
-      }
-
-      function buildTextSubstring(tokens) {
-        const cps = [];
-        for (const t of tokens) {
-          const cp = NAME_TO_CP[t.base];
-          if (cp == null) return null;
-          cps.push(cp);
-        }
-        return String.fromCodePoint(...cps);
-      }
-
-      try {
-        const resp = await fetch("wip.json");
-        if (!resp.ok) throw new Error(resp.status);
-        const sequences = await resp.json();
-        if (!Array.isArray(sequences) || sequences.length === 0) throw new Error("empty");
-
-        const parsed = sequences.map((seq) => {
-          const tokens = seq.split(/\s+/).map(parseToken);
-          return { tokens, textSubstr: buildTextSubstring(tokens) };
-        });
-
-        const candidates = document.querySelectorAll(
-          "[data-expect], .pairings td, .pairings dd, .word-list td, .word-list dd",
-        );
-
-        for (const el of candidates) {
-          for (const { tokens, textSubstr } of parsed) {
-            const expectAttr = el.getAttribute("data-expect");
-            if (expectAttr && matchesDataExpect(expectAttr, tokens)) {
-              el.classList.add("wip");
-              break;
-            }
-            if (textSubstr && el.textContent.includes(textSubstr)) {
-              el.classList.add("wip");
-              break;
-            }
-          }
-        }
-      } catch {
-        // wip.json missing, empty, or malformed — no highlights
-      }
-    </script>
-
     <footer>
       <a href="index.html">Overview</a> | The Manual |
       <a href="tables.html">Tables</a> | <a href="specimen.html">Specimen</a> | <a href="exotics.html">Exotics</a> |
-      <a href="glyph-editor.html">Glyph Editor</a> |
       <a href="shavian.html">Shavian</a> |
       <a href="https://github.com/adiabatic/abbots-morton-spaceport">GitHub</a>
     </footer>

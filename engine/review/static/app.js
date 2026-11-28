@@ -83,7 +83,6 @@ import {
   sectionTotalsLine,
   classSectionSentence,
   classProgressLine,
-  manifestRefusal,
   SECTION_LABELS,
   nextUnverdictedIndex,
   stepIndex,
@@ -173,7 +172,6 @@ const NEITHER_MENU_CHOICES = [
 ];
 
 const manifest = await (await fetch('manifest.json')).json();
-const refusal = manifestRefusal(manifest);
 const classById = new Map(manifest.classes.map((cls) => [cls.id, cls]));
 const classInfoById = classInfo(manifest);
 const titleOf = (classId) => classTitle(classInfoById.get(classId), classId);
@@ -1495,10 +1493,6 @@ function unitLinkEl(unitId) {
   const link = el('a', 'unit-link', unitId);
   link.href = `#unit=${unitId}`;
   return link;
-}
-
-function verdictChipEl(verdict) {
-  return el('span', `verdict-chip ${verdict}`, verdict);
 }
 
 function worklistHref(unitIds) {
@@ -3689,42 +3683,21 @@ function renderLegend() {
   document.getElementById('legend-sections').replaceChildren(...sections);
 }
 
-// A manifest written before sections existed would put every class outside Open questions and leave the Queue empty, so the app shows why instead of booting on it, and still moves onto the next corpus the cycle serves.
-function refuseCorpus(message) {
-  document.getElementById('corpus-total').textContent = corpusChipLabel(manifest);
-  const banner = el('p', 'corpus-refusal', message);
-  banner.setAttribute('role', 'alert');
-  const layout = document.querySelector('.layout');
-  layout.hidden = true;
-  layout.before(banner);
-  window.addEventListener(RELOAD_EVENT, (event) => requestMove(parseReloadPath(event.detail?.path)));
-  window.__amsReloadReady = true;
-  if (window.__amsPendingReload) {
-    requestMove(parseReloadPath(window.__amsPendingReload));
-    window.__amsPendingReload = null;
-  }
-  refreshStatus();
-}
-
 const viewExtras = takeMoveState();
 if (viewExtras?.keptAsideSince && viewExtras.keptAsideSince < keptAsideSince) keptAsideSince = viewExtras.keptAsideSince;
-if (refusal) {
-  refuseCorpus(refusal);
-} else {
-  renderChrome();
-  trackStripHeight();
-  renderLegend();
-  renderSidebar();
-  keepTabAlive();
-  wireEvents();
-  indexReady = loadHumanIndex();
-  await restoreAutosave();
-  restoreConflicts();
-  bootRestoreDone = true;
-  await indexReady;
-  applyHashState(true).then((replaced) => {
-    if (!replaced) restoreViewExtras(viewExtras);
-  });
-  if (replayQueue.length > 0) flushAutosave();
-  refreshStatus();
-}
+renderChrome();
+trackStripHeight();
+renderLegend();
+renderSidebar();
+keepTabAlive();
+wireEvents();
+indexReady = loadHumanIndex();
+await restoreAutosave();
+restoreConflicts();
+bootRestoreDone = true;
+await indexReady;
+applyHashState(true).then((replaced) => {
+  if (!replaced) restoreViewExtras(viewExtras);
+});
+if (replayQueue.length > 0) flushAutosave();
+refreshStatus();

@@ -173,18 +173,6 @@ test('import merges by unit id and the newer record wins', () => {
   assert.equal(store.records.get('u-0003').verdict, 'skip');
 });
 
-test('import tolerates legacy records carrying a configs field by ignoring it', () => {
-  const store = createStore();
-  const doc = {
-    format: EXPORT_FORMAT,
-    manifest_generated_at: 'gen-1',
-    verdicts: [{ unit: 'u-0001', verdict: 'reject', configs: ['ss03'], note: '', at: 't1' }],
-  };
-  const result = importVerdicts(store, doc, 'gen-1');
-  assert.equal(result.added, 1);
-  assert.deepEqual(store.records.get('u-0001'), { unit: 'u-0001', verdict: 'reject', note: '', at: 't1' });
-});
-
 test('import rejects non-export documents', () => {
   const store = createStore();
   assert.equal(importVerdicts(store, { format: 'something-else' }, 'gen-1').ok, false);

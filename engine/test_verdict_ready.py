@@ -250,18 +250,6 @@ def test_a_missing_manifest_fails_the_corpus_row_and_never_raises(tmp_path):
     assert result["checks"]["blanks"]["count"] is None
 
 
-def test_a_corpus_that_is_not_a_table_diff_corpus_fails_and_gets_no_freshness_or_diff_row(tmp_path):
-    setup(tmp_path, mode="another-mode")
-    result = call(tmp_path)
-    corpus = result["checks"]["corpus"]
-    assert (
-        corpus["level"] == "fail" and "the mode 'another-mode', not the table-diff corpus" in corpus["detail"]
-    )
-    assert corpus["remedy"] == "make artifact-cycle"
-    assert "freshness" not in result["checks"] and "diff" not in result["checks"]
-    assert result["ready"] is False
-
-
 def test_ready_only_when_every_blocking_row_passes(tmp_path):
     setup(tmp_path)
     result = call(tmp_path)

@@ -43,7 +43,7 @@ def readiness(
     other_root: Callable[[Path], str | None] = other_checkout_root,
     recompute_table_diff: Callable | None = None,
 ) -> tuple[dict, bool]:
-    """Return the status dict and whether the whole checklist passes. `with_server=False` leaves out the server row. The artifact cycle passes it at the end of a `make review-cycle` pass, because the recipe restarts the server afterwards, or reports that it left it down, and a row read earlier would report as absent a server that is about to start. `recompute_table_diff` stands in for `status.table_diff_inputs`."""
+    """Return the status dict and whether the whole checklist passes. `with_server=False` leaves out the server row. The artifact cycle passes it at the end of a `make review-cycle` pass, because the recipe starts the server afterwards when none is up, or reports that it left none running, and a row read earlier would report as absent a server that is about to start. `recompute_table_diff` stands in for `status.table_diff_inputs`."""
     result = status.compute_status(
         repo_root,
         review_dir,
@@ -101,7 +101,7 @@ def checklist(result: dict, overall_ready: bool) -> list[str]:
 
 
 def diff_summary_line(result: dict) -> str | None:
-    """The cycle summary's line, `review diff: N unaccepted changes since <sha12> (H need a verdict)`, from the status dict's diff row, or None when it has none, as for a corpus that is not a table-diff corpus."""
+    """The cycle summary's line, `review diff: N unaccepted changes since <sha12> (H need a verdict)`, from the status dict's diff row, or None when it has none, as for a corpus with no readable manifest."""
     diff = result.get("checks", {}).get("diff")
     if not isinstance(diff, dict):
         return None

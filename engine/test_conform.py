@@ -20,6 +20,7 @@ import pytest
 
 from engine.pipeline import (
     conform,
+    geometry,
     kernel_exec,
     labels,
     row_delta,
@@ -30,7 +31,6 @@ from engine.pipeline import (
     witness,
 )
 from engine.pipeline.fixtures import mini_spec
-from engine.pipeline.model import CellId
 
 MINI = Path(__file__).resolve().parent / "review" / "fixtures" / "mini"
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -77,29 +77,6 @@ class TestNormalization:
             conform.ZWNJ_SENTINEL,
             "qsTea",
         ]
-
-    def test_settled_names_prefers_glyph_name_attribute(self, spec):
-        class WithName:
-            glyph_name = "qsIt.ex-y0"
-
-        assert conform.settled_names(spec, [WithName()]) == ["qsIt.ex-y0"]
-
-    def test_settled_names_falls_back_to_display_name(self, spec):
-        class WithCell:
-            cell = CellId("qsMay", "loop", "baseline", "x-height", ("en-ext-1",))
-            junction = None
-
-        assert conform.settled_names(spec, [WithCell()]) == ["qsMay.en-y0.ex-y5.en-ext-1"]
-
-    def test_settled_names_uses_supplied_inventory(self, spec):
-        cell = CellId("qsMay", "loop", None, "x-height", ())
-
-        class WithCell:
-            cell: CellId
-
-        item = WithCell()
-        item.cell = cell
-        assert conform.settled_names(spec, [item], {cell: "qsMay"}) == ["qsMay"]
 
     def test_isolated_overlay_labels_render_one_copy_per_raw_token(self, spec):
         """Under the overlay each component of a ligature renders as its own copy, because the ss10 input substitution replaces every letter with its copy before formation. A boundary token renders as its own glyph."""
@@ -590,12 +567,12 @@ class TestRawLabelsLateFormation:
 
 
 class TestSettledWindowWalk:
-    """The memo keys on the raw window from `_window_rights`: every slot one settlement can read, with `#NA` only past a boundary or the edge. So the walk must match an unmemoized settlement of the same tokens, and its keys must agree with `witness._matched_windows`, which reads the same raw slots. The risk is a key that leaves out a slot the kernel can read, which would replay a wrong outcome somewhere. Both paths run exhaustively here: the walk reuses its memo from the second text on, while the reference settles every text as its own sequence. Rule matching is not part of the walk; `witness._matched_windows` and `_DeepTokenIndex` do it for the build's certificate check, so the tests that need rules exercise them there."""
+    """The memo keys on the raw window from `_window_rights`: every slot one settlement can read, with `#NA` only past a boundary or the edge. So the walk must match an unmemoized settlement of the same tokens, and its keys must agree with `witness._matched_windows`, which reads the same raw slots. The risk is a key that leaves out a slot the kernel can read, which would replay a wrong outcome somewhere. Both paths run exhaustively here: the walk reuses its memo from the second text on, while the reference settles every text as its own sequence. Rule matching is not part of the walk; `witness._matched_windows` does it for the build's certificate check, so the tests that need rules exercise it there."""
 
     SWEEP_CHUNK = 4096
 
-    def _sweep(self, spec, features, alphabet, max_length, rules_by_input=None, deep_index=None, memo=None):
-        """Sweep every text up to `max_length`, comparing the walk's settled stream and names with an unmemoized settlement of the same formed tokens, and checking that every window `witness._matched_windows` reads is in the walk's memo. Both sides use the crate, so what this tests is the memo's keying: the walk settles a window once and replays it wherever the key recurs, while the reference settles each text on its own, so a key that dropped a slot settlement can read shows up as a wrong outcome. Texts go through in chunks so the reference's decoded traces stay bounded in memory; the walk keeps its memo across chunks. With `rules_by_input`, the replay also runs through `deep_index` and returns its (window, first-matching rule) pairs for the class-token tests to check. With `memo`, the walk loads that settle memo file first, so a file another producer wrote is checked against the same reference."""
+    def _sweep(self, spec, features, alphabet, max_length, rules_by_input=None, memo=None):
+        """Sweep every text up to `max_length`, comparing the walk's settled stream and names with an unmemoized settlement of the same formed tokens, and checking that every window `witness._matched_windows` reads is in the walk's memo. Both sides use the crate, so what this tests is the memo's keying: the walk settles a window once and replays it wherever the key recurs, while the reference settles each text on its own, so a key that dropped a slot settlement can read shows up as a wrong outcome. Texts go through in chunks so the reference's decoded traces stay bounded in memory; the walk keeps its memo across chunks. With `rules_by_input`, the replay also matches those rules and returns its (window, first-matching rule) pairs for the rule-matching tests to check. With `memo`, the walk loads that settle memo file first, so a file another producer wrote is checked against the same reference."""
         import itertools
 
         guard = kernel_exec.guard_sweep(spec)
@@ -626,16 +603,23 @@ class TestSettledWindowWalk:
                     assert traces is not None
                     expected = [trace.settled for trace in traces]
                     assert settled == expected, text
-                    assert names == conform.settled_names(spec, expected, None), text
+                    assert names == [
+                        (
+                            conform._BOUNDARY_KIND_LABELS[item.cell.rune]
+                            if settle.is_boundary_settled(item)
+                            else geometry.display_name(spec, item.cell)
+                        )
+                        for item in expected
+                    ], text
                     for _index, window, _matched in witness._matched_windows(
-                        spec, text, features, guard, names, {}, None
+                        spec, text, features, guard, names, {}
                     ):
                         assert window in walker.windows, (text, window)
                     if rules_by_input is not None:
                         replayed += [
                             (window, matched)
                             for _index, window, matched in witness._matched_windows(
-                                spec, text, features, guard, names, rules_by_input, deep_index
+                                spec, text, features, guard, names, rules_by_input
                             )
                         ]
         return walker, replayed
@@ -675,7 +659,7 @@ class TestSettledWindowWalk:
                     last = len(labels) - 1
                     at_horizon = len(text) == max_length
                     for index, window, _matched in witness._matched_windows(
-                        spec, text, features, guard, names, {}, None
+                        spec, text, features, guard, names, {}
                     ):
                         if index > 1 or (index == 1 and not at_horizon) or last > index + 4:
                             continue
@@ -732,9 +716,8 @@ class TestSettledWindowWalk:
         assert any(key[4] != "#NA" for key in walker.windows), "no window opened its third slot"
 
     def test_prospect_live_slots_agree_between_walk_and_replay(self, monkeypatch):
-        """Under the simulated-prospect default, the windows of `fixtures.prospect_spec` where A precedes B and C have a live third slot that the table enumerates. The memoized walk and the unmemoized replay must agree on it, and the table's deep-token index supplies the class map for the replay's rule matching."""
+        """Under the simulated-prospect default, the windows of `fixtures.prospect_spec` where A precedes B and C have a live third slot that the table enumerates. The memoized walk and the unmemoized replay must agree on it, and the replay's rule matching over the raw labels must fire the table's rules."""
         from engine.pipeline import fixtures
-        from engine.pipeline.model import raw_rename_map
         from engine.pipeline.kernel_exec import build_tables
 
         monkeypatch.setattr(kernel_exec, "SIMULATED_PROSPECT_DEFAULT", True)
@@ -744,18 +727,14 @@ class TestSettledWindowWalk:
         assert any(rule.look3 for rule in decision.rules)
         assert decision.deep_classes
         rules_by_input = witness._renamed_rules_by_input(spec, frozenset(), decision)
-        index = conform._DeepTokenIndex(decision, raw_rename_map(spec, frozenset()))
-        _walker, replayed = self._sweep(
-            spec, frozenset(), conform.spec_alphabet(spec), 5, rules_by_input, index
-        )
+        _walker, replayed = self._sweep(spec, frozenset(), conform.spec_alphabet(spec), 5, rules_by_input)
         assert any(matched is not None for _window, matched in replayed)
 
-    def test_synthetic_depth4_replay_carries_rules_and_a_genuine_index(self):
-        """Class tokens at depth 4 with real rules and a real index: the mini spec plus a reach-3 chain on ·Tea, built under the default modes, creates an r4 class at the ·Tea·May·May·May windows. `witness._matched_windows`, which the witness stage uses, must resolve the labels to that class token and match rules against it, and the walk must still settle those texts correctly."""
+    def test_synthetic_depth4_replay_matches_the_rules_of_an_r4_class_table(self):
+        """Class tokens at depth 4 with real rules: the mini spec plus a reach-3 chain on ·Tea, built under the default modes, creates an r4 class at the ·Tea·May·May·May windows. `witness._matched_windows`, which the witness stage uses, must match that table's rules over the raw labels, and the walk must still settle those texts correctly."""
         import dataclasses
 
         from engine.pipeline import fixtures, model
-        from engine.pipeline.model import raw_rename_map
         from engine.pipeline.kernel_exec import build_tables
 
         spec = fixtures.mini_spec()
@@ -779,7 +758,6 @@ class TestSettledWindowWalk:
         decision = build_tables(spec, frozenset())[0]
         assert any(row.right4 in decision.deep_classes for row in decision.transitions)
         rules_by_input = witness._renamed_rules_by_input(spec, frozenset(), decision)
-        index = conform._DeepTokenIndex(decision, raw_rename_map(spec, frozenset()))
         alphabet = tuple(
             chr(codepoint)
             for codepoint in (
@@ -789,10 +767,7 @@ class TestSettledWindowWalk:
             )
             if codepoint is not None
         ) + (" ",)
-        _walker, replayed = self._sweep(spec, frozenset(), alphabet, 5, rules_by_input, index)
-        assert any(
-            window[5].startswith("#C") for window, _matched in replayed
-        ), "no r4 class token reached the replay"
+        _walker, replayed = self._sweep(spec, frozenset(), alphabet, 5, rules_by_input)
         assert any(matched is not None for _window, matched in replayed)
 
     def test_prefill_then_walk_matches_walk_with_misses(self, spec, guard):
@@ -1456,78 +1431,6 @@ class TestCrateEmittedSettleMemo:
         with pytest.raises(kernel_exec.KernelRunError, match="two ways"):
             self._absorb(dump, refused, spec, "default")
         assert not refused.path.exists()
-
-
-class TestDeepTokenIndex:
-    """`_DeepTokenIndex` is built from the table's raw labels but queried with the walk's marker-renamed labels, so every member combination of every class-bearing row must resolve to the deep slots of the row's renamed key. The walk-equivalence sweeps cannot catch a rename applied on one side only, because both paths use the same index, so this test checks resolution against the rows directly. The configuration renames a bare (singleton-fiber) r3 under a class-token r4, the row shape the final assertion requires."""
-
-    def test_every_class_row_resolves_under_a_renaming_config(self):
-        import dataclasses
-
-        from engine.pipeline import model
-        from engine.pipeline.model import raw_rename_map
-        from engine.pipeline.kernel_exec import build_tables
-
-        spec = mini_spec()
-        tea = spec.runes["qsTea"]
-        chain = model.Condition(
-            family=("qsMay",),
-            then=model.Condition(
-                family=("qsMay",),
-                then=model.Condition(
-                    family=("qsMay",),
-                    then=model.Condition(family=("qsIt",)),
-                ),
-            ),
-        )
-        record = model.PolicyRecord(
-            kind="prefer", stance="half", mode="absolute", when=model.When(right=chain)
-        )
-        runes = dict(spec.runes)
-        runes["qsTea"] = dataclasses.replace(tea, policy=dataclasses.replace(tea.policy, prefer=(record,)))
-        may = runes["qsMay"]
-        stance_name, stance = next(iter(may.stances.items()))
-        surface = dataclasses.replace(
-            stance.surface, unlocks=stance.surface.unlocks + (model.Unlock(feature="ss03"),)
-        )
-        stances = dict(may.stances)
-        stances[stance_name] = dataclasses.replace(stance, surface=surface)
-        runes["qsMay"] = dataclasses.replace(may, stances=stances)
-        spec = dataclasses.replace(spec, runes=runes)
-        features = frozenset({"ss03"})
-        decision = build_tables(spec, features)[0]
-        renames = raw_rename_map(spec, features)
-        assert renames.get("qsMay") == "qsMay.ss03"
-        index = conform._DeepTokenIndex(decision, renames)
-        deep = decision.deep_classes
-        assert deep
-        checked = 0
-        bare_renamed_r3_under_class_r4 = 0
-        for row in decision.transitions:
-            if row.right3 not in deep and row.right4 not in deep:
-                continue
-            if row.right4 in deep and row.right3 not in deep and row.right3 in renames:
-                bare_renamed_r3_under_class_r4 += 1
-            want = (
-                row.right3 if row.right3 in deep else renames.get(row.right3, row.right3),
-                row.right4 if row.right4 in deep else renames.get(row.right4, row.right4),
-            )
-            for member3 in decision.token_members(row.right3):
-                for member4 in decision.token_members(row.right4):
-                    resolved = index.resolve(
-                        renames.get(row.input_glyph, row.input_glyph),
-                        row.left,
-                        renames.get(row.right1, row.right1),
-                        renames.get(row.right2, row.right2),
-                        renames.get(member3, member3),
-                        renames.get(member4, member4),
-                    )
-                    assert resolved == want, (row.key, member3, member4, resolved, want)
-                    checked += 1
-        assert checked
-        assert (
-            bare_renamed_r3_under_class_r4
-        ), "no row exercises the renamed-bare-r3 + class-r4 shape this case exists for"
 
 
 class TestSettleMemoFile:

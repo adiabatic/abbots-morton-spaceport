@@ -14,7 +14,7 @@ use crate::index::{Ordinal, SpecIndex};
 use crate::model::{Provenance, Sym};
 pub use crate::token::{EDGE, NAMER_DOT, RightToken, SPACE, UNKNOWN, ZWNJ};
 
-/// The boundary kinds that split a run; word position is derived from them. `settle.SPLITTING_KINDS`. [`TokenKind::splits_runs`] is the form the code uses, and `the_kind_predicates_agree_with_the_constant_lists` checks that the two agree.
+/// The boundary kinds that split a run; word position is derived from them. [`TokenKind::splits_runs`] is the form the code uses, and `the_kind_predicates_agree_with_the_constant_lists` checks that the two agree.
 pub const SPLITTING_KINDS: [&str; 3] = ["edge", "space", "zwnj"];
 
 /// Every kind except `letter` and `unknown`, `settle.BOUNDARY_KINDS`: the splitting kinds plus the namer dot, which is a boundary that does not split a run.
@@ -165,7 +165,7 @@ impl WordPosition {
     }
 }
 
-/// Word position from the kinds on either side of a position, `settle.word_position`. `None` means the right slot is outside the evaluated window, so the position cannot be decided yet; `when_matches` propagates that unknown result instead of guessing.
+/// Word position from the kinds on either side of a position: initial after a kind that splits runs ([`TokenKind::splits_runs`]), final before one, isolated between two, and medial otherwise. `None` means the right slot is outside the evaluated window, so the position cannot be decided yet; `when_matches` propagates that unknown result instead of guessing.
 pub fn word_position(left: TokenKind, right1: TokenKind) -> Option<WordPosition> {
     let initial = left.splits_runs();
     if right1 == TokenKind::Unknown {

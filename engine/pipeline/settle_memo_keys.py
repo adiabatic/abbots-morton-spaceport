@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Collection, Iterable, Mapping
+from typing import Collection, Mapping
 
 from engine.pipeline import fingerprint, kernel_exec, spec_load
 from engine.pipeline.fingerprint import EnvironmentStamp
@@ -113,15 +113,12 @@ def moved_families(recorded: Mapping[str, str], current: Mapping[str, str]) -> f
 
 
 class StaleMask:
-    """The per-entry staleness test, as a bitmask over the families an entry can reach. There is one bit per family, in sorted registry order. `mask_of` builds a mask from codepoints and `bit_of` from one label, and `stale` returns whether any moved family is inside it: directly, for a family with a codepoint, or through the ligature clause, which applies only when every component of a moved ligature rune is in the mask. The ligature clause is read from `spec.registry.families[...].sequence` instead of a `_`-split of the name, because `settle.form_ligatures` routes on the sequence. A moved ligature rune also sets its own bit, because the settle memo keys windows on formed labels: a window whose slot holds `qsThey_qsUtter` names that rune and none of its components, so the component clause alone would serve it after an edit to the ligature's file. A moved family that the registry places by neither codepoint nor sequence makes every entry stale, since over-invalidation is the safe direction."""
+    """The per-entry staleness test, as a bitmask over the families an entry can reach. There is one bit per family, in sorted registry order. `bit_of` maps one label to its bit, an entry's mask is the union of its window's label bits, and `stale` returns whether any moved family is inside it: directly, for a family with a codepoint, or through the ligature clause, which applies only when every component of a moved ligature rune is in the mask. The ligature clause is read from `spec.registry.families[...].sequence` instead of a `_`-split of the name, because `settle.form_ligatures` routes on the sequence. A moved ligature rune also sets its own bit, because the settle memo keys windows on formed labels: a window whose slot holds `qsThey_qsUtter` names that rune and none of its components, so the component clause alone would serve it after an edit to the ligature's file. A moved family that the registry places by neither codepoint nor sequence makes every entry stale, since over-invalidation is the safe direction."""
 
     def __init__(self, spec: ResolvedSpec, moved: Collection[str] = ()) -> None:
         families = spec.registry.families
         self.spec = spec
         self._bit: dict[str, int] = {name: 1 << index for index, name in enumerate(sorted(families))}
-        self._family_of: dict[int, str] = {
-            info.codepoint: name for name, info in families.items() if info.codepoint is not None
-        }
         self._ligatures: dict[str, int] = {}
         for name, info in families.items():
             if not info.sequence:
@@ -145,31 +142,12 @@ class StaleMask:
                 self.everything = True
         self._stale_symbols = symbols
         self._stale_ligatures = tuple(sorted(set(ligatures)))
-        self._reach: dict[int, tuple[str, ...]] = {}
-
-    def mask_of(self, codepoints: Iterable[int]) -> int:
-        mask = 0
-        for codepoint in codepoints:
-            name = self._family_of.get(codepoint)
-            if name is not None:
-                mask |= self._bit[name]
-        return mask
 
     def bit_of(self, family: str) -> int:
-        """Return the bit for one family name, or zero for a name the registry does not place (a boundary label, a window edge, or an unknown family). The settle memo uses this because its windows name families by label, not by codepoint. A formed ligature label maps to the ligature rune's own bit, which `stale` checks directly when that rune moved."""
+        """Return the bit for one family name, or zero for a name the registry does not place (a boundary label, a window edge, or an unknown family). The settle memo's windows name families by label, so a reader builds each entry's mask from these bits. A formed ligature label maps to the ligature rune's own bit, which `stale` checks directly when that rune moved."""
         return self._bit.get(family, 0)
 
     def stale(self, mask: int) -> bool:
         if self.everything or mask & self._stale_symbols:
             return True
         return bool(self._stale_ligatures) and any((mask & bits) == bits for bits in self._stale_ligatures)
-
-    def families_of(self, mask: int) -> tuple[str, ...]:
-        """Return every family a mask can reach: the letters its codepoints name, plus each ligature rune whose components are all among them. Memoized on the mask, because many entries share a mask."""
-        cached = self._reach.get(mask)
-        if cached is None:
-            names = [name for name, bit in self._bit.items() if mask & bit]
-            names += [name for name, bits in self._ligatures.items() if bits and (mask & bits) == bits]
-            cached = tuple(sorted(set(names)))
-            self._reach[mask] = cached
-        return cached

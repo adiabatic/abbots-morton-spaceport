@@ -1,6 +1,6 @@
 """Tests for the table-diff accept and the remake (`engine/review/accept.py`): each refusal of the accept, the dry run, which writes nothing, an `--apply`, which takes the snapshot, writes the pointer, empties the store under its lock beside a listening review server and tells the open tabs, `--retake`, and the remake, over a stubbed export and build, in a git tree whose last commit to the pointer names the snapshot.
 
-The build is a real table build of the pipeline's mini fixture spec with the frozen mini bundle's font and a small kern table beside it, as engine/test_review_snapshot.py builds one; the corpus is a manifest written by hand, since the accept reads only its mode, its stamp, its human units, its after font and its `tables` component. The readiness check and the reload sent to the open tabs are stubbed.
+The build is a real table build of the pipeline's mini fixture spec with the frozen mini bundle's font and a small kern table beside it, as engine/test_review_snapshot.py builds one; the corpus is a manifest written by hand, since the accept reads only its stamp, its human units, its after font and its `tables` component. The readiness check and the reload sent to the open tabs are stubbed.
 """
 
 import functools
@@ -91,19 +91,15 @@ def _untouched(root: Path, before: bytes) -> None:
     assert not (root / "home").exists() or snapshot.current(root / "home") is None
 
 
-def test_the_accept_refuses_a_corpus_that_is_not_a_table_diff_corpus(repo, built, capsys):
-    """Only a table-diff corpus shows changes against the accepted snapshot, so the accept refuses a corpus of another mode, dry run, apply and retake alike, and a corpus with no manifest, and writes nothing."""
+def test_the_accept_refuses_a_corpus_with_no_manifest(repo, built, capsys):
+    """The accept refuses a corpus with no manifest that reads, dry run, apply and retake alike, and writes nothing."""
     manifest_path = repo / "engine" / "out" / "review" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    _write_json(manifest_path, {**manifest, "mode": "another-mode"})
     before = (repo / AUTOSAVE_NAME).read_bytes()
+    manifest_path.unlink()
     for flags in ({}, {"apply": True}, {"apply": True, "retake": True}):
         assert _run(repo, built, **flags) == 1
-        assert "not a table-diff corpus" in capsys.readouterr().out
+        assert "has no manifest that reads" in capsys.readouterr().out
         _untouched(repo, before)
-    manifest_path.unlink()
-    assert _run(repo, built, apply=True) == 1
-    assert "has no manifest that reads" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("case", ["not-ready", "other-font", "other-tables", "pass"])

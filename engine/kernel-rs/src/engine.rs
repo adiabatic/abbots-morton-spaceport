@@ -342,11 +342,11 @@ pub struct EngineModes {
     pub simulated_prospect: bool,
     /// Whether a follower prefer reads the window's slots shifted by one, or reads `follower_prefer_deep_slot` for everything past its own `right1`.
     pub follower_prefer_slots: bool,
-    /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. On only in the table fixpoint, the `settle-cases` and `liveness-cases` subcommands, and the string replay.
+    /// Whether the engine memoizes whole windows and journals a fired delta per memoized evaluation. On only in the table fixpoint, the `settle-cases` subcommand, and the string replay.
     pub trace_memo: bool,
     /// Whether a trace carries its ranking: every ranked survivor with its scores, the eliminations with their descriptions, and the runner-up. On wherever a person reads a trace (the explain report, the review corpus, the probe). Off in the table fixpoint, whose rows read only the settled triple, the prospect, the joint tiebreak and the notes, and in the string replay, which reads only the settled record. Formatting rankings nobody reads is the largest avoidable allocation in either.
     pub explain_ranking: bool,
-    /// The ceilings on the prospect and candidate memos, or `None` for neither. Only the table fixpoint sets them ([`crate::fixpoint::TABLE_MEMO_CEILINGS`]); every other engine keeps both unbounded, among them the case verbs' that the explain report and the probe settle through, and the string replay's.
+    /// The ceilings on the prospect and candidate memos, or `None` for neither. Only the table fixpoint sets them ([`crate::fixpoint::TABLE_MEMO_CEILINGS`]); every other engine keeps both unbounded, among them the case replay's, which the explain report and the probe settle through, and the string replay's.
     pub memo_ceilings: Option<MemoCeilings>,
     /// The ceiling on the trace memo, or `None` for a memo that keeps every window it settles. Only the table fixpoint sets it ([`crate::fixpoint::TABLE_TRACE_CEILING`]), and only on an enumeration whose memo no other enumeration reads, since a shared memo that forgot a window would lose its reader that hit ([`crate::fixpoint::MemoAccess`]). Without `trace_memo` it does nothing.
     pub trace_ceiling: Option<TraceCeiling>,
@@ -3515,7 +3515,6 @@ impl<'i> Engine<'i> {
     /// [`Engine::prospect`], exposed to the deep-slot liveness probes.
     ///
     /// The probes read an internal ranking term, and these two wrappers keep that access visible without widening the settlement API. The probes are the only callers, and the wrappers only delegate. The candidate a probe passes is [`crate::liveness`]'s probe candidate (no entry, order index 0, and the `NO_EXIT_INDEX` sentinel), not one the enumeration produced.
-    #[allow(dead_code)]
     pub(crate) fn probe_prospect(
         &mut self,
         rune_name: Sym,
@@ -3752,7 +3751,6 @@ impl<'i> Engine<'i> {
     }
 
     /// [`Engine::prefer_favors`] at the follower's position, exposed to the liveness probe's follower prefer branch, like [`Engine::probe_prospect`]. `record` is one of the `right1` rune's records, which is `rune_name` itself at a doubled letter.
-    #[allow(dead_code)]
     pub(crate) fn probe_prefer_favors(
         &mut self,
         record: &PolicyRecord,

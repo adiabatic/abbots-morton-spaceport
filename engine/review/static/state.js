@@ -13,8 +13,6 @@ export function parseHash(hash) {
   const params = new URLSearchParams((hash ?? '').replace(/^#/, ''));
   const state = {};
   for (const key of STATE_KEYS) state[key] = params.get(key);
-  state.queue ??= params.get('docket');
-  if (state.view === 'docket') state.view = 'queue';
   if (state.batch !== null) {
     const parsed = Number.parseInt(state.batch, 10);
     state.batch = Number.isInteger(parsed) && parsed >= 0 ? parsed : null;

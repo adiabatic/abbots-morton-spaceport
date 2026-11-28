@@ -56,8 +56,6 @@ CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
 UPSERT = b"+"
 TOMBSTONE = b"-"
 _CHUNK = 1 << 20
-# The read buffer each of a plan's hashing threads reuses (`part_hashes_to`): a plan hashes every part at once, up to 22 a configuration at the cap and overrun, so at this size they hold a few megabytes at most, and sha256 from the page cache runs within 5% of its speed through fresh 1 MiB reads.
-HASH_READ_BYTES = 1 << 16
 BLOOM_BITS_PER_KEY = 10
 BLOOM_BLOCK_BITS = 512
 BLOOM_PROBES = 7
@@ -275,19 +273,6 @@ def parse_head(raw: bytes, output: str) -> Head:
 def file_sha256(path: Path) -> str:
     with open(path, "rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
-
-
-def part_hashes_to(handle: BinaryIO, part: Part) -> bool:
-    """Whether the open part, read through from its start, hashes to the sha256 its head records. It reads by position through the handle's descriptor (`os.preadv`), which leaves the handle where it was, into one buffer of `HASH_READ_BYTES` that it reuses, so a plan that hashes every part at once, a thread a part, holds that much a part and allocates nothing a read."""
-    descriptor = handle.fileno()
-    digest = hashlib.sha256()
-    buffer = bytearray(HASH_READ_BYTES)
-    view = memoryview(buffer)
-    offset = 0
-    while count := os.preadv(descriptor, [buffer], offset):
-        digest.update(view[:count])
-        offset += count
-    return digest.hexdigest() == part.sha256
 
 
 @dataclass

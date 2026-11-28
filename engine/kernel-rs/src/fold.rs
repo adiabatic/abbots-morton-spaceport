@@ -411,30 +411,11 @@ pub fn fold_with(
     product: FixpointProduct,
     options: &mut WindowOptions<'_>,
 ) -> Result<Folded, String> {
-    fold_with_report(index, product, options, None)
-}
-
-/// [`fold_with`] with wall-clock reports for the row-chain search (`prefixes`) and the outcome partition (`partition`). The phase names carry no configuration suffix, so the caller chooses the grouping and output format. [`fold_with`] reads no clocks.
-pub fn fold_with_profile(
-    index: &SpecIndex,
-    product: FixpointProduct,
-    options: &mut WindowOptions<'_>,
-    mut report: impl FnMut(&str, Duration),
-) -> Result<Folded, String> {
-    fold_with_report(index, product, options, Some(&mut report))
-}
-
-fn fold_with_report(
-    index: &SpecIndex,
-    product: FixpointProduct,
-    options: &mut WindowOptions<'_>,
-    mut report: Option<&mut FoldReporter<'_>>,
-) -> Result<Folded, String> {
-    let prepared = Prepared::new(product, report.as_deref_mut())?;
+    let prepared = Prepared::new(product, None)?;
     let imports = Imports::default();
     let mut folds = prepared.unfolded();
     prepared.fold_inputs(index, &imports, None, &mut folds)?;
-    prepared.finish(index, options, folds, &imports, None, report)
+    prepared.finish(index, options, folds, &imports, None, None)
 }
 
 /// One configuration's rows ready to fold: the product after the key-order check, its label-grain expansion with the prospect pass's joint flags written back to the class rows, each input's run of the expansion, and every row's shortest row chain. Everything here depends on the configuration's own rows only, so it is computed once, before any rows are imported.

@@ -118,14 +118,6 @@ test('the queue view is stored in the hash and round-trips', () => {
   assert.equal(parseHash(`#${serialized}`).view, 'queue');
 });
 
-test('the old docket spellings in a bookmarked or logged hash open the review queue', () => {
-  const parsed = parseHash('#units=u-0001,u-0002&docket=1&decision=c-bbe6acfa');
-  assert.equal(parsed.queue, '1');
-  assert.equal(parsed.decision, 'c-bbe6acfa');
-  assert.equal(parseHash('#view=docket').view, 'queue');
-  assert.equal(writeHash(parsed), 'units=u-0001%2Cu-0002&queue=1&decision=c-bbe6acfa');
-});
-
 test('the machine toggle is stored in the hash and round-trips', () => {
   assert.equal(parseHash('#machine=1').machine, '1');
   assert.equal(parseHash('#batch=0').machine, null);

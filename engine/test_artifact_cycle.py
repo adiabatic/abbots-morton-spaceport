@@ -60,11 +60,21 @@ def _land_ok(report, *, spawn, emit, registry, plan):
     return report.land
 
 
+def _current_capabilities(*, code=None, root=None):
+    """Return the /capabilities answer of a review server that speaks the land protocol, with the working tree's code digest unless `code` says otherwise, from this checkout unless `root` does."""
+    return {
+        "land_protocol": ac.landing.LAND_PROTOCOL,
+        "code": code if code is not None else ac.landing.code_digest(ac.ROOT / "engine" / "review"),
+        "root": str(root if root is not None else ac.ROOT),
+        "autosave": str(ac.AUTOSAVE),
+    }
+
+
 @pytest.fixture(autouse=True)
 def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     """Make this module see the live review corpus and build artifacts as absent. The conftest's `_redirect_cycle_writes` redirects writes only, but the cycle also resolves its read paths from the live repo at call time, so a test driving `_run_cycle` over mocked stages would otherwise read whatever corpus and behavior-class sidecar sit in engine/out. Every test here is in the contracts lane, so no live read needs to be kept, and the lane's audit guard fails any read this misses.
 
-    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The land, the build-lane step that needs a real store beside it, is stubbed as the other build-lane stages are in each test; a test of it sets the real function back (`REAL_DO_LAND`). The review server's /capabilities answers `NO_CAPABILITIES` (a 404), as a server from before the land protocol does, so no test probes the live port, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through the per-file digest `_sha256_path`, which returns "absent" for a live path, and the deep replay's status reads the tables' heads through `tables_imports_digest`, which reads as no tables for the live root. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
+    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The land, the build-lane step that needs a real store beside it, is stubbed as the other build-lane stages are in each test; a test of it sets the real function back (`REAL_DO_LAND`). The review server's /capabilities answers as a server from this checkout on the working tree's code does (`_current_capabilities`), so no test asks the server on the live port what it is, a listening server keeps running through every pass, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through the per-file digest `_sha256_path`, which returns "absent" for a live path, and the deep replay's status reads the tables' heads through `tables_imports_digest`, which reads as no tables for the live root. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
     """
 
     real_sweep_lines = ac.deep_sweep_skip_lines
@@ -81,7 +91,7 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(ac, "REVIEW_OUT", tmp_path / "review")
     monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
-    monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: ac.NO_CAPABILITIES)
+    monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: _current_capabilities())
     monkeypatch.setattr(ac, "start_review_server", lambda: pytest.fail("started a review server"))
     monkeypatch.setattr(ac, "_do_land", _land_ok)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
@@ -662,7 +672,6 @@ def _conform_green(queue, make_fut, spawn, emit, registry, argv):
 def _patch_gate_fingerprints(monkeypatch):
     """Stub the gate green records' keys, for tests that only check whether a green was recorded. Conformance keys are computed around the sweep; the contracts lifecycle snapshots and checks its roster around the suite, and each computation hashes files across the repo, which takes seconds per test and depends on the working tree. A separate test checks that a changed key prevents recording the green."""
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
-    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "rfp-contracts")
     monkeypatch.setattr(ac, "contracts_closure", lambda root: ("rfp-contracts", {"key": "rfp-contracts"}))
 
 
@@ -2184,11 +2193,9 @@ def test_review_out_staging_plan(monkeypatch, tmp_path):
     assert plan.corpus_dir == staged_out
     assert plan.review_out == staged_out
 
-    monkeypatch.setattr(ac, "server_listening", lambda *a, **k: True)
-    waiver = argparse.Namespace(review_out=staged_out, yes=False, stop_server=False)
-    assert ac._preflight(waiver) is True
-    refuse = argparse.Namespace(review_out=None, yes=False, stop_server=False)
-    assert ac._preflight(refuse) is False
+    unanswered = ac.ServerProbe("unanswered")
+    assert ac._preflight(argparse.Namespace(review_out=staged_out), probe=unanswered) is True
+    assert ac._preflight(argparse.Namespace(review_out=None), probe=unanswered) is False
 
 
 def _green_report():
@@ -2569,12 +2576,11 @@ def test_make_test_exempt_classification():
         "engine/scaling-series.txt",
         "Makefile",
         ".vscode/settings.json",
-        ".vscode/quikscript.schema.json",
+        ".vscode/permissive.schema.json",
         ".github/workflows/deploy.yml",
         "reference/csur/kingsley.ttf",
         "reference/Quikscript Manual.pdf",
         "reference/Shaw Alphabet Reading Key.png",
-        "site/icons/copy.svg",
         "site/quikscript-title.svg",
         "site/gear-menu.js",
         "site/shared.css",
@@ -2700,8 +2706,6 @@ def _git_repo(tmp_path):
     (tmp_path / "reference" / "Manual.pdf").write_text("pdf\n")
     (tmp_path / "reference" / "DepartureMono-Regular.otf").write_text("otf\n")
     (tmp_path / "site").mkdir()
-    (tmp_path / "site" / "icons").mkdir()
-    (tmp_path / "site" / "icons" / "copy.svg").write_text("<svg/>\n")
     (tmp_path / "site" / "title.svg").write_text("<svg/>\n")
     (tmp_path / "site" / "shared.css").write_text("body {}\n")
     (tmp_path / "site" / "shared.js").write_text("export {};\n")
@@ -3579,22 +3583,6 @@ def test_deep_sweep_status_walks_unknown_never_run_due_and_current(tmp_path, mon
     assert "class:guard-form:zwnj (new)" in note
 
 
-def test_a_deep_green_record_under_the_horizon_key_reads_at_its_max_length(tmp_path, monkeypatch):
-    """A deep sweep or deep replay record that stores its maximum length under `horizon` reads back at that length, so neither check reports due for want of the `max_length` field."""
-    store = tmp_path / "deep-sweep-green.json"
-    monkeypatch.setattr(cycle_paths, "DEEP_SWEEP_GREEN", store)
-    _write_behavior_classes(tmp_path, ["namer-dot"])
-    fingerprint = ac.deep_sweep_skip_fingerprint(tmp_path)
-    assert fingerprint is not None
-    ac.record_deep_sweep_green(fingerprint, 5, files=ac.deep_sweep_skip_files(tmp_path), path=store)
-    record = json.loads(store.read_text())
-    record["horizon"] = record.pop("max_length")
-    store.write_text(json.dumps(record) + "\n")
-    assert ac.deep_sweep_status(tmp_path) == ("current", "maximum length 5")
-    assert ac.recorded_max_length({"horizon": 6}) == 6
-    assert ac.recorded_max_length({"max_length": 5, "horizon": 6}) == 5
-
-
 def test_a_shallower_deep_sweep_green_keeps_a_deeper_green_under_the_same_key(tmp_path, monkeypatch):
     """A green run shallower than the recorded green under the same key keeps the recorded depth, so the sweep stays current at it; a deeper run raises the depth, and a run under a different key writes its own depth."""
     store = tmp_path / "deep-sweep-green.json"
@@ -3749,17 +3737,17 @@ def test_an_absent_artifact_hashes_to_a_sentinel_rather_than_raising(tmp_path):
     assert ac._sha256_path(built) != "absent"
 
 
-def test_contracts_fingerprint_ignores_prose_in_runes(tmp_path):
+def test_the_contracts_key_ignores_prose_in_runes(tmp_path):
     """The lane key includes the rune files, because contracts tests load the live spec. A structural edit to a rune changes the key, and a ductus prose edit does not."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     rune = tmp_path / "glyph_data" / "runes" / "qsX.yaml"
     rune.write_text("rune: qsX\nductus:\n  sole: |\n    A stroke.\n")
-    before = ac.contracts_fingerprint(tmp_path)
+    before = ac.contracts_closure(tmp_path)[0]
     rune.write_text("rune: qsX\nductus:\n  sole: |\n    A different stroke.\n")
-    assert ac.contracts_fingerprint(tmp_path) == before
+    assert ac.contracts_closure(tmp_path)[0] == before
     rune.write_text("rune: qsY\nductus:\n  sole: |\n    A different stroke.\n")
-    assert ac.contracts_fingerprint(tmp_path) != before
+    assert ac.contracts_closure(tmp_path)[0] != before
 
 
 def test_every_harness_file_moves_the_contracts_key(tmp_path):
@@ -3769,10 +3757,10 @@ def test_every_harness_file_moves_the_contracts_key(tmp_path):
         harness_file = tmp_path / rel
         harness_file.parent.mkdir(parents=True, exist_ok=True)
         harness_file.write_text("")
-    previous = ac.contracts_fingerprint(tmp_path)
+    previous = ac.contracts_closure(tmp_path)[0]
     for rel in ac.ENGINE_GATE_HARNESS_PATHS:
         (tmp_path / rel).write_text(f"{rel} moved\n")
-        current = ac.contracts_fingerprint(tmp_path)
+        current = ac.contracts_closure(tmp_path)[0]
         assert current != previous, rel
         previous = current
 
@@ -3796,8 +3784,8 @@ def test_the_harness_roster_names_the_tools_modules_the_suite_imports():
     assert {rel for rel in ac.ENGINE_GATE_HARNESS_PATHS if rel.startswith("tools/")} == imported
 
 
-def test_contracts_fingerprint_is_none_outside_git(tmp_path):
-    assert ac.contracts_fingerprint(tmp_path) is None
+def test_the_contracts_key_is_none_outside_git(tmp_path):
+    assert ac.contracts_closure(tmp_path) == (None, None)
 
 
 def test_corpus_build_skippable_matches_manifest(tmp_path):
@@ -3829,10 +3817,6 @@ def test_corpus_build_skippable_matches_manifest(tmp_path):
 
     restamp()
     assert ac.corpus_build_skippable(tmp_path, corpus)
-    restamp(mode="another-mode")
-    assert not ac.corpus_build_skippable(tmp_path, corpus)
-
-    restamp()
     font.write_bytes(b"OTTO-kerned")
     assert not ac.corpus_build_skippable(tmp_path, corpus)
     font.write_bytes(b"OTTO")
@@ -3870,15 +3854,15 @@ def _promotion_root(root):
     return status.table_diff_inputs(root, build_out=build_out)
 
 
-def _write_corpus(corpus, recorded, stamp, *, sidecars=True, mode="table-diff", fonts=True):
-    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard, a manifest of `mode` with `recorded` as its inputs fingerprint, `stamp` as its generated_at and, with `fonts`, Senior-Regular.otf's sha256 as its after font's, and, with `sidecars`, the app sidecars stamped for that manifest. Without `sidecars`, those an earlier call wrote stay stamped for its manifest, as a build stopped before them leaves them."""
+def _write_corpus(corpus, recorded, stamp, *, sidecars=True, fonts=True):
+    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard, a manifest with `recorded` as its inputs fingerprint, `stamp` as its generated_at and, with `fonts`, Senior-Regular.otf's sha256 as its after font's, and, with `sidecars`, the app sidecars stamped for that manifest. Without `sidecars`, those an earlier call wrote stay stamped for its manifest, as a build stopped before them leaves them."""
     from engine.review import app_index
 
     corpus.mkdir(parents=True, exist_ok=True)
     (corpus / "units-000.json").write_text("[]")
     manifest = {
         "format": "ams-review-manifest/2",
-        "mode": mode,
+        "mode": "table-diff",
         "generated_at": stamp,
         "inputs_fingerprint": recorded,
         "classes": [{"id": "c", "shards": ["units-000.json"]}],
@@ -4071,7 +4055,7 @@ def _upstream_keys(root):
         "conform": ac.conform_skip_fingerprint(root),
         "tables": fingerprint.tables_value(root),
         "stage_a": fingerprint.stage_a(root),
-        "contracts": ac.contracts_fingerprint(root),
+        "contracts": ac.contracts_closure(root)[0],
     }
 
 
@@ -4215,7 +4199,7 @@ def test_a_green_finish_closes_on_the_readiness_checklist_instead_of_naming_the_
 
 
 def test_the_readiness_block_leaves_the_server_row_to_the_recipe_that_serves(monkeypatch):
-    """`make review-cycle` passes `--stop-server` and starts the server after the pass, so that pass's checklist leaves out the server row instead of reporting the server as absent. A plain `make artifact-cycle` includes the row, and a staging pass prints no checklist."""
+    """`make review-cycle` passes `--recipe-serves` and starts the server after the pass, so that pass's checklist leaves out the server row instead of reporting the server as absent. A plain `make artifact-cycle` includes the row, and a staging pass prints no checklist."""
     from engine.tools import verdict_ready
 
     asked: list[bool] = []
@@ -4254,7 +4238,6 @@ def _unsettled_repo(tmp_path, monkeypatch, stamp="2026-07-17T20:24:44Z"):
     (tmp_path / "verdicts-autosave.json").write_text(json.dumps(_verdicts_doc(stamp, ["u-1"])))
     monkeypatch.setattr(ac, "run_build_skip_fingerprint", lambda root=None: "key")
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: None)
-    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "no-match-contracts")
     monkeypatch.setattr(
         ac, "contracts_closure", lambda root: ("no-match-contracts", {"key": "no-match-contracts"})
     )
@@ -4273,7 +4256,6 @@ def test_main_runs_every_heavy_gate_on_a_pass_that_rebuilds(tmp_path, monkeypatc
 def test_main_auto_skips_the_engine_suite_even_when_run_build_runs_live(tmp_path, monkeypatch, capsys):
     """The suite's closure includes no build artifact, so a live rebuild cannot change its key during the pass, and the preflight can decide that skip in every run_build mode."""
     _unsettled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "key-contracts")
     monkeypatch.setattr(ac, "contracts_closure", lambda root: ("key-contracts", {"key": "key-contracts"}))
     ac.record_green(cycle_paths.ENGINE_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run"]) == 0
@@ -4284,7 +4266,6 @@ def test_main_auto_skips_the_engine_suite_even_when_run_build_runs_live(tmp_path
 
 def test_main_forces_the_engine_suite_under_fresh(tmp_path, monkeypatch, capsys):
     _unsettled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "key-contracts")
     monkeypatch.setattr(ac, "contracts_closure", lambda root: ("key-contracts", {"key": "key-contracts"}))
     ac.record_green(cycle_paths.ENGINE_CONTRACTS_GREEN, "key-contracts")
     assert ac.main(["--dry-run", "--fresh"]) == 0
@@ -4482,7 +4463,6 @@ def test_run_cycle_skips_the_sweep_after_run_build_on_the_key_the_finished_artif
     """The conform skip is decided after run_build, not in the plan, because only a finished build knows what the font came out as. All three run_build modes (skipped, gates-only, rebuilt) end on this same key. A skip over the artifacts the pass leaves behind is recorded as "proved", which is what `review/status.py` needs to call a corpus ready for review."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
-    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "rfp-contracts")
     monkeypatch.setattr(ac, "contracts_closure", lambda root: ("rfp-contracts", {"key": "rfp-contracts"}))
     ac.record_green(cycle_paths.CONFORM_GREEN, "cfp")
     swept: list[list[str]] = []
@@ -4515,7 +4495,6 @@ def test_run_cycle_sweeps_when_the_finished_artifacts_carry_no_green(monkeypatch
     """The converse: when the finished artifacts' key matches no green record, the sweep runs. This is why the skip cannot be decided in the plan, which is resolved before run_build has changed the font."""
     monkeypatch.setattr(cycle_paths, "CONFORM_GREEN", tmp_path / "conform-green.json")
     monkeypatch.setattr(ac, "conform_skip_fingerprint", lambda root=None, max_length=None: "cfp")
-    monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "rfp-contracts")
     monkeypatch.setattr(ac, "contracts_closure", lambda root: ("rfp-contracts", {"key": "rfp-contracts"}))
     ac.record_green(cycle_paths.CONFORM_GREEN, "a-font-ago")
     swept: list[list[str]] = []
@@ -5518,55 +5497,16 @@ def test_main_plans_no_assets_refresh_when_the_corpus_already_matches(tmp_path, 
 
 
 def test_server_can_keep_running_only_when_the_pass_writes_neither_of_the_apps_files():
-    """The predicate depends on what the plan writes. A --no-carry pass, or a --no-merge carry over an unmoved corpus, keeps the review server running; any pass that writes the store (a direct merge included) or rewrites the corpus stops the review server."""
-    assert ac.server_can_keep_running(skip_corpus=True, writes_store=False) is True
-    assert ac.server_can_keep_running(skip_corpus=True, writes_store=True) is False
-    assert ac.server_can_keep_running(skip_corpus=False, writes_store=False) is False
-    assert ac.server_can_keep_running(skip_corpus=False, writes_store=True) is False
+    """The predicate depends on what the plan writes under the server. A pass that moves no corpus lands nothing, so it writes neither the corpus nor the store; a rebuild lands its corpus, and so does a promotion, which sets the corpus skip flag but swaps every shard and the stamp under the app."""
+    assert ac.server_can_keep_running(skip_corpus=True) is True
+    assert ac.server_can_keep_running(skip_corpus=False) is False
+    assert ac.server_can_keep_running(skip_corpus=True, promotes_corpus=True) is False
 
 
 def _preflight_args(**overrides):
-    kw = dict(review_out=None, yes=False, stop_server=False)
+    kw = dict(review_out=None)
     kw.update(overrides)
     return argparse.Namespace(**kw)
-
-
-def test_preflight_keeps_a_listening_review_server_running_for_a_pass_that_writes_nothing_under_it(
-    monkeypatch, capsys
-):
-    """A pass that writes neither the corpus nor the store keeps a listening review server running for the whole run. This holds with or without --stop-server, which permits stopping a server but does not require it."""
-    stops: list[int] = []
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-    monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: stops.append(1) or True)
-    for args in (_preflight_args(), _preflight_args(stop_server=True)):
-        assert ac._preflight(args, can_keep_running=True) is True
-    assert stops == []
-    assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
-
-
-def test_preflight_stops_the_server_for_a_writing_pass_only_when_allowed(monkeypatch, capsys):
-    """For a pass that writes under the server, --stop-server stops it; `make review-cycle` passes that flag. Without the flag the pass refuses, because a bare run should not end someone's review session."""
-    stops: list[int] = []
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-    monkeypatch.setattr(
-        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
-    )
-
-    assert ac._preflight(_preflight_args(stop_server=True), can_keep_running=False) is True
-    assert stops == [1]
-    assert "Stopping the review server" in capsys.readouterr().out
-
-    assert ac._preflight(_preflight_args(), can_keep_running=False) is False
-    assert stops == [1]
-    assert "REFUSING TO RUN" in capsys.readouterr().out
-
-
-def test_preflight_refuses_when_the_stop_leaves_the_port_held(monkeypatch, capsys):
-    """If the port is still held after the stop (something else serves 7294, or the server hung during shutdown), the pass refuses rather than write the corpus under a live reader."""
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-    monkeypatch.setattr(ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: False)
-    assert ac._preflight(_preflight_args(stop_server=True), can_keep_running=False) is False
-    assert "still listening" in capsys.readouterr().out
 
 
 def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
@@ -5589,42 +5529,20 @@ def test_stop_review_server_waits_for_the_port_to_come_free(monkeypatch):
 
 
 def test_main_keeps_the_review_server_running_on_the_settled_pass(tmp_path, monkeypatch, capsys):
-    """End to end through `main`: the pass that skips the corpus build lands nothing, so it keeps the review server running and never stops it."""
+    """End to end through `main`: the pass that skips the corpus build lands nothing, so it keeps even a server running other code running and never restarts it."""
     _settled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-    monkeypatch.setattr(
-        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
-    )
+    _capable_server(monkeypatch, code="older")
+    monkeypatch.setattr(ac, "restart_review_server", lambda timeout=None: pytest.fail("restarted the server"))
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
     assert ac.main([]) == 0
     assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
 
 
-def test_main_stops_a_server_from_before_the_land_protocol_when_the_pass_rebuilds_the_corpus(
-    tmp_path, monkeypatch, capsys
-):
-    """A server with no /capabilities (the module's fixture answers 404) takes no part in the land, so a rebuilding pass stops it once with --stop-server and says that is the last stop."""
-    _unsettled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-    stops: list[int] = []
-    monkeypatch.setattr(
-        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
-    )
-    ran: list[ac.Plan] = []
-    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: ran.append(plan) or 0)
-    assert ac.main(["--stop-server"]) == 0
-    assert stops == [1]
-    out = capsys.readouterr().out
-    assert "Stopping the review server" in out and "the last stop a pass needs" in out
-
-
 def test_main_keeps_the_review_server_running_for_an_assets_refresh_pass(tmp_path, monkeypatch, capsys):
-    """An assets refresh moves no shard and no stamp, so the review server keeps running and the cycle tells the tab to reload onto the new app shell."""
+    """An assets refresh moves no shard and no stamp, so even a server running other code keeps running through it and is never restarted."""
     _assets_only_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-    monkeypatch.setattr(
-        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: pytest.fail("stopped")
-    )
+    _capable_server(monkeypatch, code="older")
+    monkeypatch.setattr(ac, "restart_review_server", lambda timeout=None: pytest.fail("restarted the server"))
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
     assert ac.main([]) == 0
     assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
@@ -5634,25 +5552,15 @@ def _capable_server(monkeypatch, *, code=None, root=None):
     """Make the review server's port answer as a server that speaks the land protocol, with the working tree's code digest unless `code` says otherwise, from this checkout unless `root` does."""
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     monkeypatch.setattr(
-        ac,
-        "capabilities",
-        lambda port=ac.REVIEW_PORT: {
-            "land_protocol": ac.landing.LAND_PROTOCOL,
-            "code": code if code is not None else ac.landing.code_digest(ac.ROOT / "engine" / "review"),
-            "root": str(root if root is not None else ac.ROOT),
-            "autosave": str(ac.AUTOSAVE),
-        },
+        ac, "capabilities", lambda port=ac.REVIEW_PORT: _current_capabilities(code=code, root=root)
     )
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: pytest.fail("stopped the server"))
 
 
 def test_probe_server_reads_the_capabilities_answer(monkeypatch):
-    """No listener is `none`, a 404 from /capabilities is `legacy`, another checkout's root is `foreign`, another code digest or protocol is `stale`, and this checkout on the tree's code is `current`."""
+    """No listener is `none`, another checkout's root is `foreign`, another code digest or protocol is `stale`, and this checkout on the tree's code is `current`."""
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     assert ac.probe_server().kind == "none"
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-    monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: ac.NO_CAPABILITIES)
-    assert ac.probe_server().kind == "legacy"
     _capable_server(monkeypatch)
     assert ac.probe_server().kind == "current"
     _capable_server(monkeypatch, code="older")
@@ -5662,16 +5570,11 @@ def test_probe_server_reads_the_capabilities_answer(monkeypatch):
 
 
 def test_a_server_that_does_not_answer_is_asked_again_and_never_stopped(monkeypatch, capsys):
-    """Only a 404 marks a server from before the land protocol. A listener whose /capabilities times out is asked again, and a current server that answers on a later try is `current`; one that never answers is `unanswered`, and the pass refuses without stopping it, even with --stop-server."""
+    """A listener whose /capabilities gives no answer (a timeout, an error status, or a process that is not a review server) is asked again, and a current server that answers on a later try is `current`; one that never answers is `unanswered`, and a pass that writes under it refuses without stopping it, while one that writes nothing under it runs beside it."""
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
     sleeps: list[float] = []
     monkeypatch.setattr(ac.time, "sleep", sleeps.append)
-    current = {
-        "land_protocol": ac.landing.LAND_PROTOCOL,
-        "code": ac.landing.code_digest(ac.ROOT / "engine" / "review"),
-        "root": str(ac.ROOT),
-    }
-    answers = [None, None, current]
+    answers = [None, None, _current_capabilities()]
     monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: answers.pop(0))
     assert ac.probe_server().kind == "current"
     assert sleeps == [ac.CAPABILITIES_RETRY_S] * 2
@@ -5682,15 +5585,14 @@ def test_a_server_that_does_not_answer_is_asked_again_and_never_stopped(monkeypa
     assert probe.kind == "unanswered" and len(asked) == ac.CAPABILITIES_ATTEMPTS
     monkeypatch.setattr(ac, "stop_review_server", lambda timeout=0.0: pytest.fail("stopped the server"))
     monkeypatch.setattr(ac, "restart_review_server", lambda timeout=None: pytest.fail("restarted the server"))
-    for args in (_preflight_args(), _preflight_args(stop_server=True), _preflight_args(yes=True)):
-        assert ac._preflight(args, can_keep_running=False, probe=probe) is False
+    assert ac._preflight(_preflight_args(), can_keep_running=False, probe=probe) is False
     assert "gave no /capabilities answer" in capsys.readouterr().out
     assert ac._preflight(_preflight_args(), can_keep_running=True, probe=probe) is True
     assert ac.SERVER_KEEPS_RUNNING_NOTE in capsys.readouterr().out
 
 
 def test_main_keeps_a_current_server_running_through_a_rebuild(tmp_path, monkeypatch, capsys):
-    """With a server from this checkout on the tree's code, a corpus-changing pass never stops it, even without --stop-server: it builds the table-diff corpus in review.next and lands it, carrying the store onto it. The server's tabs are sent the reload."""
+    """With a server from this checkout on the tree's code, a corpus-changing pass never stops it: it builds the table-diff corpus in review.next and lands it, carrying the store onto it. The server's tabs are sent the reload."""
     _unsettled_repo(tmp_path, monkeypatch)
     _capable_server(monkeypatch)
     ran: list[ac.Plan] = []
@@ -5826,26 +5728,16 @@ def test_main_promotes_a_current_staged_corpus_instead_of_rebuilding(tmp_path, m
     assert "assets-refresh" not in out
 
 
-def test_a_promoting_pass_stops_a_review_server_from_before_the_land_protocol(tmp_path, monkeypatch, capsys):
-    """A promotion swaps every shard and the stamp under the app, so for a server from before the land protocol it counts as a corpus write whatever the skip flag says. The predicate returns False for it, and its other three answers are unchanged. End to end, such a server makes the pass refuse without --stop-server and is stopped with it; a server that speaks the land protocol keeps running (`test_main_keeps_a_current_server_running_through_a_rebuild`)."""
-    assert ac.server_can_keep_running(skip_corpus=True, writes_store=False, promotes_corpus=True) is False
-    assert ac.server_can_keep_running(skip_corpus=True, writes_store=False) is True
-    assert ac.server_can_keep_running(skip_corpus=True, writes_store=True) is False
-    assert ac.server_can_keep_running(skip_corpus=False, writes_store=False) is False
-
+def test_a_promoting_pass_restarts_a_server_running_other_code(tmp_path, monkeypatch, capsys):
+    """A promotion swaps every shard and the stamp under the app, so it counts as a corpus write whatever the skip flag says (`server_can_keep_running`). End to end, a server running other code is restarted on the tree's code before the pass; a server on the tree's code keeps running (`test_main_keeps_a_current_server_running_through_a_rebuild`)."""
     _staged_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
+    _capable_server(monkeypatch, code="older")
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
-    stops: list[int] = []
-    monkeypatch.setattr(
-        ac, "stop_review_server", lambda timeout=ac.SERVER_STOP_TIMEOUT: stops.append(1) or True
-    )
-    assert ac.main([]) == 2
-    assert "REFUSING TO RUN" in capsys.readouterr().out
-    assert stops == []
-    assert ac.main(["--stop-server"]) == 0
-    assert stops == [1]
-    assert "Stopping the review server" in capsys.readouterr().out
+    restarts: list[int] = []
+    monkeypatch.setattr(ac, "restart_review_server", lambda timeout=None: restarts.append(1) or True)
+    assert ac.main([]) == 0
+    assert restarts == [1]
+    assert "restarting it on this tree's code" in capsys.readouterr().out
 
 
 def test_build_plan_retention_default_on():

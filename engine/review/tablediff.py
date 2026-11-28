@@ -141,7 +141,7 @@ def load_settlement(path: Path, config: str | None = None) -> dict[SettlementKey
 
 
 def load_joins(path: Path, config: str | None = None) -> dict[JoinKey, JoinValue]:
-    """Read a join table (`table.JOIN_COLUMNS`) into its rows. A table a build wrote before the join table lost its `kern` column (always 0, since kerning reaches no join row) carries a fifth field, which is ignored, so a baseline build directory from that time still diffs. `config` is as for `load_settlement`."""
+    """Read a join table (`table.JOIN_COLUMNS`) into its rows. `config` is as for `load_settlement`."""
     rows: dict[JoinKey, JoinValue] = {}
     config = config if config is not None else _config_from_path(path, "joins-")
     with open_table(path) as handle:
@@ -149,9 +149,9 @@ def load_joins(path: Path, config: str | None = None) -> dict[JoinKey, JoinValue
             if line.startswith("#") or line.startswith("left\t") or not line.strip():
                 continue
             fields = line.rstrip("\n").split("\t")
-            if len(fields) not in (4, 5):
+            if len(fields) != 4:
                 raise ValueError(f"{path}: a join row has {len(fields)} fields, not 4: {line.rstrip()}")
-            left, right, junction, extension = fields[:4]
+            left, right, junction, extension = fields
             rows[JoinKey(config, left, right)] = JoinValue(junction, int(extension))
     return rows
 
