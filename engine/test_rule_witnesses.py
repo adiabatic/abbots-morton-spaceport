@@ -29,7 +29,7 @@ CONFIGS = ("default", "ss03")
 
 
 def _memo_files(memo: conform.SettleMemoFile) -> dict[str, tuple[bytes, int, int]]:
-    """Every file of `memo`'s output, its head, its parts and a single file, by name, with its bytes, inode and modification time."""
+    """Every file of `memo`'s output, its head and its parts, by name, with its bytes, inode and modification time."""
     return {
         path.name: (path.read_bytes(), path.stat().st_ino, path.stat().st_mtime_ns)
         for path in sorted(memo.path.parent.glob(f"{memo.path.name}*"))

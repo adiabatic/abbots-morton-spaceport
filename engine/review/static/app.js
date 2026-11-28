@@ -3650,7 +3650,7 @@ function renderChrome() {
   const alphabet = document.createElement('td');
   if (alphabetLabel !== null) {
     alphabet.textContent = alphabetLabel;
-    alphabet.title = 'Letters with rune files, against the whole Quikscript alphabet — the corpus is built over these.';
+    alphabet.title = 'Letters the build holds, against the whole Quikscript alphabet — the corpus is built over these.';
   }
   const unitsHeading = document.createElement('th');
   unitsHeading.scope = 'col';

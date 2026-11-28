@@ -4,7 +4,7 @@ Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds
 
 run_build records the Stage A components (`data`, `pipeline_code`) in `engine/out/build/inputs_fingerprint.json`, beside the alphabet token while the alphabet switch is set (`stage_a`). A build or a `--gates-only` pass deletes that record immediately before its first write there, and writes back the values it captured before reading its inputs only once its gates pass (`run_build_gates._settle_stage_a`), so a record matches the sources on disk only beside the artifacts of a passing run over them (`artifact_cycle.stage_a_current`). The review corpus carries `TABLE_DIFF_COMPONENTS` (`table_diff_values`), whose `tables` component the build copies from the windows heads of the build it compares, and whose `accept_sweep` component names the record of the accept's four-letter sweep it was built with.
 
-`tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `data_value`, hashes each rune file without its `kern` block (`rune_file_digest`), which the kernel's spec dump leaves out too. Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. That code runs only in the gates that check the tables and font a build has written, so editing it re-runs them over the enumeration on disk instead of discarding it. engine/test_build_code_closure.py checks that the build never reaches the comparison modules.
+`tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `data_value`, hashes each rune file without its `kern` block (`rune_file_digest`), which the kernel's spec dump leaves out too. Its code half, `table_code_paths`, leaves out the gate-side code `GATE_SIDE_CODE_MODULES` names. That code runs only in the gates that check the tables and font a build has written, so editing it re-runs them over the enumeration on disk instead of discarding it. engine/test_build_code_closure.py checks that the build never reaches the gate-side modules.
 
 The human-reviewed contact allow-list has a prose-insensitive digest, like the rune files below. It is in no component, not even `data`. Only the defect gate reads it, so its digest (`contact_allow_digest`, under `CONTACT_ALLOW_LABEL`) is only in the artifact cycle's run_build skip key. Changing a signature re-runs that gate and nothing else. Each entry's `why` is left out of the digest.
 
@@ -100,7 +100,7 @@ def font_data_lines(repo_root: Path) -> list[str]:
 
 
 # The code of `pipeline_code_paths` that the table build and the font compile never run, as repo-relative paths: the gates that check the tables and font a build has written. These are the pin gate (manual_pins.py) and the engine/validation modules it checks the pins through (the grammar, expect.py; the corpus collector, corpus.py; the checker, check.py; classify.py and shaping.py), run_build's gate half (run_build_gates.py), and the shared memory segments the conformance sweep's pool hands its bytes home in (shared_segments.py). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. engine/test_build_code_closure.py fails if the build reaches any module listed here.
-COMPARISON_CODE_MODULES = frozenset(
+GATE_SIDE_CODE_MODULES = frozenset(
     {
         "engine/pipeline/manual_pins.py",
         "engine/pipeline/run_build_gates.py",
@@ -601,14 +601,14 @@ def rune_digests(repo_root: Path) -> dict[str, str]:
 
 
 def table_code_paths(repo_root: Path) -> list[Path]:
-    """Return `pipeline_code_paths` without `COMPARISON_CODE_MODULES`: the code half of `tables_value`. Everything that can change a table or the font stays, including the crate, the spec loader, the emitters, the compiler, and the gates that run inside the build. A module leaves only when `COMPARISON_CODE_MODULES` names it, and engine/test_build_code_closure.py checks that the build never reaches one."""
+    """Return `pipeline_code_paths` without `GATE_SIDE_CODE_MODULES`: the code half of `tables_value`. Everything that can change a table or the font stays, including the crate, the spec loader, the emitters, the compiler, and the gates that run inside the build. A module leaves only when `GATE_SIDE_CODE_MODULES` names it, and engine/test_build_code_closure.py checks that the build never reaches one."""
     root = Path(repo_root)
-    comparison = {root / relative for relative in COMPARISON_CODE_MODULES}
-    return [path for path in pipeline_code_paths(root) if path not in comparison]
+    gate_side = {root / relative for relative in GATE_SIDE_CODE_MODULES}
+    return [path for path in pipeline_code_paths(root) if path not in gate_side]
 
 
 def tables_value(repo_root: Path) -> str:
-    """Return the content key over everything the decision-table fixpoint and the font compile read: `data_value` and the hash of `table_code_paths`. A serialized window enumeration carries it, and the conformance sweep stops with an error when it no longer matches. It is narrower than the Stage A record: the code `COMPARISON_CODE_MODULES` names feeds no table, so editing it keeps the enumeration. The contact allow-list is in neither, and a rune's kern block is in no data line at all (`rune_file_digest` leaves it out): the kernel's spec dump leaves it out (`model.KERNEL_FIELD`), and only `engine/pipeline/kern.py`, which runs after the tables exist, reads it."""
+    """Return the content key over everything the decision-table fixpoint and the font compile read: `data_value` and the hash of `table_code_paths`. A serialized window enumeration carries it, and the conformance sweep stops with an error when it no longer matches. It is narrower than the Stage A record: the code `GATE_SIDE_CODE_MODULES` names feeds no table, so editing it keeps the enumeration. The contact allow-list is in neither, and a rune's kern block is in no data line at all (`rune_file_digest` leaves it out): the kernel's spec dump leaves it out (`model.KERNEL_FIELD`), and only `engine/pipeline/kern.py`, which runs after the tables exist, reads it."""
     root = Path(repo_root)
     lines = (
         f"table_data\t{data_value(root)}",

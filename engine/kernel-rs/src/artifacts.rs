@@ -193,7 +193,7 @@ fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
         .map(|cell| (cell_key(index, cell), cell))
         .collect();
     keyed.sort_by(|left, right| left.0.cmp(&right.0));
-    // Deduplicate across the whole list, as `stream::write_transitions` does. The sort key is the label view, and an adjacent-only dedup would be correct only if `_cell_key` were injective, which this code does not assume.
+    // Deduplicate across the whole list. The sort key is the label view, and an adjacent-only dedup would be correct only if `_cell_key` were injective, which this code does not assume.
     let mut counted: HashSet<&CellId> = HashSet::default();
     keyed.retain(|(_, cell)| counted.insert(*cell));
     keyed.into_iter().map(|(_, cell)| cell).collect()

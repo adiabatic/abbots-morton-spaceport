@@ -1,6 +1,6 @@
 //! Tests of the binary through its command line: arguments in; exit status, stdout, and stderr out.
 //!
-//! The unit tests call the same code as functions and test the fixpoint and the fan-out there. These tests check behavior that only a process shows: that `enumerate` and `enumerate-configs` write the same bytes to different places, that a clean fan-out writes nothing to stdout or stderr, that `--timings` writes to stderr in the format `cycle_timings.py` parses, and that a usage error exits 2 while a failed run exits 1. The spec is the four-family fixture the unit tests use (`fixtures::mini_dump`), written to disk because the binary takes only a path.
+//! The unit tests call the same code as functions and test the fixpoint and the fan-out there. These tests check behavior that only a process shows: that a table build writes the same bytes at any `--threads`, that a clean build writes nothing to stderr, that `--timings` writes to stderr in the format `cycle_timings.py` parses, and that a usage error exits 2 while a failed run exits 1. The spec is the four-family fixture the unit tests use (`fixtures::mini_dump`), written to disk because the binary takes only a path.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
@@ -10,8 +10,8 @@ use ams_kernel::index::fixtures;
 /// The binary Cargo built for this crate, so the tests run what was just compiled and not whatever is on the path.
 const KERNEL: &str = env!("CARGO_BIN_EXE_ams-kernel");
 
-/// The two configurations the fixture distinguishes, and the flag `enumerate` takes for each: `ss03` unlocks a `qsMay` entry, and `default` has no features.
-const CONFIGS: [(&str, Option<&str>); 2] = [("default", None), ("ss03", Some("--features=ss03"))];
+/// The two configurations the fixture distinguishes: `ss03` unlocks a `qsMay` entry, and `default` has no features.
+const CONFIGS: [&str; 2] = ["default", "ss03"];
 
 /// The smallest ceilings `build-tables` takes on each engine's prospect and candidate memos, eight buckets each. Every configuration of the fixture clears both memos many times at them, so a test comparing files across builds at these ceilings compares them across those clears.
 const SMALL_MEMO_CEILINGS: [&str; 2] = ["--prospect-memo-buckets=8", "--candidates-memo-buckets=8"];
@@ -92,88 +92,61 @@ fn digits(text: &str) -> bool {
     !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-/// The file a fan-out writes for a configuration has the bytes `enumerate` writes to stdout for that configuration, at one thread and at more threads than there are configurations. The check runs two processes, not two function calls.
+/// A table build writes the same tables and answer lines at one thread and at more threads than there are configurations, each run a process of its own, under the width the binary derives from `--threads`. `fanout::tests::a_table_fan_out_files_the_same_bytes_at_every_width` checks the same invariant over every schedule as function calls.
 #[test]
-fn a_fan_out_files_what_one_enumeration_writes_to_stdout() {
+fn a_table_build_files_the_same_bytes_at_any_thread_count() {
     let root = scratch("cli-identity");
     let spec = spec_at(&root);
+    let mut answers: Vec<Vec<u8>> = Vec::new();
     for threads in ["1", "4"] {
-        let outdir = root.join(format!("at-{threads}"));
-        let fanned = run(&[
-            "enumerate-configs",
+        let output = run(&[
+            "build-tables",
             word(&spec),
-            word(&outdir),
+            word(&root.join(format!("at-{threads}"))),
             "--configs=default,ss03",
+            "--inputs=cli-stamp",
             &format!("--threads={threads}"),
+            SMALL_SNAPSHOT_CACHE,
         ]);
         assert!(
-            fanned.status.success(),
-            "the fan-out answers: {}",
-            stderr_of(&fanned)
+            output.status.success(),
+            "the build answers at {threads} threads: {}",
+            stderr_of(&output)
         );
-        for (token, features) in CONFIGS {
-            let mut arguments = vec!["enumerate", word(&spec)];
-            arguments.extend(features);
-            let one = run(&arguments);
-            assert!(
-                one.status.success(),
-                "and so does one enumeration: {}",
-                stderr_of(&one)
-            );
-            let filed = std::fs::read(outdir.join(format!("transitions-{token}.ndjson")))
-                .expect("every named configuration left a file behind");
+        answers.push(output.stdout);
+    }
+    assert_eq!(answers[0], answers[1], "the answer lines are the same");
+    for token in CONFIGS {
+        for family in ["settlement", "joins", "windows"] {
+            let name = format!("{family}-{token}.tsv");
             assert_eq!(
-                one.stdout, filed,
-                "{token} at {threads} threads is not the bytes one enumeration writes"
+                std::fs::read(root.join("at-1").join(&name)).expect("one thread wrote it"),
+                std::fs::read(root.join("at-4").join(&name)).expect("and so did four"),
+                "{name} at four threads is not the bytes one thread writes"
             );
         }
     }
 }
 
-/// A fan-out run without `--timings` writes nothing to stdout or stderr. `kernel_exec._forward_stderr` relies on this: it treats any stderr on a clean exit without timings as a failure.
+/// A clean table build without `--timings` writes its answer lines to stdout and nothing to stderr. `kernel_exec._forward_stderr` relies on this: it treats any stderr on a clean exit without timings as a failure.
 #[test]
-fn a_clean_fan_out_says_nothing_at_all() {
+fn a_clean_table_build_says_nothing_but_its_answers() {
     let root = scratch("cli-silence");
     let spec = spec_at(&root);
     let output = run(&[
-        "enumerate-configs",
+        "build-tables",
         word(&spec),
-        word(&root.join("streams")),
+        word(&root.join("tables")),
         "--configs=default,ss03",
+        "--inputs=cli-stamp",
     ]);
     assert!(output.status.success(), "{}", stderr_of(&output));
-    assert!(output.stdout.is_empty(), "the answer here is the files");
+    let named: Vec<String> = table_answers(&output.stdout)
+        .into_iter()
+        .map(|(config, _, _)| config)
+        .collect();
+    assert_eq!(named, CONFIGS, "stdout holds the answer lines alone");
     assert!(output.stderr.is_empty(), "and nothing else is said");
-}
-
-/// The `--timings` lines have the format `cycle_timings.py` reads a child's phases from, and they come in the order the command line named the configurations, whatever the thread count.
-#[test]
-fn the_timings_lines_are_the_shape_the_cycle_parses_in_the_order_named() {
-    let root = scratch("cli-timings");
-    let spec = spec_at(&root);
-    let output = run(&[
-        "enumerate-configs",
-        word(&spec),
-        word(&root.join("streams")),
-        "--configs=default,ss03",
-        "--threads=4",
-        "--timings",
-    ]);
-    assert!(output.status.success(), "{}", stderr_of(&output));
-    assert!(output.stdout.is_empty(), "the answer is still the files");
-    let stderr = String::from_utf8(output.stderr).expect("the timings are text");
-    let phases: Vec<&str> = stderr.lines().map(timing_phase).collect();
-    assert_eq!(
-        phases,
-        [
-            "spec_parse",
-            "enumerate[default]",
-            "emit[default]",
-            "enumerate[ss03]",
-            "emit[ss03]",
-            "enumerate_total"
-        ]
-    );
 }
 
 /// A command line the subcommand cannot parse exits 2 without reading anything, and a configuration the spec cannot provide exits 1 after reading the spec. The first is a caller that asked wrongly; the second asked for something this spec does not have.
@@ -181,14 +154,19 @@ fn the_timings_lines_are_the_shape_the_cycle_parses_in_the_order_named() {
 fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
     let root = scratch("cli-refusals");
     let spec = spec_at(&root);
-    let outdir = root.join("streams");
+    let outdir = root.join("tables");
     for tail in [
         vec!["--configs=+ss03"],
         vec!["--configs=ss03++ss05"],
         vec!["--configs=ss03+"],
         vec!["--configs=default", "--threads=+3"],
     ] {
-        let mut arguments = vec!["enumerate-configs", word(&spec), word(&outdir)];
+        let mut arguments = vec![
+            "build-tables",
+            word(&spec),
+            word(&outdir),
+            "--inputs=cli-stamp",
+        ];
         arguments.extend(&tail);
         let output = run(&arguments);
         assert_eq!(
@@ -199,10 +177,11 @@ fn a_malformed_command_line_is_a_two_and_an_unanswerable_one_is_a_one() {
         );
     }
     let unknown = run(&[
-        "enumerate-configs",
+        "build-tables",
         word(&spec),
         word(&outdir),
         "--configs=ss05",
+        "--inputs=cli-stamp",
     ]);
     assert_eq!(unknown.status.code(), Some(1));
     assert!(
@@ -306,58 +285,33 @@ fn a_guard_sweep_answers_one_configuration_and_refuses_a_mode_flag() {
     );
 }
 
-/// After a clean exit the output directory holds only this run's streams: a stream left by a configuration this run was not asked for is removed, and files that are not streams are left alone.
-#[test]
-fn a_clean_fan_out_sweeps_the_streams_it_did_not_name() {
-    let root = scratch("cli-sweep");
-    let spec = spec_at(&root);
-    let outdir = root.join("streams");
-    std::fs::create_dir_all(&outdir).expect("the output directory can pre-exist");
-    let stale = outdir.join("transitions-zz.ndjson");
-    std::fs::write(&stale, "a configuration nobody asked about\n").expect("the directory takes it");
-    let bystander = outdir.join("manifest.json");
-    std::fs::write(&bystander, "{}\n").expect("and something that is not a stream");
-    let output = run(&[
-        "enumerate-configs",
-        word(&spec),
-        word(&outdir),
-        "--configs=default",
-    ]);
-    assert!(output.status.success(), "{}", stderr_of(&output));
-    assert!(
-        !stale.exists(),
-        "the unnamed configuration's stream is gone"
-    );
-    assert!(bystander.exists(), "and nothing else was touched");
-    assert!(outdir.join("transitions-default.ndjson").exists());
-}
-
-/// A configuration whose stream cannot be written fails the whole run, and the error names the earliest configuration in `--configs` order, not whichever worker failed first. The first configuration is always started, so with every stream blocked the run names it every time.
+/// A configuration whose settlement table cannot be written fails the whole run, and the error names the earliest configuration in `--configs` order, not whichever thread failed first, with nothing on stdout. `fanout::tests::a_default_that_fails_during_the_wave_is_what_the_run_reports` checks the schedules behind it as function calls.
 #[test]
 fn a_configuration_that_cannot_write_fails_the_run_naming_the_earliest_one() {
     let root = scratch("cli-blocked");
     let spec = spec_at(&root);
-    let outdir = root.join("streams");
-    for (token, _) in CONFIGS {
-        std::fs::create_dir_all(outdir.join(format!("transitions-{token}.ndjson")))
-            .expect("a directory can occupy a stream's path");
+    let outdir = root.join("tables");
+    for token in CONFIGS {
+        std::fs::create_dir_all(outdir.join(format!("settlement-{token}.tsv")))
+            .expect("a directory can occupy a table's path");
     }
     let output = run(&[
-        "enumerate-configs",
+        "build-tables",
         word(&spec),
         word(&outdir),
         "--configs=default,ss03",
+        "--inputs=cli-stamp",
         "--threads=2",
     ]);
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty(), "a failed run wrote no answer");
     let said = stderr_of(&output);
     assert!(
-        said.contains("transitions-default.ndjson"),
+        said.contains("settlement-default.tsv"),
         "the earliest configuration is the one named: {said}"
     );
     assert!(
-        !said.contains("transitions-ss03.ndjson"),
+        !said.contains("settlement-ss03.tsv"),
         "and it is the only one named: {said}"
     );
 }
@@ -414,7 +368,7 @@ fn a_table_build_files_three_artifacts_and_answers_one_digest_per_configuration(
         .map(str::to_owned)
         .collect();
     assert_eq!(answers.len(), 2);
-    for ((answer, (token, _)), (_, _, windows_bytes)) in answers.iter().zip(CONFIGS).zip(&counted) {
+    for ((answer, token), (_, _, windows_bytes)) in answers.iter().zip(CONFIGS).zip(&counted) {
         assert!(
             answer.starts_with(&format!("{{\"config\":\"{token}\",\"digest\":\"")),
             "the answer names its configuration in the order it was asked for: {answer}"
@@ -564,7 +518,7 @@ fn a_table_build_over_previous_rows_writes_the_rows_that_differ() {
     assert_eq!(build(&merged, &[&twice, &twice]).status.code(), Some(2));
 }
 
-/// `--windows=<config>=<path>` writes that configuration's window file at the path and nothing at `<outdir>/windows-<config>.tsv`, while every other configuration writes its own under the output directory: byte for byte what a build without the flag writes, under the same answer lines. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.stream_payloads` hands one; here it is the build's standard error, which a clean build leaves otherwise empty, and its answer's `windows_bytes` is every byte the pipe carried, for a whole payload and for the rows that differ from `--previous=` rows. A `--windows=` for a configuration the build does not name, given twice for one, with an empty path, an empty configuration, or no `=` after the configuration, is a usage error that writes nothing, and so is the flag on `enumerate-configs`.
+/// `--windows=<config>=<path>` writes that configuration's window file at the path and nothing at `<outdir>/windows-<config>.tsv`, while every other configuration writes its own under the output directory: byte for byte what a build without the flag writes, under the same answer lines. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.stream_payloads` hands one; here it is the build's standard error, which a clean build leaves otherwise empty, and its answer's `windows_bytes` is every byte the pipe carried, for a whole payload and for the rows that differ from `--previous=` rows. A `--windows=` for a configuration the build does not name, given twice for one, with an empty path, an empty configuration, or no `=` after the configuration, is a usage error that writes nothing, and so is the flag on `replay-strings`.
 #[test]
 fn a_table_build_writes_a_window_file_where_windows_names_it() {
     let root = scratch("cli-tables-windows");
@@ -678,19 +632,15 @@ fn a_table_build_writes_a_window_file_where_windows_names_it() {
         assert!(output.stdout.is_empty(), "{refused:?}");
         assert!(!path.exists() && !refused_at.exists(), "{refused:?}");
     }
-    let enumerated = run(&[
-        "enumerate-configs",
+    let replayed = run(&[
+        "replay-strings",
         word(&spec),
         word(&refused_at),
         "--configs=default",
+        "--max-length=1",
         &to,
     ]);
-    assert_eq!(
-        enumerated.status.code(),
-        Some(2),
-        "{}",
-        stderr_of(&enumerated)
-    );
+    assert_eq!(replayed.status.code(), Some(2), "{}", stderr_of(&replayed));
     assert!(!path.exists() && !refused_at.exists());
 }
 
@@ -715,7 +665,7 @@ fn a_second_table_build_leaves_its_unchanged_tables_in_place() {
     };
     let tables: Vec<PathBuf> = CONFIGS
         .iter()
-        .flat_map(|(token, _)| {
+        .flat_map(|token| {
             ["settlement", "joins"].map(|family| outdir.join(format!("{family}-{token}.tsv")))
         })
         .collect();
@@ -782,7 +732,7 @@ fn a_table_build_sharing_defaults_memo_files_the_bytes_a_from_scratch_one_files(
     assert_eq!(answers[0], answers[2]);
     assert!(hits[0] > 0 && hits[2] > 0, "{hits:?}");
     assert_eq!(hits[1], 0, "a build from scratch shares no memo");
-    for (token, _) in CONFIGS {
+    for token in CONFIGS {
         for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
             for other in [&scratch_built, &unserved] {
@@ -839,7 +789,7 @@ fn a_table_build_grouping_its_sweeps_files_the_bytes_an_ungrouped_one_files() {
         }
         assert_eq!(answers[0], answers[1], "{schedule}");
         assert_eq!(answers[0], answers[2], "{schedule}");
-        for (token, _) in CONFIGS {
+        for token in CONFIGS {
             for family in ["settlement", "joins", "windows"] {
                 let name = format!("{family}-{token}.tsv");
                 for other in &outdirs[1..] {
@@ -912,7 +862,7 @@ fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a
     assert_eq!(answers[0], answers[2]);
     assert!(hits[0] > 0, "the delta reads default's memo: {hits:?}");
     assert_eq!(hits[1..], [0, 0], "and no other build shares one");
-    for (token, _) in CONFIGS {
+    for token in CONFIGS {
         for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
             for other in [beside, scratch_built] {
@@ -935,7 +885,7 @@ fn a_table_build_starting_a_delta_from_scratch_beside_default_files_the_tables_a
     assert_eq!(output.status.code(), Some(2), "{}", stderr_of(&output));
 }
 
-/// Clearing the prospect and candidate memos at a ceiling changes no file: a table build at [`SMALL_MEMO_CEILINGS`] writes the tables and digests of one at the default ceilings, which the fixture never reaches. Its cache stats count each configuration's clears on a `memo_clears` line, and its two memos' tables never pass seven entries, the most eight buckets hold. Both builds run at [`SMALL_SNAPSHOT_CACHE`]. A ceiling that is not a power of two of at least eight, or is given twice, is a usage error, and so is either flag on `enumerate`.
+/// Clearing the prospect and candidate memos at a ceiling changes no file: a table build at [`SMALL_MEMO_CEILINGS`] writes the tables and digests of one at the default ceilings, which the fixture never reaches. Its cache stats count each configuration's clears on a `memo_clears` line, and its two memos' tables never pass seven entries, the most eight buckets hold. Both builds run at [`SMALL_SNAPSHOT_CACHE`]. A ceiling that is not a power of two of at least eight, or is given twice, is a usage error, and so is either flag on `replay-strings`.
 #[test]
 fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_uncleared_one_files() {
     let root = scratch("cli-memo-ceilings");
@@ -959,7 +909,7 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
         assert!(output.status.success(), "{}", stderr_of(&output));
         let stderr = stderr_of(&output);
         let mut counted = Vec::new();
-        for (token, _) in CONFIGS {
+        for token in CONFIGS {
             let line = format!("[c] {token} memo_clears prospect=");
             let rest = stderr
                 .lines()
@@ -978,7 +928,7 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
         }
         clears.push(counted);
         if !extra.is_empty() {
-            for (token, _) in CONFIGS {
+            for token in CONFIGS {
                 for name in ["prospect_cache", "candidates_cache"] {
                     let prefix = format!("[c] {token} {name} len=");
                     let rows: Vec<&str> = stderr
@@ -1012,7 +962,7 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
         clears[1]
     );
     let [uncleared, cleared] = &outdirs;
-    for (token, _) in CONFIGS {
+    for token in CONFIGS {
         for family in ["settlement", "joins", "windows"] {
             let name = format!("{family}-{token}.tsv");
             assert_eq!(
@@ -1046,8 +996,15 @@ fn a_table_build_clearing_its_memos_at_small_ceilings_files_the_bytes_an_unclear
             &twice,
         ]);
         assert_eq!(output.status.code(), Some(2), "{flag} given twice");
-        let output = run(&["enumerate", word(&spec), &twice]);
-        assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");
+        let output = run(&[
+            "replay-strings",
+            word(&spec),
+            word(&root.join("misuse")),
+            "--configs=default",
+            "--max-length=1",
+            &twice,
+        ]);
+        assert_eq!(output.status.code(), Some(2), "{flag} on replay-strings");
     }
 }
 
@@ -1064,7 +1021,7 @@ fn trace_evictions(stderr: &str, token: &str) -> u64 {
         .expect("as a count")
 }
 
-/// Holding the trace memo to a ceiling changes no file. Table builds at [`SMALL_TRACE_CEILING`], clearing a full shard, half-dropping it, or storing every window it settles, and at an entry count between two powers of two, five entries a shard under the default buckets, half-dropping a shard that reaches it, write the tables and digests of a build at the default ceiling, which the fixture never reaches, with `ss03` started from scratch beside `default`, where no engine reads another's memo and both are held to the ceiling, and with `ss03` as a delta, where `default` keeps every window for it to read. The cache stats count each configuration's evictions on its `memo_clears` line: none at the default ceiling and none for `default` while a delta reads its memo, some for every other engine at the small ceiling, whose `trace_cache` capacity never passes the 112 entries that ceiling holds, the room of eight buckets a shard, the smallest table that holds five. Every build runs at [`SMALL_SNAPSHOT_CACHE`]. A trace ceiling that is not a power of two of at least 128, an entry count under one a shard or over what the buckets hold, a policy other than `clear` or `half`, a value flag given twice, and any of the four flags on `enumerate` are usage errors.
+/// Holding the trace memo to a ceiling changes no file. Table builds at [`SMALL_TRACE_CEILING`], clearing a full shard, half-dropping it, or storing every window it settles, and at an entry count between two powers of two, five entries a shard under the default buckets, half-dropping a shard that reaches it, write the tables and digests of a build at the default ceiling, which the fixture never reaches, with `ss03` started from scratch beside `default`, where no engine reads another's memo and both are held to the ceiling, and with `ss03` as a delta, where `default` keeps every window for it to read. The cache stats count each configuration's evictions on its `memo_clears` line: none at the default ceiling and none for `default` while a delta reads its memo, some for every other engine at the small ceiling, whose `trace_cache` capacity never passes the 112 entries that ceiling holds, the room of eight buckets a shard, the smallest table that holds five. Every build runs at [`SMALL_SNAPSHOT_CACHE`]. A trace ceiling that is not a power of two of at least 128, an entry count under one a shard or over what the buckets hold, a policy other than `clear` or `half`, a value flag given twice, and any of the four flags on `replay-strings` are usage errors.
 #[test]
 fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_unheld_one_files() {
     let root = scratch("cli-trace-ceiling");
@@ -1111,7 +1068,7 @@ fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_u
         let output = run(&arguments);
         assert!(output.status.success(), "{arm}: {}", stderr_of(&output));
         let stderr = stderr_of(&output);
-        for (token, _) in CONFIGS {
+        for token in CONFIGS {
             let evictions = trace_evictions(&stderr, token);
             let kept = arm == "delta" && token == "default";
             if arm == "default-ceiling" || kept {
@@ -1132,7 +1089,7 @@ fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_u
         if arm == "default-ceiling" {
             continue;
         }
-        for (token, _) in CONFIGS {
+        for token in CONFIGS {
             for family in ["settlement", "joins", "windows"] {
                 let name = format!("{family}-{token}.tsv");
                 assert_eq!(
@@ -1190,8 +1147,15 @@ fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_u
         "--trace-memo-policy=half",
         "--no-trace-memo-skip",
     ] {
-        let output = run(&["enumerate", word(&spec), flag]);
-        assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");
+        let output = run(&[
+            "replay-strings",
+            word(&spec),
+            word(&misused),
+            "--configs=default",
+            "--max-length=1",
+            flag,
+        ]);
+        assert_eq!(output.status.code(), Some(2), "{flag} on replay-strings");
     }
 }
 
@@ -1210,7 +1174,7 @@ fn stat_field(stderr: &str, token: &str, name: &str, field: &str) -> u64 {
         .expect("as a count")
 }
 
-/// How `default` packs its snapshot and how `ss03` caches it change no file: table builds with no cache, under which each get decodes its block in place, with no cache and a whole record every four inside a block, with no filter, and at a 455-block cache, the default, which holds every block, write the tables and digests of a build at [`SMALL_SNAPSHOT_CACHE`]. The cache stats show each packing: `default`'s `snapshot` line counts its windows in the blocks of 512 they fill and a filter only where one is built, and `ss03`'s `shared_memo_store` line answers no get from a cache it lacks, none from a filter it lacks, and decodes no block twice at a cache that holds them all. A restart count that does not divide 512, a cache size that is not a count, a value flag given twice, and any of the three flags on `enumerate` are usage errors.
+/// How `default` packs its snapshot and how `ss03` caches it change no file: table builds with no cache, under which each get decodes its block in place, with no cache and a whole record every four inside a block, with no filter, and at a 455-block cache, the default, which holds every block, write the tables and digests of a build at [`SMALL_SNAPSHOT_CACHE`]. The cache stats show each packing: `default`'s `snapshot` line counts its windows in the blocks of 512 they fill and a filter only where one is built, and `ss03`'s `shared_memo_store` line answers no get from a cache it lacks, none from a filter it lacks, and decodes no block twice at a cache that holds them all. A restart count that does not divide 512, a cache size that is not a count, a value flag given twice, and any of the three flags on `replay-strings` are usage errors.
 #[test]
 fn a_table_build_under_any_snapshot_packing_files_the_bytes_a_small_cache_files() {
     let root = scratch("cli-snapshot-packing");
@@ -1266,7 +1230,7 @@ fn a_table_build_under_any_snapshot_packing_files_the_bytes_a_small_cache_files(
         if arm == "small-cache" {
             continue;
         }
-        for (token, _) in CONFIGS {
+        for token in CONFIGS {
             for family in ["settlement", "joins", "windows"] {
                 let name = format!("{family}-{token}.tsv");
                 assert_eq!(
@@ -1310,8 +1274,15 @@ fn a_table_build_under_any_snapshot_packing_files_the_bytes_a_small_cache_files(
         "--snapshot-restart-records=4",
         "--no-snapshot-filter",
     ] {
-        let output = run(&["enumerate", word(&spec), flag]);
-        assert_eq!(output.status.code(), Some(2), "{flag} on enumerate");
+        let output = run(&[
+            "replay-strings",
+            word(&spec),
+            word(&misused),
+            "--configs=default",
+            "--max-length=1",
+            flag,
+        ]);
+        assert_eq!(output.status.code(), Some(2), "{flag} on replay-strings");
     }
 }
 
@@ -1323,7 +1294,7 @@ fn family_word(family: &str) -> &str {
     }
 }
 
-/// A table build's timed phases, which the cycle reads like a stream run's, including `fold.prefixes`, `fold.exchange`, `fold.partition` and `fold.windows` before each `fold` line.
+/// A table build's timed phases, in the order the cycle reads them, including `fold.prefixes`, `fold.exchange`, `fold.partition` and `fold.windows` before each `fold` line.
 #[test]
 fn a_timed_table_build_names_the_enumerate_and_fold_phases_per_configuration() {
     let root = scratch("cli-tables-timings");
@@ -1684,7 +1655,7 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     ]);
     assert!(filed.status.success(), "{}", stderr_of(&filed));
     assert_eq!(filed.stdout, bare.stdout, "the answer lines are unchanged");
-    for (token, _) in CONFIGS {
+    for token in CONFIGS {
         let path = memos.join(format!("replay-windows-{token}.bin"));
         let bytes = std::fs::read(&path).expect("each configuration's memo is written");
         let head = bytes
@@ -1884,7 +1855,7 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
             "cache stats without a clock write only cache-stats lines: {line}"
         );
     }
-    for (token, _) in CONFIGS {
+    for token in CONFIGS {
         for prefix in [
             format!("[c] {token} walk_memo len="),
             format!("[c] {token} side_memo len="),
@@ -1912,7 +1883,7 @@ fn a_replay_with_cache_stats_writes_them_to_stderr_and_leaves_the_answer_alone()
     assert!(timed.status.success(), "{}", stderr_of(&timed));
     assert_eq!(timed.stdout, bare.stdout, "the answer lines are unchanged");
     let lines: Vec<String> = stderr_of(&timed).lines().map(str::to_owned).collect();
-    for (token, _) in CONFIGS {
+    for token in CONFIGS {
         let phase = format!("replay[{token}]");
         let clocked = lines
             .iter()
@@ -2097,7 +2068,7 @@ fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
         uncapped.keys().collect::<Vec<_>>(),
         released.keys().collect::<Vec<_>>()
     );
-    for (token, _) in CONFIGS {
+    for token in CONFIGS {
         let (whole, walked) = (&uncapped[token], &released[token]);
         assert_eq!(walked.texts, whole.texts, "{token}");
         assert_eq!(walked.skipped, whole.skipped, "{token}");

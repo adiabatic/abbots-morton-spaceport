@@ -143,11 +143,10 @@ def _windows_reason(value: str) -> str:
     return value
 
 
-# What `run_build`'s `[t] pack_windows[<config>]` line says a configuration's windows output wrote (`run_build.WindowsRoute.note`), its rows' plain bytes beside the part's and the head file's packed bytes, its `[t] windows_plan` line how many configurations took each route and adopted a single file, and its `[t] emitted_order[<config>]` line how many parts the walk merged.
+# What `run_build`'s `[t] pack_windows[<config>]` line says a configuration's windows output wrote (`run_build.WindowsRoute.note`), its rows' plain bytes beside the part's and the head file's packed bytes, its `[t] windows_plan` line how many configurations took each route, and its `[t] emitted_order[<config>]` line how many parts the walk merged.
 WINDOWS_TOKENS: dict[str, Callable[[str], object]] = {
     "wrote": _windows_wrote,
     "reason": _windows_reason,
-    "adopted": _true_or_false,
     "overrun": _true_or_false,
     "rows_written": int,
     "rows_bytes": int,
@@ -156,7 +155,6 @@ WINDOWS_TOKENS: dict[str, Callable[[str], object]] = {
     "segments": int,
     "segment_routes": int,
     "base_routes": int,
-    "adopting": int,
     "parts": int,
 }
 PHASE_TOKENS: dict[str, Callable[[str], object]] = {

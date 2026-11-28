@@ -636,7 +636,6 @@ def _resolve_record(context: _FileContext, raw: dict, path: str, provenance: Pro
         id=raw.get("id"),
         against=against,
         pick=raw.get("pick"),
-        migrated=raw.get("migrated"),
         why=raw.get("why"),
         provenance=provenance,
     )
@@ -1481,7 +1480,7 @@ def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _File
             if source_rune is None:
                 context.error(
                     path,
-                    "the trailing component must be migrated or the stance must declare an outgoing exception",
+                    "the trailing component has no rune in the spec, so the stance must declare an outgoing exception",
                 )
                 continue
             source_name = declaration.get("stance")

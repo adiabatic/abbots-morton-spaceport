@@ -182,7 +182,6 @@ pub struct PolicyRecord {
     pub split: Option<(i64, i64)>,
     pub against: Option<(Sym, Option<Sym>)>,
     pub pick: Option<Table<Sym>>,
-    pub migrated: Option<Sym>,
     pub why: Option<String>,
     pub provenance: Option<Provenance>,
 }

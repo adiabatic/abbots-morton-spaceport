@@ -500,7 +500,7 @@ def test_every_rows_alphabet_narrows_the_store_and_holds_a_manual_pin_and_a_liga
     spec = spec_load.load_spec(
         spec_load.DEFAULT_RUNES_DIR, spec_load.DEFAULT_REGISTRY_PATH, spec_load.DEFAULT_SCHEMA_DIR
     )
-    whole = manual_pins.migrated_alphabet(spec)
+    whole = manual_pins.spec_codepoints(spec)
     pins = [
         pin
         for pin in corpus.read_pins()
@@ -511,7 +511,7 @@ def test_every_rows_alphabet_narrows_the_store_and_holds_a_manual_pin_and_a_liga
     assert pins
     for row in fault_kit.load_manifest().rows:
         narrowed = spec_load.narrowed(spec, row.alphabet)
-        alphabet = manual_pins.migrated_alphabet(narrowed)
+        alphabet = manual_pins.spec_codepoints(narrowed)
         assert any(not manual_pins.missing_letters(pin, alphabet) for pin in pins), row.id
         assert any(rune.sequence for rune in narrowed.runes.values()), row.id
 

@@ -1,8 +1,8 @@
-"""Checks that `fingerprint.COMPARISON_CODE_MODULES` and `run_build.TABLE_BUILD_CODE_MODULES` match the import graph, and that the build runs no module outside the trees `fingerprint.pipeline_code_paths` hashes.
+"""Checks that `fingerprint.GATE_SIDE_CODE_MODULES` and `run_build.TABLE_BUILD_CODE_MODULES` match the import graph, and that the build runs no module outside the trees `fingerprint.pipeline_code_paths` hashes.
 
-`COMPARISON_CODE_MODULES` lists, as repo-relative paths, the modules of `pipeline_code_paths` left out of a serialized window enumeration's stamp (`fingerprint.table_code_paths`, the code half of `tables_value`). Reusing the tables and Senior-Regular.otf on disk, as `run_build --gates-only` and `--conform-only` do, is safe only if no module on that list can change a table or the font. The first check walks the import graph from every build-side module and requires it to reach nothing on the list. Like `engine/test_settle_memo_code_closure.py`, it works at module grain and follows `if TYPE_CHECKING:` imports, which errs toward including too much. The driver, `engine/pipeline/run_build.py`, reaches the comparison side through engine/pipeline/run_build_gates.py from `full_run` and its `python -m` entry, because a full run also runs the gates, so it is checked at function grain instead: no expression in `run_build.run`, or in any module-level function it calls transitively, may name a comparison-side module or anything imported from one.
+`GATE_SIDE_CODE_MODULES` lists, as repo-relative paths, the modules of `pipeline_code_paths` left out of a serialized window enumeration's stamp (`fingerprint.table_code_paths`, the code half of `tables_value`). Reusing the tables and Senior-Regular.otf on disk, as `run_build --gates-only` and `--conform-only` do, is safe only if no module on that list can change a table or the font. The first check walks the import graph from every build-side module and requires it to reach nothing on the list. Like `engine/test_settle_memo_code_closure.py`, it works at module grain and follows `if TYPE_CHECKING:` imports, which errs toward including too much. The driver, `engine/pipeline/run_build.py`, reaches the gate side through engine/pipeline/run_build_gates.py from `full_run` and its `python -m` entry, because a full run also runs the gates, so it is checked at function grain instead: no expression in `run_build.run`, or in any module-level function it calls transitively, may name a gate-side module or anything imported from one.
 
-The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `settle_memo_keys.SETTLE_MEMO_CODE_PATHS`, because a comparison-side module named there would drop every settle memo on a gate edit for no benefit.
+The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `settle_memo_keys.SETTLE_MEMO_CODE_PATHS`, because a gate-side module named there would drop every settle memo on a gate edit for no benefit.
 
 The font compile's generic assembly (`font_assembly`, `glyph_records`, `departure_mono_import`) is package modules under engine/pipeline, which `pipeline_code_paths` and `table_code_paths` hash whole, so no roster names them. What would escape both is a module the build imports by bare name from a directory those trees leave out, so a check holds the build's Python (`pipeline_code_paths`) to importing no tools/ or test/ module by bare name, and another holds the review corpus build's Python (`fingerprint.review_code_paths` and the modules the build reaches under engine/pipeline and engine/validation) to the same, since engine/test_review_code_closure.py follows only package imports. Neither check covers the engine/tools modules the pipeline imports, which `pipeline_code_paths` does not hash.
 
@@ -78,8 +78,8 @@ def reachable_modules(entry_points: tuple[str, ...]) -> dict[str, Path]:
     return seen
 
 
-def _comparison_paths() -> set[Path]:
-    return {REPO_ROOT / relative for relative in fingerprint.COMPARISON_CODE_MODULES}
+def _gate_side_paths() -> set[Path]:
+    return {REPO_ROOT / relative for relative in fingerprint.GATE_SIDE_CODE_MODULES}
 
 
 def _build_side_paths() -> list[Path]:
@@ -155,54 +155,54 @@ def test_every_roster_entry_is_a_pipeline_module_on_disk():
     pipeline_code = set(fingerprint.pipeline_code_paths(REPO_ROOT))
     missing = sorted(
         relative
-        for relative in fingerprint.COMPARISON_CODE_MODULES
+        for relative in fingerprint.GATE_SIDE_CODE_MODULES
         if REPO_ROOT / relative not in pipeline_code
     )
     assert (
         missing == []
-    ), f"COMPARISON_CODE_MODULES names files that are not in pipeline_code_paths on disk: {', '.join(missing)}"
+    ), f"GATE_SIDE_CODE_MODULES names files that are not in pipeline_code_paths on disk: {', '.join(missing)}"
 
 
 def test_table_code_paths_is_pipeline_code_minus_exactly_the_roster():
     pipeline_code = set(fingerprint.pipeline_code_paths(REPO_ROOT))
     table_code = set(fingerprint.table_code_paths(REPO_ROOT))
     assert table_code <= pipeline_code
-    assert pipeline_code - table_code == _comparison_paths()
-    assert PIPELINE / "conform.py" in table_code, "the producer side of the comparison is still stamped"
+    assert pipeline_code - table_code == _gate_side_paths()
+    assert PIPELINE / "conform.py" in table_code, "the conformance sweep is still stamped"
     assert PIPELINE / "run_build.py" in table_code, "the driver is still stamped"
 
 
-def test_no_build_side_module_reaches_the_comparison_side():
-    comparison = _comparison_paths()
+def test_no_build_side_module_reaches_the_gate_side():
+    gate_side = _gate_side_paths()
     offenders: list[str] = []
     walked = 0
     for path in _build_side_paths():
         reached = set(reachable_modules((_module_name(path),)).values())
         walked += 1
-        for hit in sorted(reached & comparison):
+        for hit in sorted(reached & gate_side):
             offenders.append(f"{path.relative_to(REPO_ROOT)} -> {hit.relative_to(REPO_ROOT)}")
     assert walked > 0, "the walk found nothing; table_code_paths moved"
     assert offenders == [], (
-        "these build-side modules import a comparison-side module, so an edit there could change a table or the font "
+        "these build-side modules import a gate-side module, so an edit there could change a table or the font "
         "while the enumeration's stamp stays put: "
         + "; ".join(offenders)
         + ". Either the import has to go, or the "
-        "module has to leave COMPARISON_CODE_MODULES in engine/pipeline/fingerprint.py."
+        "module has to leave GATE_SIDE_CODE_MODULES in engine/pipeline/fingerprint.py."
     )
 
 
-def _comparison_bindings(tree: ast.Module) -> set[str]:
-    """Return every name the driver binds to a comparison-side module or to something imported from one, including names bound by function-local imports."""
-    comparison_modules = {_module_name(path) for path in _comparison_paths()}
+def _gate_side_bindings(tree: ast.Module) -> set[str]:
+    """Return every name the driver binds to a gate-side module or to something imported from one, including names bound by function-local imports."""
+    gate_side_modules = {_module_name(path) for path in _gate_side_paths()}
     bound: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name in comparison_modules:
+                if alias.name in gate_side_modules:
                     bound.add(alias.asname or alias.name.split(".")[0])
         elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
             for alias in node.names:
-                if node.module in comparison_modules or f"{node.module}.{alias.name}" in comparison_modules:
+                if node.module in gate_side_modules or f"{node.module}.{alias.name}" in gate_side_modules:
                     bound.add(alias.asname or alias.name)
     return bound
 
@@ -243,21 +243,21 @@ def _build_entry_reach(tree: ast.Module) -> tuple[set[str], set[str]]:
     return reached, mentioned
 
 
-def test_the_build_entry_never_names_the_comparison_side():
+def test_the_build_entry_never_names_the_gate_side():
     tree = ast.parse(BUILD_DRIVER.read_text(encoding="utf-8"))
-    bindings = _comparison_bindings(tree)
+    bindings = _gate_side_bindings(tree)
     assert (
         bindings
-    ), f"{BUILD_DRIVER.name} binds no comparison-side name, so this check would be vacuous; the driver stopped importing the gates it runs"
+    ), f"{BUILD_DRIVER.name} binds no gate-side name, so this check would be vacuous; the driver stopped importing the gates it runs"
     reached, mentioned = _build_entry_reach(tree)
     assert "build_tables" in reached, "the walk from `run` never reached build_tables; the build entry moved"
     assert (
         "_run_defect_gates" in reached
-    ), "the walk from `run` never reached _run_defect_gates; the defect gate a gates-only rerun shares with the build has to stay inside this walk, or a helper both entry points call could reach the comparison side unchecked"
+    ), "the walk from `run` never reached _run_defect_gates; the defect gate a gates-only rerun shares with the build has to stay inside this walk, or a helper both entry points call could reach the gate side unchecked"
     offenders = sorted(name for name in mentioned if name.split(".")[0] in bindings)
     assert offenders == [], (
-        f"the build entry `{BUILD_ENTRY}` reaches the comparison side through {', '.join(offenders)} (via "
-        f"{', '.join(sorted(reached))}), so a comparison-side edit could move a table or the font while the "
+        f"the build entry `{BUILD_ENTRY}` reaches the gate side through {', '.join(offenders)} (via "
+        f"{', '.join(sorted(reached))}), so a gate-side edit could move a table or the font while the "
         "enumeration's stamp stays put"
     )
 
@@ -265,17 +265,17 @@ def test_the_build_entry_never_names_the_comparison_side():
 def test_every_roster_entry_is_reached_from_the_driver():
     """Every entry on the list is a module the driver reaches, so the list names only modules the gates run. An extra entry causes no wrong result, but it excludes from the stamp a module that no gate runs."""
     reached = set(reachable_modules((_module_name(BUILD_DRIVER),)).values())
-    strays = sorted(str(path.relative_to(REPO_ROOT)) for path in _comparison_paths() if path not in reached)
+    strays = sorted(str(path.relative_to(REPO_ROOT)) for path in _gate_side_paths() if path not in reached)
     assert (
         strays == []
-    ), f"named in COMPARISON_CODE_MODULES but unreachable from {BUILD_DRIVER.name}: {', '.join(strays)}"
+    ), f"named in GATE_SIDE_CODE_MODULES but unreachable from {BUILD_DRIVER.name}: {', '.join(strays)}"
 
 
-def test_the_comparison_side_is_outside_the_settle_memo_stamp():
+def test_the_gate_side_is_outside_the_settle_memo_stamp():
     named = {REPO_ROOT / relative for relative in settle_memo_keys.SETTLE_MEMO_CODE_PATHS}
-    inside = sorted(str(path.relative_to(REPO_ROOT)) for path in _comparison_paths() & named)
+    inside = sorted(str(path.relative_to(REPO_ROOT)) for path in _gate_side_paths() & named)
     assert inside == [], (
-        "these comparison-side modules ride SETTLE_MEMO_CODE_PATHS, so every edit to one drops every settle memo for "
+        "these gate-side modules ride SETTLE_MEMO_CODE_PATHS, so every edit to one drops every settle memo for "
         f"nothing, since no settlement runs them: {', '.join(inside)}"
     )
 

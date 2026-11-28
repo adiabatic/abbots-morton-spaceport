@@ -309,9 +309,9 @@ def test_exception_cannot_name_a_policy_that_does_not_apply_to_the_outgoing_stro
     _error(tmp_path, runes, "does not name an applicable inherited")
 
 
-def test_unmigrated_trailing_component_requires_a_full_stance_exception(tmp_path, runes):
+def test_an_absent_trailing_component_requires_a_full_stance_exception(tmp_path, runes):
     del runes["qsIt"]
-    _error(tmp_path, runes, "trailing component must be migrated")
+    _error(tmp_path, runes, "trailing component has no rune in the spec")
     runes["qsDay_qsIt"]["stances"]["sole"]["outgoing"] = {
         "exception": "The complete local drawing defines this stroke."
     }

@@ -487,7 +487,7 @@ class TestProspectLiveSlots:
 
 
 class TestDeepClasses:
-    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_class_and_label_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and join rows. `test_actual_lefts_agree_with_the_left_class_assumption` settles every member of every multi-member row at the row's settled left, one window at a time, so a fiber whose members settle differently there fails."""
+    """Tests class-grain enumeration, where deep slots hold outcome fibers that `expanded_transitions` expands back to labels. The `test_class_and_label_expansion_equality_*` tests build one spec with `DEEP_CLASSES_DEFAULT` on and off (off runs the kernel's label-grain path, which uses no fiber code) and assert the same expanded rows, rules, identity-guard count, reachable cells, cited provenance, and join rows. The crate settles every member of every multi-member row at the row's settled left (`fixpoint.rs`'s `every_member_of_a_class_row_settles_as_its_representative_at_the_rows_left`), so a fiber whose members settle differently there fails."""
 
     @pytest.fixture()
     def deep_modes(self, monkeypatch):
@@ -575,85 +575,6 @@ class TestDeepClasses:
             assert members == tuple(sorted(members))
             assert len(members) > 1
             assert token not in BOUNDARYISH
-
-    @pytest.mark.parametrize(
-        ("spec_fixture", "expect_r4"),
-        [("prospect_spec", False), ("synthetic_depth4_spec", True)],
-        ids=["prospect", "synthetic-depth4"],
-    )
-    def test_actual_lefts_agree_with_the_left_class_assumption(
-        self, request, deep_modes, spec_fixture, expect_r4
-    ):
-        """Asserts that for every multi-member deep-class token in the enumeration, every member traces the same at the row's settled left: the same settled cell, prospect, joint tiebreak, and notes. The classes come from the enumeration and the traces from `settle-cases`, so a class whose members settle differently at the actual left fails here. The test reads the enumeration product (`kernel_exec.enumerate_transitions`) because the tables drop each row's settled left. All member windows go to one `settle_cases` call, under the mode set the enumeration ran under. The prospect spec creates no r4 classes, so the synthetic depth-4 spec is the case that checks r4 classes (per context and r3 class) at actual lefts, and the `checked4` assertion fails if it stops creating them."""
-        from engine.pipeline.settle import EDGE, LeftContext, RightToken
-
-        spec = request.getfixturevalue(spec_fixture)
-        product = kernel_exec.enumerate_transitions(spec, frozenset())
-        assert product.deep_classes
-
-        def representative(token):
-            members = product.deep_classes.get(token)
-            return members[0] if members else token
-
-        kinds = {"#EDGE": "edge", "space": "space", "uni200C": "zwnj", "periodcentered": "namer-dot"}
-
-        def right_token(label):
-            if label == NA_LABEL:
-                return EDGE
-            if label in BOUNDARYISH:
-                return {"#EDGE": EDGE}.get(label) or RightToken(kinds[label])
-            return RightToken("letter", label)
-
-        cases = []
-        asked = []
-        for index, row in enumerate(product.transitions):
-            members3 = product.deep_classes.get(row.right3)
-            members4 = product.deep_classes.get(row.right4)
-            if members3 is None and members4 is None:
-                continue
-            left = (
-                LeftContext("letter", row.left_settled)
-                if row.left_settled is not None
-                else LeftContext(kinds[row.left])
-            )
-            token = RightToken("letter", row.input_glyph.split(".")[0])
-            r1tok = RightToken("letter", row.right1)
-            r2tok = RightToken("letter", row.right2)
-            traced_r4_member = right_token(representative(row.right4))
-            if members3 is not None:
-                for member in members3:
-                    cases.append(
-                        kernel_exec.case_line(
-                            left, token, (r1tok, r2tok, RightToken("letter", member), traced_r4_member)
-                        )
-                    )
-                    asked.append(((index, 3), row.key, member))
-            if members4 is not None:
-                traced_r3_member = right_token(representative(row.right3))
-                for member in members4:
-                    cases.append(
-                        kernel_exec.case_line(
-                            left, token, (r1tok, r2tok, traced_r3_member, RightToken("letter", member))
-                        )
-                    )
-                    asked.append(((index, 4), row.key, member))
-
-        results = kernel_exec.settle_cases(spec, cases, frozenset(), decode=kernel_exec.trace_of)
-        records: dict[tuple[int, int], tuple[tuple, dict[tuple, str]]] = {}
-        for (asked_at, key, member), trace in zip(asked, results):
-            probe = (trace.settled, trace.prospect, trace.joint_tiebreak, trace.notes)
-            records.setdefault(asked_at, (key, {}))[1][probe] = member
-        checked3 = 0
-        checked4 = 0
-        for (_index, slot), (key, seen) in records.items():
-            assert len(seen) == 1, (key, slot, sorted(seen.values()))
-            if slot == 3:
-                checked3 += 1
-            else:
-                checked4 += 1
-        assert checked3
-        if expect_r4:
-            assert checked4, "the fixture stopped minting r4 classes, so the r4 branch never ran"
 
 
 REFUSE_WHY_MARKER = "Two adjacent verticals"

@@ -993,7 +993,7 @@ impl PendingRows {
     }
 }
 
-/// One configuration's whole fixpoint, the value [`crate::fold::fold_product`] folds: the rows in key order, the deep-class map their class tokens resolve through, the cells they settle into, and the provenance the engine fired while tabulating. Serialized, it is `table.FixpointProduct`, which `kernel_exec.enumerate_transitions` parses. No build stage or tool calls it; only the engine suite exercises it.
+/// One configuration's whole fixpoint, the value [`crate::fold::fold_product`] folds: the rows in key order, the deep-class map their class tokens resolve through, the cells they settle into, and the provenance the engine fired while tabulating. Only the crate's own tests call it; the table build calls [`enumerate_for_tables`].
 ///
 /// The engine is built here from `modes`, which also decide whether the rune sets widen, whether the filters get their liveness probe, and whether the deep slots enumerate at class grain, because none of the three is meaningful without the others.
 pub fn enumerate_transitions(
@@ -1020,6 +1020,10 @@ pub struct TablesEnumeration<'i> {
 }
 
 /// [`enumerate_transitions`] that also returns the [`WindowOptions`] it ran over, the `--cache-stats` lines when `cache_stats` is given, and the engine's finished memo when `access` asks for it. The table build folds the product it holds, and the fold's certificates read the formation guard through the same options, whose verdict memo the worklist already filled, instead of sweeping the guard again. The memo access lets one configuration's enumeration read another's settled windows ([`crate::memo`]). A kept memo is taken at the release point, after the engine's other memos are freed; a configuration whose memo access does not keep it releases it there, so it holds none through its drain or its sort.
+///
+/// The `--cache-stats` lines it appends to `cache_stats`, which the caller writes to stderr, are the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings and a trace memo shard made room at its own (`memo_clears`), what the grouped fourth-slot sweeps did when they are on (`grouped_sweeps`), the trace memo's capacity being its tables' level, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, each shared memo's store as the engine read it (`shared_memo_store id= gets= filtered= cached= decoded= cache_bytes=`: the gets that reached the store once the exclusion's key test let them, those the store's filter answered absent, those a cached block answered, the blocks decoded, and the bytes of the engine's cache for it at its full size), and the process's resident size before the memo release, after it, and after the sort, with the snapshot of an enumeration that keeps its memo beside the second (`snapshot records= blocks= packed_bytes= fence_bytes= filter_bytes= pool_bytes= sort_ms= encode_ms=`, [`MemoSnapshot::footprint_line`]). None of this is computed unless asked for.
+///
+/// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
 pub fn enumerate_for_tables<'i>(
     index: &'i SpecIndex,
     features: &[Sym],
@@ -1028,26 +1032,6 @@ pub fn enumerate_for_tables<'i>(
     access: MemoAccess,
 ) -> Result<TablesEnumeration<'i>, String> {
     enumerate_from_seeds(index, features, modes, contract_seeds, cache_stats, access)
-}
-
-/// [`enumerate_transitions`] that also appends the `--cache-stats` lines to `cache_stats`: the bytes the row log holds once the class rows are in it, its fragments, and how many times an item revisited a base (`row_log bytes= fragments= revisited_bases=`), each other collection's length and capacity once the worklist finishes, how many times the prospect and candidate memos were cleared at their ceilings and a trace memo shard made room at its own (`memo_clears`), what the grouped fourth-slot sweeps did when they are on (`grouped_sweeps`), the trace memo's capacity being its tables' level, the size of the elimination text the memos hold, the shared memo hits in total and per shared memo, each shared memo's store as the engine read it (`shared_memo_store id= gets= filtered= cached= decoded= cache_bytes=`: the gets that reached the store once the exclusion's key test let them, those the store's filter answered absent, those a cached block answered, the blocks decoded, and the bytes of the engine's cache for it at its full size), and the process's resident size before the memo release, after it, and after the sort, with the snapshot of an enumeration that keeps its memo beside the second (`snapshot records= blocks= packed_bytes= fence_bytes= filter_bytes= pool_bytes= sort_ms= encode_ms=`, [`MemoSnapshot::footprint_line`]). The caller writes the lines to stderr. None of this is computed unless asked for.
-///
-/// Memory decisions in this crate come down to entry counts, and a count read from a live alphabet settles in one run what a struct-size argument can only estimate.
-pub fn enumerate_with_cache_stats(
-    index: &SpecIndex,
-    features: &[Sym],
-    modes: EnumerationModes,
-    cache_stats: &mut Vec<String>,
-) -> Result<FixpointProduct, String> {
-    enumerate_from_seeds(
-        index,
-        features,
-        modes,
-        contract_seeds,
-        Some(cache_stats),
-        MemoAccess::default(),
-    )
-    .map(|enumeration| enumeration.product)
 }
 
 /// [`enumerate_transitions`] with the seeds passed in, so a test can permute the seed order and check that the product does not change. Production always passes [`contract_seeds`]. The permuted-seed tests cover both the pinned mode set and class grain, where each fiber's row is traced at its least member regardless of which item reaches it first.
@@ -1989,7 +1973,7 @@ fn cross_check_member(members: &[RightToken], representative: RightToken) -> Rig
     }
 }
 
-/// The member cross-check's `PartitionError` message: a member of a class row traced a different record than the representative, meaning the left-class assumption fails at an actual left. The representative's settled record and notes are passed in resolved, since the row holds only their indexes.
+/// The member cross-check's error message: a member of a class row traced a different record than the representative, meaning the left-class assumption fails at an actual left. The representative's settled record and notes are passed in resolved, since the row holds only their indexes.
 fn member_mismatch(
     index: &SpecIndex,
     key: &[&str; 6],
@@ -2059,7 +2043,7 @@ struct ContextPartition {
 
 /// The class-grain partition check, with the caches it fills while replaying the enumeration's decisions.
 ///
-/// It runs over the crate's own product before the stream is written, because the filters, fibers and option lists it consults are not in the stream. Everything it consults was already computed during enumeration: the two filters' memos are filled, every live context's fibers are derived, and `right4_options` returns the same list for the same inputs. The product's fired set is taken before this check runs, so the check adds no provenance.
+/// It runs over the crate's own product before the enumeration returns it, because the filters, fibers and option lists it consults are not in the product. Everything it consults was already computed during enumeration: the two filters' memos are filled, every live context's fibers are derived, and `right4_options` returns the same list for the same inputs. The product's fired set is taken before this check runs, so the check adds no provenance.
 ///
 /// It checks, per base: the member sets of the observed r3 letter tokens are pairwise disjoint, and each lies inside the recomputed static option list and inside one fiber of its context's partition; right3 is not `#NA` exactly where the rune set and the third-slot filter say live; one slot deeper, r4 member sets are disjoint per base and r3 token, every member of an r3 token gets the same `fourth_slot_matters` result and the same computed r4 option list; and every class id resolves through the product's map, with every map entry used. Disjointness is checked per base, not per context, because slot restrictions are per left state, so two bases in one context can admit nested subsets of one fiber. Coverage of the static option list is not checked, because slot restrictions exclude unreachable members, as label grain excludes their rows.
 ///
@@ -2420,7 +2404,6 @@ mod tests {
     use super::*;
     use crate::index::fixtures;
     use crate::memo::{Exclusion, unlocking_runes};
-    use crate::stream::emit_transitions;
 
     /// The two heights the ordinary fixtures join at.
     const HEIGHTS: &[(&str, &str)] = &[("baseline", "0"), ("x-height", "5")];
@@ -3690,11 +3673,8 @@ mod tests {
         )
         .expect("the fixpoint closes")
         .product;
-        // Compared as streams, not products, because two of the product's fields are sets whose vector order the emitter decides: `cited_provenance` comes from a hash set and has no order of its own.
-        assert_eq!(
-            emit_transitions(&index, &contract),
-            emit_transitions(&index, &reversed)
-        );
+        // Compared resolved, not as products, because two of the product's fields are sets with no order of their own (`cited_provenance` comes from a hash set), and the settled and provenance tables list their records in the order each traversal first reached them.
+        assert_eq!(contract.resolved(&index), reversed.resolved(&index));
         assert!(
             contract
                 .transitions
@@ -3705,7 +3685,7 @@ mod tests {
         // At label grain order-independence follows from the dedup by window key: a re-reached window reuses the settled state a re-trace would return, and the fired set is a union over a window set no traversal changes. The next test covers class grain.
     }
 
-    /// Order-independence at class grain: each fiber's row is traced at its least member, so the row and the windows traced for it do not depend on which item reached the fiber first. The reversed seed order reaches the same stream, including deep classes, cells and fired provenance, from a product that has multi-member class rows.
+    /// Order-independence at class grain: each fiber's row is traced at its least member, so the row and the windows traced for it do not depend on which item reached the fiber first. The reversed seed order reaches the same product, rows, deep classes, cells and fired provenance, from a product that has multi-member class rows.
     #[test]
     fn a_permuted_seed_order_reaches_the_same_class_grain_product() {
         let index = crate::liveness::tests::prospect_spec();
@@ -3734,13 +3714,10 @@ mod tests {
             !contract.deep_classes.is_empty(),
             "the product carries class rows, so the claim is about class grain"
         );
-        assert_eq!(
-            emit_transitions(&index, &contract),
-            emit_transitions(&index, &reversed)
-        );
+        assert_eq!(contract.resolved(&index), reversed.resolved(&index));
     }
 
-    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product byte for byte (rows, classes, cells and fired provenance, which is what the stream contains) while answering windows from the shared memo, and liveness probes from the verdicts `default` published there for `ss03`'s unlocking runes. The exclusion is required: the same shared memo read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail. `ss03` reads the snapshot through a cache of two blocks, fewer than the snapshot holds, so its gets search the fences, its store's filter answers some of them absent, and its cache evicts.
+    /// An `ss03` enumeration that reads `default`'s finished memo for every window naming no unlocking rune of `ss03` produces the from-scratch product (its rows, classes, cells and fired provenance) while answering windows from the shared memo, and liveness probes from the verdicts `default` published there for `ss03`'s unlocking runes. The exclusion is required: the same shared memo read without one gives `ss03` the wrong results for `qsMay`'s windows, which is what makes the equality assertion able to fail. `ss03` reads the snapshot through a cache of two blocks, fewer than the snapshot holds, so its gets search the fences, its store's filter answers some of them absent, and its cache evicts.
     #[test]
     fn a_configuration_sharing_defaults_memo_reaches_its_from_scratch_product() {
         let index = fixtures::mini();
@@ -3833,14 +3810,11 @@ mod tests {
             served > 0,
             "default's verdicts answered probes, each rerunning only the asks that name qsMay"
         );
-        assert_eq!(
-            emit_transitions(&index, &scratch),
-            emit_transitions(&index, &over_shared)
-        );
+        assert_eq!(scratch.resolved(&index), over_shared.resolved(&index));
         let (unfiltered, _, _) = shared_with(Exclusion::none());
         assert_ne!(
-            emit_transitions(&index, &scratch),
-            emit_transitions(&index, &unfiltered),
+            scratch.resolved(&index),
+            unfiltered.resolved(&index),
             "without the exclusion the shared memo answers qsMay's windows as default settles them"
         );
     }
@@ -3889,10 +3863,7 @@ mod tests {
         };
         assert!(!cited(&kept).is_empty());
         assert_eq!(cited(&scratch), cited(&kept));
-        assert_eq!(
-            emit_transitions(&index, &scratch),
-            emit_transitions(&index, &kept)
-        );
+        assert_eq!(scratch.resolved(&index), kept.resolved(&index));
     }
 
     #[test]
@@ -3937,6 +3908,205 @@ mod tests {
             error.contains("qsPea.half.ex-y0 (junction floor, extension 0)")
                 && error.contains("qsPea.half.ex-y0 (junction baseline, extension 0)"),
             "{error}"
+        );
+    }
+
+    /// A product holds each window once, in key order, and counts among its cells every cell a row settles into and every cell a row's left settled into, which the fold, the windows head and the certificates read the product by. Over the mini fixture's `default` and `ss03` and the prospect fixture's `default`, each in the default modes, at class grain.
+    #[test]
+    fn a_product_holds_each_window_once_in_key_order_and_counts_every_cell_its_rows_name() {
+        let mini = fixtures::mini();
+        let prospect = crate::liveness::tests::prospect_spec();
+        let ss03 = fixtures::sym(&mini, "ss03");
+        for (name, index, features) in [
+            ("mini default", &mini, Vec::new()),
+            ("mini ss03", &mini, vec![ss03]),
+            ("prospect", &prospect, Vec::new()),
+        ] {
+            let product = enumerate_transitions(index, &features, EnumerationModes::default())
+                .expect("the fixture's fixpoint closes");
+            assert!(!product.transitions.is_empty(), "{name}");
+            for pair in product.transitions.windows(2) {
+                assert!(
+                    pair[0].key(&product.labels) < pair[1].key(&product.labels),
+                    "{name}: {:?} follows {:?}",
+                    pair[1].key(&product.labels),
+                    pair[0].key(&product.labels)
+                );
+            }
+            let cells: HashSet<&CellId> = product.cells.iter().collect();
+            for row in &product.transitions {
+                let key = row.key(&product.labels);
+                assert!(
+                    cells.contains(&product.settled(row).cell),
+                    "{name}: {key:?} settles into a cell the product does not count"
+                );
+                if let Some(left) = product.left_settled(row) {
+                    assert!(
+                        cells.contains(&left.cell),
+                        "{name}: {key:?} carries a left-settled cell the product does not count"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The token a window slot's label stands for: the letter it names, a boundary, or the run edge for `#EDGE` and `#NA`, since both mean the text stops there.
+    fn slot_token(index: &SpecIndex, label: &str) -> RightToken {
+        match label {
+            EDGE_LABEL | NA_LABEL => EDGE,
+            "space" => SPACE,
+            "uni200C" => ZWNJ,
+            "periodcentered" => NAMER_DOT,
+            name => fixtures::letter(index, name),
+        }
+    }
+
+    /// The left a row was settled at: the boundary its left label names, or the record its letter left settled into.
+    fn row_left(index: &SpecIndex, product: &FixpointProduct, row: &TransitionRow) -> LeftContext {
+        let kind = match &**product.labels.text(row.left) {
+            EDGE_LABEL => TokenKind::Edge,
+            "space" => TokenKind::Space,
+            "uni200C" => TokenKind::Zwnj,
+            "periodcentered" => TokenKind::NamerDot,
+            _ => {
+                let settled = product
+                    .left_settled(row)
+                    .expect("a letter left carries the record it settled into");
+                return LeftContext::letter(index, settled.clone());
+            }
+        };
+        LeftContext::boundary(kind)
+    }
+
+    /// A chain that reads the fourth slot: `qsTea` prefers its `full` stance where `qsMay qsMay qsMay qsIt` follows, so behind `qsMay qsMay qsMay` the fourth slot splits `qsIt` from the other letters. It has the shape of the depth-four spec `engine/test_table.py` builds, the mini fixture's `qsTea` given that `prefer`, over plain stances of the mini fixture's families.
+    fn depth_four_alphabet() -> SpecIndex {
+        let pea = rune(
+            "qsPea",
+            &[("half", stance("half", &["baseline"], &["x-height"]))],
+            &[],
+        );
+        let tea = rune(
+            "qsTea",
+            &[
+                (
+                    "half",
+                    stance("half", &["baseline"], &["x-height", "baseline"]),
+                ),
+                ("full", stance("full", &[], &[])),
+            ],
+            &[(
+                "policy",
+                &policy(&[&prefer_stance(
+                    "full",
+                    &chain(&["qsMay", "qsMay", "qsMay", "qsIt"]),
+                )]),
+            )],
+        );
+        let may = rune(
+            "qsMay",
+            &[("bare", stance("bare", &[], &["baseline"]))],
+            &[],
+        );
+        let it = rune("qsIt", &[("solo", stance("solo", &[], &[]))], &[]);
+        spec_of(
+            &[("qsPea", pea), ("qsTea", tea), ("qsMay", may), ("qsIt", it)],
+            &fixtures::registry(&[
+                ("heights", &fixtures::map(HEIGHTS)),
+                (
+                    "families",
+                    &fixtures::map(&[
+                        ("qsPea", r#"{"codepoint":58960,"sequence":null}"#),
+                        ("qsTea", r#"{"codepoint":58962,"sequence":null}"#),
+                        ("qsMay", r#"{"codepoint":58981,"sequence":null}"#),
+                        ("qsIt", r#"{"codepoint":58992,"sequence":null}"#),
+                    ]),
+                ),
+            ]),
+        )
+    }
+
+    /// Every member of every multi-member deep class settles as the class row's representative did, at the row's actual left: the row's stored settled record, prospect, joint tiebreak and fired provenance. A third-slot member is traced with the fourth slot at the representative of the row's fourth-slot entry, and a fourth-slot member with the third slot at the representative of its third-slot entry, as the enumeration traces them. The enumeration's own member cross-check re-traces one member a row beside the representative ([`cross_check_member`]); this traces every member, so a class of three or more whose middle member settles differently fails here. The prospect fixture's classes are all in the third slot, and the depth-four chain puts classes in both, and both branches must have run.
+    #[test]
+    fn every_member_of_a_class_row_settles_as_its_representative_at_the_rows_left() {
+        let mut checked = [0usize; 2];
+        for (name, index) in [
+            ("prospect", crate::liveness::tests::prospect_spec()),
+            ("depth four", depth_four_alphabet()),
+        ] {
+            let product = enumerate_transitions(&index, &[], EnumerationModes::default())
+                .expect("the fixture's fixpoint closes");
+            assert!(!product.deep_classes.is_empty(), "{name} mints classes");
+            let classes: HashMap<&str, &[String]> = product
+                .deep_classes
+                .iter()
+                .map(|(token, members)| (token.as_str(), members.as_slice()))
+                .collect();
+            let representative = |label: &str| -> RightToken {
+                slot_token(
+                    &index,
+                    classes
+                        .get(label)
+                        .map_or(label, |members| members[0].as_str()),
+                )
+            };
+            let mut engine = Engine::with_modes(
+                &index,
+                Vec::<Sym>::new(),
+                EngineModes {
+                    trace_memo: true,
+                    explain_ranking: false,
+                    ..EngineModes::default()
+                },
+            );
+            for row in &product.transitions {
+                let key = row.key(&product.labels);
+                let [input, _, right1, right2, right3, right4] = key;
+                let token = fixtures::letter(&index, input.split('.').next().unwrap_or(input));
+                let left = row_left(&index, &product, row);
+                let (right1, right2) = (slot_token(&index, right1), slot_token(&index, right2));
+                for (slot, label) in [(3usize, right3), (4, right4)] {
+                    let Some(members) = classes.get(label) else {
+                        continue;
+                    };
+                    for member in *members {
+                        let member_token = fixtures::letter(&index, member);
+                        let slots = if slot == 3 {
+                            Slots::new(right1, right2, member_token, representative(right4))
+                        } else {
+                            Slots::new(right1, right2, representative(right3), member_token)
+                        };
+                        let trace =
+                            engine
+                                .transition_trace(&left, token, slots)
+                                .unwrap_or_else(|error| {
+                                    panic!(
+                                        "{name}: {key:?} member {member} at slot {slot}: {error:?}"
+                                    )
+                                });
+                        assert_eq!(
+                            (
+                                &trace.settled,
+                                trace.prospect,
+                                trace.joint_tiebreak,
+                                trace.notes.as_slice()
+                            ),
+                            (
+                                product.settled(row),
+                                i64::from(row.prospect),
+                                row.joint,
+                                product.provenance(row)
+                            ),
+                            "{name}: {key:?} member {member} at slot {slot}"
+                        );
+                        checked[slot - 3] += 1;
+                    }
+                }
+            }
+        }
+        assert!(checked[0] > 0, "a third-slot member was traced");
+        assert!(
+            checked[1] > 0,
+            "the depth-four chain stopped minting fourth-slot classes"
         );
     }
 }

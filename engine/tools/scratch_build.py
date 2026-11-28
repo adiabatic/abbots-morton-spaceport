@@ -3,11 +3,11 @@
 Usage:
     uv run python engine/tools/scratch_build.py <runes_dir> <out_dir> [--configs a,b]
 
-`--configs` narrows the table build to that list, in the order given (`request_configs`). Its names are the settlement configurations `engine.tools.kernel_all_configs.configs_from` accepts, checked before the spec is resolved and dumped. Without it, the build covers the settlement set. A run whose search reads only `default`'s rows can pass `--configs default` and pay for one configuration's enumeration. A narrowed build writes the same window enumerations and join tables as the whole set, but its settlement tables can differ, because the whole set's fold takes in the windows each configuration keeps live that another's rules would answer wrongly in the shipped order (`engine/kernel-rs/src/crossconfig.rs`), and a narrowed build has fewer configurations to take them from. A set that does not include `default` enumerates every member from scratch and saves much less.
+`--configs` narrows the table build to that list, in the order given (`request_configs`). Its names are the settlement configurations `configs_from` accepts, checked before the spec is resolved and dumped. Without it, the build covers the settlement set. A run whose search reads only `default`'s rows can pass `--configs default` and pay for one configuration's enumeration. A narrowed build writes the same window enumerations and join tables as the whole set, but its settlement tables can differ, because the whole set's fold takes in the windows each configuration keeps live that another's rules would answer wrongly in the shipped order (`engine/kernel-rs/src/crossconfig.rs`), and a narrowed build has fewer configurations to take them from. A set that does not include `default` enumerates every member from scratch and saves much less.
 
 The out dir may not resolve under engine/out/build (`scratch_out_dir`), whether or not the run is narrowed. A narrowed build there would rewrite the settlement and join files of the configurations it names and leave the others as the last whole build wrote them, because the crate deletes nothing. The directory's readers (`engine/review/tablediff.py` reads it as one build) cannot tell that mixed set from a whole one. A whole-set build there would rewrite every table and `Senior-Regular.otf` from the candidate's runes but leave the stamped window enumerations, because it passes no inputs stamp. The artifact cycle's run_build skip key hashes the repo's inputs and only checks that those files exist, so the next pass would build the review corpus over the candidate's font.
 
-Prints a JSON line with the configurations built (`configs`) and the defect gate's errors (`defect_errors`). It follows `engine.pipeline.run_build.run()`, read-back included, with the spec as a parameter. `build_font` is the build and read-back without the defect gates, which `engine/tools/scaling_sweep.py` runs on each alphabet size of its series under `AMS_SCALING_FONTS=1`.
+Prints a JSON line with the configurations built (`configs`) and the defect gate's errors (`defect_errors`). It follows `engine.pipeline.run_build.run()`, read-back included, with the spec as a parameter. `build_font` is the build and read-back without the defect gates.
 """
 
 from __future__ import annotations
@@ -28,10 +28,23 @@ from engine.pipeline.spec_load import (
     DEFAULT_SCHEMA_DIR,
     load_spec,
 )
-from engine.tools.kernel_all_configs import configs_from
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILD_OUT = REPO_ROOT / "engine" / "out" / "build"
+
+
+def configs_from(requested: str) -> list[str]:
+    """Return the configurations `--configs` names, in its order. An unknown name exits here, before the spec is resolved and dumped, with a message that lists the valid names. `engine/tools/memory_series.py` reads its `--configs` through this too."""
+    offered = dict.fromkeys((*conform.SETTLEMENT_CONFIGS, "default"))
+    tokens = [token.strip() for token in requested.split(",") if token.strip()]
+    unknown = [token for token in tokens if token not in offered]
+    if not tokens:
+        raise SystemExit(
+            f"--configs {requested!r} names no configuration; the tokens are {', '.join(offered)}"
+        )
+    if unknown:
+        raise SystemExit(f"no such configuration: {', '.join(unknown)}; the tokens are {', '.join(offered)}")
+    return tokens
 
 
 def request_configs(requested: str) -> list[str]:
@@ -42,7 +55,7 @@ def request_configs(requested: str) -> list[str]:
 
 
 def scratch_out_dir(requested: str) -> Path:
-    """Return the resolved out dir, and exit when it is under engine/out/build. `kernel_all_configs.scratch_out_dir` makes the opposite check: it requires one directory where this forbids one."""
+    """Return the resolved out dir, and exit when it is under engine/out/build."""
     out_dir = Path(requested).resolve()
     if out_dir == BUILD_OUT or BUILD_OUT in out_dir.parents:
         raise SystemExit(

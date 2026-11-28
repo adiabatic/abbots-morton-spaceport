@@ -64,7 +64,7 @@ mod tests {
         );
     }
 
-    /// A class id is `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined member list. The expected values were computed with Python's `hashlib`, outside this crate. The ids are written into the transitions stream, so they must match Python's, and comparing the crate with itself would check nothing.
+    /// A class id is `#C` plus the first twelve hex digits of the SHA-256 of the tab-joined member list. The expected values were computed with Python's `hashlib`, outside this crate. The ids are written into the windows payload, so they must match Python's, and comparing the crate with itself would check nothing.
     #[test]
     fn a_tab_joined_member_list_takes_the_class_id_python_computes() {
         let members = |names: &[&str]| -> Vec<String> {

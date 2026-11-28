@@ -389,8 +389,8 @@ def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
     assert artifact_cycle.kern_only_rebuild({"files": before[2]}, edited[2]) == moved
 
 
-def test_a_comparison_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
-    """Editing engine/validation/shaping.py, the shaper the Manual-pin gate replays through, moves `pipeline_code` and the run_build skip key but not `tables_value`, so `--gates-only` can re-run the gates over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs engine/pipeline/ and engine/validation/, and `COMPARISON_CODE_MODULES` is the only subtraction `table_code_paths` makes, so each file is checked by path. conform.py and the crate stay in the tables' stamp."""
+def test_a_gate_side_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
+    """Editing engine/validation/shaping.py, the shaper the Manual-pin gate replays through, moves `pipeline_code` and the run_build skip key but not `tables_value`, so `--gates-only` can re-run the gates over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs engine/pipeline/ and engine/validation/, and `GATE_SIDE_CODE_MODULES` is the only subtraction `table_code_paths` makes, so each file is checked by path. conform.py and the crate stay in the tables' stamp."""
     root = _fake_repo(tmp_path)
     shaping = root / "engine" / "validation" / "shaping.py"
     assert shaping not in fingerprint.table_code_paths(root)

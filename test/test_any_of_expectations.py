@@ -20,10 +20,6 @@ def _senior(pin_fonts: dict[str, CheckFont]) -> None:
     _FONT["senior"] = pin_fonts["senior"]
 
 
-def _char_map() -> dict[str, str]:
-    return _CHARS
-
-
 def _qs_text(*parts: str) -> str:
     """Spell family names (`qsMay`) and the two boundaries (`space`, `ZWNJ`) as text; any other part stands for itself."""
     result = []
@@ -232,7 +228,7 @@ def test_may_pea_does_not_select_pea_entry_after_entry_only_may(text: str, expec
 
 
 def test_fee_may_uses_extension_pair():
-    """·Fee joins ·May at the x-height. The assertion leaves out the extension width and the stances the two take, the old font's ``before-may`` and ``after-fee``, which have no form in the rune vocabulary, so that the extension can be tuned without editing this test."""
+    """·Fee joins ·May at the x-height. The assertion leaves out the extension width and the stances the two take, so that the extension can be tuned without editing this test."""
     _assert_expect_any(
         _qs_text("qsFee", "qsMay"),
         ["·Fee ~x~ ·May"],
@@ -663,7 +659,7 @@ def test_may_thaw_ing_is_sensible():
 
 
 def test_may_thaw_stays_isolated_across_zwnj():
-    chars = _char_map()
+    chars = _CHARS
     text = chars["qsTea"] + ZWNJ + chars["qsMay"] + chars["qsThaw"] + chars["qsIng"]
     _assert_expect_any(
         text,
@@ -690,7 +686,7 @@ def test_no_does_not_take_alt_before_thaw_that_loses_entry():
 
 
 def test_no_thaw_stays_non_alt_across_zwnj():
-    chars = _char_map()
+    chars = _CHARS
     text = chars["qsTea"] + ZWNJ + chars["qsNo"] + chars["qsThaw"] + chars["qsIng"]
     _assert_expect_any(
         text,

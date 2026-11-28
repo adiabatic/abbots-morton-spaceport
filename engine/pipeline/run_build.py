@@ -10,7 +10,7 @@ Settlement-lookup outcomes are `settle.cell_label` names, so the decision-table 
 
 The split-buffer check runs inside gate:conform's sweep, at maximum length 4 on every build and at maximum length 5 or more through `make conform-deep`. Read-back's boundary-glyphs stage checks the ZWNJ glyph's zero advance and empty outline on the written font bytes, so the conformance sweep does not check them at every shaped slot.
 
-Run as `uv run python -m engine.pipeline.run_build`. The entry (`cli`) refuses while the alphabet switch (`spec_load.RUNES_ENV`) is set outside the fault kit, and otherwise hands the command line to `run_build_gates.main`, which parses it and calls `full_run` for a bare run. A bare run by hand reuses the tables on disk as the artifact cycle's build step does whenever the table-reuse record allows it; `--fresh-tables` runs the crate whatever the record says, and the cycle passes it under its own `--fresh`. `--conform-only` runs only the conformance sweep against the Senior-Regular.otf on disk. `--gates-only` re-runs the defect gate and the Manual-pin gate over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a comparison-side input: the contact allow-list the defect gate reads, or the code `fingerprint.COMPARISON_CODE_MODULES` names. The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; engine/test_build_code_closure.py checks that the build never reaches that code). A `--gates-only` pass records run_build's green when a prior green exists and everything that changed since is comparison-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_build.
+Run as `uv run python -m engine.pipeline.run_build`. The entry (`cli`) refuses while the alphabet switch (`spec_load.RUNES_ENV`) is set outside the fault kit, and otherwise hands the command line to `run_build_gates.main`, which parses it and calls `full_run` for a bare run. A bare run by hand reuses the tables on disk as the artifact cycle's build step does whenever the table-reuse record allows it; `--fresh-tables` runs the crate whatever the record says, and the cycle passes it under its own `--fresh`. `--conform-only` runs only the conformance sweep against the Senior-Regular.otf on disk. `--gates-only` re-runs the defect gate and the Manual-pin gate over the tables and font already on disk, without rebuilding anything. It is the fast way to re-check an edit to a gate-side input: the contact allow-list the defect gate reads, or the code `fingerprint.GATE_SIDE_CODE_MODULES` names. The tables' stamp leaves all of these out (`fingerprint.table_code_paths`; engine/test_build_code_closure.py checks that the build never reaches that code). A `--gates-only` pass records run_build's green when a prior green exists and everything that changed since is gate-side, so the artifact cycle plans this gates-only rerun itself and the pass after it skips run_build.
 """
 
 from __future__ import annotations
@@ -328,9 +328,9 @@ class WindowsRoute:
     """How one configuration's windows rows are written this build, decided from its head before the crate starts (`_plan_windows`), as #618's decisions 74 and 75 settle it, with no size test and no stamp clause:
 
     - `segment`: the rows that differ from `prior`'s, whose parts stay `opened` so that a thread a part can feed them to the crate (`prior_parts`). A build whose rows all come out the same writes the head file and the head alone.
-    - `base`: the whole payload as the next generation's base, with its `reason`: `first`, no head and no single file; `unusable`, a head, a part or a single file that does not read, which the cycle reports as `rewritten whole` (`output_sink.note_rewritten`); or `fold`, `prior`'s fold is due and this configuration holds the pass's fold (`row_delta.claim_fold`), or holds `row_delta.FOLD_OVERRUN` segments past its cap (`forced`), so it folds whatever another output did.
+    - `base`: the whole payload as the next generation's base, with its `reason`: `first`, no head; `unusable`, a head or a part that does not read, which the cycle reports as `rewritten whole` (`output_sink.note_rewritten`); or `fold`, `prior`'s fold is due and this configuration holds the pass's fold (`row_delta.claim_fold`), or holds `row_delta.FOLD_OVERRUN` segments past its cap (`forced`), so it folds whatever another output did.
 
-    `adopted` says `prior` is the single file a tree from before the segment format holds, linked as generation 0's base, which no head lists until the commit. The payload's reader (`_take_windows`) stages the head file at `staged` and writes the base or the segment under its final name, kept in `part`; `_pack_config` commits them. A build that fails deletes them (`discard`).
+    The payload's reader (`_take_windows`) stages the head file at `staged` and writes the base or the segment under its final name, kept in `part`; `_pack_config` commits them. A build that fails deletes them (`discard`).
     """
 
     config: str
@@ -339,7 +339,6 @@ class WindowsRoute:
     reason: str = ""
     prior: row_delta.Head | None = None
     opened: row_delta.OpenParts | None = None
-    adopted: bool = False
     forced: bool = False
     staged: Path | None = None
     part: row_delta.Part | None = None
@@ -380,13 +379,11 @@ class WindowsRoute:
         return row_delta.Head(self.output, generation, content, stamps, self.part, (), row_delta.MERGE_KEY)
 
     def note(self, committed: row_delta.Head) -> str:
-        """The tail of `[t] pack_windows[<config>]`: what the build wrote (`wrote=head|segment|base`), a base's reason, whether the base it merged against was adopted, whether a fold came at its overrun, the part's rows, their plain bytes (`rows_bytes`) and the part's packed bytes on disk (`packed_bytes`), the head file's packed bytes, which every stamped build writes, and the head's segments after the commit."""
+        """The tail of `[t] pack_windows[<config>]`: what the build wrote (`wrote=head|segment|base`), a base's reason, whether a fold came at its overrun, the part's rows, their plain bytes (`rows_bytes`) and the part's packed bytes on disk (`packed_bytes`), the head file's packed bytes, which every stamped build writes, and the head's segments after the commit."""
         wrote = "head" if self.route == SEGMENT_ROUTE and self.part is None else self.route
         tokens = [f"wrote={wrote}"]
         if self.route == BASE_ROUTE:
             tokens.append(f"reason={self.reason}")
-        if self.adopted:
-            tokens.append("adopted=true")
         if self.forced:
             tokens.append("overrun=true")
         if self.part is not None:
@@ -403,38 +400,15 @@ class WindowsRoute:
             self.opened = None
 
     def discard(self) -> None:
-        """Delete what this build staged or wrote under a name no head lists, for a build that failed: the staged head file, the part, and an adopted single file's link."""
+        """Delete what this build staged or wrote under a name no head lists, for a build that failed: the staged head file and the part."""
         self.close()
         if self.staged is not None:
             self.staged.unlink(missing_ok=True)
         (self.tables_dir / self.part_name()).unlink(missing_ok=True)
-        if self.adopted:
-            (self.tables_dir / row_delta.base_name(self.output, 0)).unlink(missing_ok=True)
-
-
-def _adopted_base(tables_dir: Path, config: str) -> row_delta.Head | None:
-    """Put the single file a tree from before the segment format holds under an uncommitted head, as generation 0's base, and return that head, or None when the file does not read: a hard link, which writes no data, beside a count of its rows and row bytes, which reads the file through once with its gzip trailer checked and its first two lines checked as a payload's head and column lines (`table.check_windows_header`). The head is committed only with this build's own head (`_pack_config`); a build that fails deletes the link (`WindowsRoute.discard`)."""
-    output = table_module.windows_output(config)
-    single = table_module.windows_path(tables_dir, config)
-    rows = rows_bytes = 0
-    try:
-        with gzip.open(single, "rb") as stream:
-            table_module.check_windows_header(stream, single.name)
-            while chunk := stream.read(1 << 20):
-                rows += chunk.count(b"\n")
-                rows_bytes += len(chunk)
-    except OSError, EOFError, ValueError, zlib.error:
-        return None
-    name = row_delta.base_name(output, 0)
-    os.link(single, tables_dir / name)
-    base = row_delta.Part(
-        name, (tables_dir / name).stat().st_size, row_delta.file_sha256(tables_dir / name), rows, rows_bytes
-    )
-    return row_delta.Head(output, 0, 0, {}, base, (), row_delta.MERGE_KEY)
 
 
 def _route_of(tables_dir: Path, config: str) -> WindowsRoute:
-    """One configuration's route before any fold is claimed: `segment` over a head whose every part opens, hashes to what the head records and passes its header check, or over the adopted single file; otherwise a base, `first` or `unusable`. Every header check a part's feeder makes runs here first (`_header_checks`, `_parts_read`), so a part an earlier format wrote, which still hashes to its head, routes to a new base instead of failing the build and every build after it. The parts no head lists and the staging files a killed writer left are deleted first (`row_delta.remove_unlisted`, `row_delta.remove_staging`)."""
+    """One configuration's route before any fold is claimed: `segment` over a head whose every part opens, hashes to what the head records and passes its header check; otherwise a base, `first` with no head or `unusable`. Every header check a part's feeder makes runs here first (`_header_checks`, `_parts_read`), so a part an earlier format wrote, which still hashes to its head, routes to a new base instead of failing the build and every build after it. The parts no head lists and the staging files a killed writer left are deleted first (`row_delta.remove_unlisted`, `row_delta.remove_staging`)."""
     output = table_module.windows_output(config)
     row_delta.remove_staging(tables_dir, output)
     try:
@@ -444,13 +418,7 @@ def _route_of(tables_dir: Path, config: str) -> WindowsRoute:
         return WindowsRoute(config, tables_dir, BASE_ROUTE, "unusable")
     row_delta.remove_unlisted(tables_dir, output, head)
     if head is None:
-        if not table_module.windows_path(tables_dir, config).exists():
-            return WindowsRoute(config, tables_dir, BASE_ROUTE, "first")
-        adopted = _adopted_base(tables_dir, config)
-        if adopted is None:
-            return WindowsRoute(config, tables_dir, BASE_ROUTE, "unusable")
-        opened = row_delta.open_parts(tables_dir, adopted)
-        return WindowsRoute(config, tables_dir, SEGMENT_ROUTE, prior=adopted, opened=opened, adopted=True)
+        return WindowsRoute(config, tables_dir, BASE_ROUTE, "first")
     if head.merge != row_delta.MERGE_KEY:
         return WindowsRoute(config, tables_dir, BASE_ROUTE, "unusable", prior=head)
     try:
@@ -489,7 +457,7 @@ def _parts_read(opened: row_delta.OpenParts, checks: Sequence[Callable[[gzip.Gzi
 
 
 def _plan_windows(tables_dir: Path, configs: Sequence[str]) -> dict[str, WindowsRoute]:
-    """Decide every configuration's windows route before the crate starts (`WindowsRoute`), and print `[t] windows_plan` with how many take each route (`segment_routes=`, `base_routes=`) and how many adopt a single file (`adopting=`). Each configuration's head is read and its parts hashed, or its single file counted, on a thread of its own, since zlib and the hashes release the interpreter lock. Then the pass's fold is claimed (`row_delta.claim_fold`) among the configurations whose fold is due, the one with the most segments first and then in configuration order: the one that holds it folds, and so does any at its overrun (`row_delta.fold_forced`), and the rest write a segment and wait."""
+    """Decide every configuration's windows route before the crate starts (`WindowsRoute`), and print `[t] windows_plan` with how many take each route (`segment_routes=`, `base_routes=`). Each configuration's head is read and its parts hashed on a thread of its own, since zlib and the hashes release the interpreter lock. Then the pass's fold is claimed (`row_delta.claim_fold`) among the configurations whose fold is due, the one with the most segments first and then in configuration order: the one that holds it folds, and so does any at its overrun (`row_delta.fold_forced`), and the rest write a segment and wait."""
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=max(1, len(configs)), thread_name_prefix="windows-plan") as pool:
         routes = dict(zip(configs, pool.map(functools.partial(_route_of, tables_dir), configs)))
@@ -514,7 +482,7 @@ def _plan_windows(tables_dir: Path, configs: Sequence[str]) -> dict[str, Windows
     console.timing(
         "windows_plan",
         time.perf_counter() - started,
-        f"segment_routes={counts[SEGMENT_ROUTE]} base_routes={counts[BASE_ROUTE]} adopting={sum(route.adopted for route in routes.values())}",
+        f"segment_routes={counts[SEGMENT_ROUTE]} base_routes={counts[BASE_ROUTE]}",
     )
     return routes
 
@@ -522,7 +490,7 @@ def _plan_windows(tables_dir: Path, configs: Sequence[str]) -> dict[str, Windows
 def _pack_config(
     tables_dir: Path, config: str, route: WindowsRoute | None, inputs: str | None, digest: str
 ) -> None:
-    """Finish one configuration's packing after the crate's clean exit, once its reader's byte count has matched the crate's and its head line has parsed (`build_tables`), when the build is stamped (`route`): rename the head file its payload's reader staged (`_take_windows`) into place, commit the windows head over it and the part the reader wrote (`row_delta.commit`, which deletes the generation a fold superseded), and delete the single file a tree from before the segment format held. The head's stamps are the build's `inputs`, the crate's `digest` over the table's own rows and the head file's name, size and sha256. A base written because a head, a part or a single file did not read is counted as `rewritten whole` (`output_sink.note_rewritten`). Prints `[t] pack_windows[<config>]` with what it wrote (`WindowsRoute.note`)."""
+    """Finish one configuration's packing after the crate's clean exit, once its reader's byte count has matched the crate's and its head line has parsed (`build_tables`), when the build is stamped (`route`): rename the head file its payload's reader staged (`_take_windows`) into place, and commit the windows head over it and the part the reader wrote (`row_delta.commit`, which deletes the generation a fold superseded). The head's stamps are the build's `inputs`, the crate's `digest` over the table's own rows and the head file's name, size and sha256. A base written because a head or a part did not read is counted as `rewritten whole` (`output_sink.note_rewritten`). Prints `[t] pack_windows[<config>]` with what it wrote (`WindowsRoute.note`)."""
     started = time.perf_counter()
     if route is None:
         console.timing(f"pack_windows[{config}]", time.perf_counter() - started)
@@ -543,7 +511,6 @@ def _pack_config(
     if route.reason == "unusable":
         output_sink.note_rewritten(route.output)
     row_delta.commit(tables_dir, committed)
-    table_module.windows_path(tables_dir, config).unlink(missing_ok=True)
     console.timing(f"pack_windows[{config}]", time.perf_counter() - started, route.note(committed))
 
 
@@ -821,7 +788,7 @@ def build_tables(
 
     A narrowed set is for `engine/tools/scratch_build.py`, which searches for a record to change. The crate writes only the configurations it is asked for and deletes nothing, so a narrowed build into a directory another build wrote leaves that build's files for the other settlement configurations in place. `scratch_build.scratch_out_dir` keeps such builds out of `engine/out/build`. A narrowed set writes the same windows and join tables as the whole set, but its settlement tables can differ, since it has fewer configurations to import windows from. A set that does not include `default` enumerates each member from scratch, since there is no finished memo to build a delta over, so its width is derived from the from-scratch bound. The build and the artifact cycle ask for the whole set. Overlay configurations get no tables. Any table files named for a configuration outside `conform.SETTLEMENT_CONFIGS`, an overlay configuration's or one that has left the set, are removed first (`stale_table_files`), so a whole-set build leaves only its own tables in the directory.
 
-    Each configuration's windows rows are an output in the segment format, beside a head file (`table`'s module docstring), and a stamped build writes each configuration's rows as its route says (`WindowsRoute`), decided before the crate starts (`_plan_windows`): with no size test and no stamp clause, so an alphabet change and a structure-stamp move write a segment like any other pass (#618's decisions 74 and 75). On the segment route the parts the head lists are opened with their sha256 checked before the crate starts, and a thread a part decompresses each into a pipe the crate inherits, for the crate's whole run, outside the `Packing` pool (`kernel_exec.PriorPart`), so the crate merges the configuration's rows against them at its finish and writes only the rows that differ. A tree from before the segment format holds each configuration's whole payload in a single file, which the first build to find it and no head adopts as generation 0's base by hard link, counting its rows once before the crate starts (`_adopted_base`), and then merges against like any other base. The plan raises the descriptor limit first (`kernel_exec.raise_descriptor_limit`), since at six configurations each at a base and twenty segments it holds a part handle, a pipe's write end and, until the crate is spawned, its read end, for each of 126 parts.
+    Each configuration's windows rows are an output in the segment format, beside a head file (`table`'s module docstring), and a stamped build writes each configuration's rows as its route says (`WindowsRoute`), decided before the crate starts (`_plan_windows`): with no size test and no stamp clause, so an alphabet change and a structure-stamp move write a segment like any other pass (#618's decisions 74 and 75). On the segment route the parts the head lists are opened with their sha256 checked before the crate starts, and a thread a part decompresses each into a pipe the crate inherits, for the crate's whole run, outside the `Packing` pool (`kernel_exec.PriorPart`), so the crate merges the configuration's rows against them at its finish and writes only the rows that differ. The plan raises the descriptor limit first (`kernel_exec.raise_descriptor_limit`), since at six configurations each at a base and twenty segments it holds a part handle, a pipe's write end and, until the crate is spawned, its read end, for each of 126 parts.
 
     The window payload never reaches the disk as plain text. Each configuration's payload goes through a pipe the crate inherits (`kernel_exec.stream_payloads`), which has no path, so no other process can open it and take bytes from it, and one thread a configuration, outside the `Packing` pool and whatever the crate's width, reads it for the crate's whole run (`_take_windows`): it keeps the head line, stages it as the head file and, when the build is stamped, gzips the rest into the configuration's next segment or base as the crate writes it, at compressor speed, since a packer holds only a zlib stream and a copy buffer and the compressor releases the interpreter lock. A part is written under its final name, which no head lists until the commit, and a part no head lists is deleted by the next build. Each payload's end of file comes with the crate's exit, and a payload the crate never opened is an empty stream, which packs nothing. Nothing is committed that the readers cannot vouch for. Every reader counts the bytes it received, and the crate answers the bytes it wrote of each payload beside its digest (`kernel_exec.TableBuild.windows_bytes`); a configuration whose two counts differ fails the build, naming both. Per configuration, Python then parses the kept head for the rules, the reachable cells and the fired provenance every downstream stage needs, checks its stamp, and parses the join TSV back for the defect gates, on a thread pool at the table build's width, and this call waits for them. Only after the crate's clean exit, with every reader finished, every count matched and every head parsed, is each staged head file renamed into place and each windows head committed over it (`_pack_config`), so a build whose crate or any reader fails, whose payload lost bytes, whose head does not parse, or that is interrupted before then, deletes what it staged and wrote and leaves the previous build's head file, head and parts in place. A reader's failure fails the build, as the cause of the crate's broken pipe when the reader stopped early. The commit (`_pack_config`) runs on a `Packing` pool at `_core_bound_threads` width, one task per configuration up to the cores. When `packing` is passed, the tables are returned as soon as the heads are parsed and the commits submitted, and the caller waits on each commit through `Packing.wait` and closes the pool. Without it, packing finishes before the return.
 
@@ -829,7 +796,7 @@ def build_tables(
 
     `reuse`, which only `full_run` passes, lets a stamped build into `out_dir` run no crate when nothing the crate reads, and nothing that decides what this function writes, has moved since the last green run, as the table-reuse record under `out_dir` (`TABLE_REUSE_FILENAME`) says. Before anything is written it computes the record's key (`table_reuse_lines`). When the record holds the same key, the table files on disk are the ones it names, each still has the raw sha256 it records, and each windows head records the table digest the record holds (`_reusable_tables`), the build reads each configuration's head file through its head and re-stamps the line with this build's `inputs` (`_restamped_heads`), and has the `Packing` pool stage it as the head file and commit the head over it (`_restamp_config`), as a crate build whose rows all came out the same commits them, so every table file is byte for byte what the crate would leave; the digests are the record's. A miss of any kind, a head line that does not re-stamp among them, or `reuse.force`, runs the crate, and a console line says why. Every build with an `out_dir` deletes the record (`retract_table_reuse`) after that check and before it writes anything, `stale_table_files`' deletions included, so a build that goes red, is killed, or leaves a torn table set leaves no record, and only a run that goes green writes one again (`settle_table_reuse`). A build that reused the tables ends its `[t] kernel_build_tables` line with `reused=true` in place of its record and the crate's peaks, and the line times the record's check and the head files' reads; it keeps no crate phase lines.
 
-    `out_dir`, when given, receives the TSVs listed in `doc/engine-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint, and recorded in each windows head. The crate also prints it on stdout, where `engine/tools/scaling_sweep.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
+    `out_dir`, when given, receives the TSVs listed in `doc/engine-design.md` §8. The second returned mapping is each configuration's `table.table_digest` as the crate reported it, computed while the window rows are still in memory, which avoids recomputing the fixpoint, and recorded in each windows head. The crate also prints it on stdout, where `engine/tools/memory_series.py` reads it. Both returned mappings are built in `configs` order however the configurations finish, so completion order cannot affect an artifact.
 
     `inputs` is `tables_inputs` over the sources this spec was loaded from. Passing it with `out_dir` keeps each configuration's window rows and head file beside the TSVs under the stamp that names those sources, where `run_build_gates.run_font_conformance` reads it instead of rebuilding anything. Without it, each reader keeps the head and drops the rest of the payload, and the crate writes every payload whole. A caller building its own spec must omit it, because the fingerprint names the repository's rune files and does not describe tables built from other runes.
 
@@ -987,7 +954,6 @@ def build_tables(
 
 _TABLE_FILE = re.compile(
     r"(?:settlement|joins)-(?P<table>.+)\.tsv"
-    r"|windows-(?P<single>.+)\.tsv\.gz"
     r"|windows-(?P<head_file>.+)\.head\.json\.gz(?:\.tmp)?"
     r"|windows-(?P<rows>.+)\.tsv\.gz\.(?:head|\d+\.base|\d+\.\d+\.delta)"
     rf"(?:{re.escape(output_sink.STAGING_SUFFIX)})?"
@@ -995,7 +961,7 @@ _TABLE_FILE = re.compile(
 
 
 def config_table_files(tables_dir: Path, config: str) -> tuple[Path, ...]:
-    """Return the table files a settlement configuration has under `tables_dir`, named for `config`: its settlement and join tables, its windows head and head file, the head file's staging name, every part a readable head lists, every other part named for it (`row_delta.remove_unlisted` deletes the unlisted ones too), the staging file a killed writer left of a part or the head (`row_delta.remove_staging` deletes those too) and the single file a tree from before the segment format holds, where it remains."""
+    """Return the table files a settlement configuration has under `tables_dir`, named for `config`: its settlement and join tables, its windows head and head file, the head file's staging name, every part a readable head lists, every other part named for it (`row_delta.remove_unlisted` deletes the unlisted ones too) and the staging file a killed writer left of a part or the head (`row_delta.remove_staging` deletes those too)."""
     tables_dir = Path(tables_dir)
     output = table_module.windows_output(config)
     named = [
@@ -1003,7 +969,6 @@ def config_table_files(tables_dir: Path, config: str) -> tuple[Path, ...]:
         tables_dir / f"joins-{config}.tsv",
         table_module.windows_head_path(tables_dir, config),
         table_module.windows_head_file(tables_dir, config),
-        table_module.windows_path(tables_dir, config),
         _head_file_staging(tables_dir, config),
     ]
     try:
@@ -1036,7 +1001,7 @@ def stale_table_files(tables_dir: Path) -> list[Path]:
 
 
 def _pack_windows(source: PayloadSource, directory: Path, name: str, head: bytes) -> row_delta.Part:
-    """Gzip a whole payload the kernel writes into a windows base, `name` under `directory` (`row_delta.write_part`), and return its `Part`: `head`, what a reader has already taken from `source`, then the column line, checked, and the rest of `source`, whose lines are the base's rows. The gzip timestamp is zeroed and the header names no file, so two builds of one table are byte-identical whatever the part's name, and so is a payload however its reads are cut, and the base is the whole payload packed exactly as a tree from before the segment format holds it in its single file. Level 1 is used because the payload is gigabytes of plain TSV per build, written once and read back a few times, and compression time is spent on every build that writes an `out_dir`. The level affects only time, since table identity is taken over the decompressed bytes. `engine/kernel-rs/src/artifacts.rs` also states that the decompressed bytes are the artifact's identity."""
+    """Gzip a whole payload the kernel writes into a windows base, `name` under `directory` (`row_delta.write_part`), and return its `Part`: `head`, what a reader has already taken from `source`, then the column line, checked, and the rest of `source`, whose lines are the base's rows. The gzip timestamp is zeroed and the header names no file, so two builds of one table are byte-identical whatever the part's name, and so is a payload however its reads are cut. Level 1 is used because the payload is gigabytes of plain TSV per build, written once and read back a few times, and compression time is spent on every build that writes an `out_dir`. The level affects only time, since table identity is taken over the decompressed bytes. `engine/kernel-rs/src/artifacts.rs` also states that the decompressed bytes are the artifact's identity."""
 
     def fill(stream: row_delta.Sink) -> tuple[int, int]:
         stream.write(head)
@@ -1205,7 +1170,7 @@ def _defect_summary_fields(report: defects.DefectReport) -> dict:
         "defect_errors": [f"{d.code} {d.signature}: {d.message}" for d in report.errors],
         "defect_flags": [f"{d.code} {d.signature}: {d.message}" for d in report.flags],
         "unused_records": sorted(report.unused_records),
-        "waiting_on_unmigrated": sorted(report.waiting_on_unmigrated),
+        "waiting_on_absent_family": sorted(report.waiting_on_absent_family),
         "notes": report.notes,
     }
 
@@ -1973,7 +1938,7 @@ def replay_and_absorb(
 ) -> FullReplay:
     """Walk every configuration of `memos` over every text up to `REPLAY_MAX_LENGTH`, each in a crate process of its own, at most `threads` crate processes at once, each beside the spawn worker that absorbs its window memo (`_walk_and_absorb`), and commit each configuration's settle memo head once every walk has passed.
 
-    Before the pool starts, the parent plans each configuration's settle memo route (`conform.plan_settle_memos`, printed as `[t] settle_memo_plan`): a base for a configuration with no memo, one that does not read or whose fold this pass holds, and otherwise the segment route over its head, or over its single file from before the segment format, adopted by hard link as generation 0's base. It builds the kernel (`kernel_exec.ensure_built`) and dumps the spec once (`kernel_exec._spec_dump`), then starts a spawn pool with one worker a configuration, whose initializer marks the kernel built from the parent's word, keeps the spec dump's path and starts the thread that stops the worker, wherever it waits, once the parent has gone (`_replay_worker_init`, `_stop_when_orphaned`). Each worker gets its route, never rows. The width gates the walks through a semaphore and not the workers: a worker holds its slot from its walk's start until its part is laid out, then leaves it and holds the part until the verdict, so a worker waiting with its part never holds a slot another walk needs and a width of one cannot deadlock. Where the width is below the configuration count, a worker whose part is laid out while a walk has yet to take a slot writes it at once under its final name, which no head lists, or discards it without `keep`, before it leaves its slot, and then waits for the verdict holding no part: so the walks running and the parts held never outnumber the width. No worker returns before the verdict, so each runs one walk. Each worker reports its walk on a queue as soon as its crate has exited; a worker that ends without reporting counts as a failed walk. Once every walk has reported, the replay passes if every walk passed. The parent then sets the verdict: on a pass with `keep` each worker still holding its part writes it, and the parent commits each configuration's head over it, or alone where the refill settled every window as the memo held it, with every part recorded under the current stamp and family keys, through the route the worker returns (`conform.SettleMemoRoute.commit`), one writer a configuration; otherwise every worker still holding its part discards it, and the parent removes every part a worker wrote early and every adoption's link, so a red replay commits no head and leaves no part. With `digest` each worker hashes its part before the verdict, which the memory series reads with `keep` off. Every message between the parent and a worker is counts, lines, peaks, a route and a part's name, size and sha256, never rows or the part. `cache_stats` passes `--cache-stats` to each crate. `spec_path` names a dump of `spec` the caller already wrote, in place of this process's own (`kernel_exec._spec_dump`).
+    Before the pool starts, the parent plans each configuration's settle memo route (`conform.plan_settle_memos`, printed as `[t] settle_memo_plan`): a base for a configuration with no memo, one that does not read or whose fold this pass holds, and otherwise the segment route over its head. It builds the kernel (`kernel_exec.ensure_built`) and dumps the spec once (`kernel_exec._spec_dump`), then starts a spawn pool with one worker a configuration, whose initializer marks the kernel built from the parent's word, keeps the spec dump's path and starts the thread that stops the worker, wherever it waits, once the parent has gone (`_replay_worker_init`, `_stop_when_orphaned`). Each worker gets its route, never rows. The width gates the walks through a semaphore and not the workers: a worker holds its slot from its walk's start until its part is laid out, then leaves it and holds the part until the verdict, so a worker waiting with its part never holds a slot another walk needs and a width of one cannot deadlock. Where the width is below the configuration count, a worker whose part is laid out while a walk has yet to take a slot writes it at once under its final name, which no head lists, or discards it without `keep`, before it leaves its slot, and then waits for the verdict holding no part: so the walks running and the parts held never outnumber the width. No worker returns before the verdict, so each runs one walk. Each worker reports its walk on a queue as soon as its crate has exited; a worker that ends without reporting counts as a failed walk. Once every walk has reported, the replay passes if every walk passed. The parent then sets the verdict: on a pass with `keep` each worker still holding its part writes it, and the parent commits each configuration's head over it, or alone where the refill settled every window as the memo held it, with every part recorded under the current stamp and family keys, through the route the worker returns (`conform.SettleMemoRoute.commit`), one writer a configuration; otherwise every worker still holding its part discards it, and the parent removes every part a worker wrote early, so a red replay commits no head and leaves no part. With `digest` each worker hashes its part before the verdict, which the memory series reads with `keep` off. Every message between the parent and a worker is counts, lines, peaks, a route and a part's name, size and sha256, never rows or the part. `cache_stats` passes `--cache-stats` to each crate. `spec_path` names a dump of `spec` the caller already wrote, in place of this process's own (`kernel_exec._spec_dump`).
     """
     configs = list(memos)
     plan = conform.plan_settle_memos(memos)
@@ -2071,12 +2036,11 @@ def replay_and_absorb(
             absorb = absorbs.get(config)
             if config not in committed and absorb is not None and absorb.part is not None:
                 (memos[config].path.parent / absorb.part.name).unlink(missing_ok=True)
-        plan.discard(committed)
     return FullReplay({config: walks[config] for config in configs}, absorbs, passed)
 
 
 def report_replay(replayed: FullReplay, memos: Mapping[str, conform.SettleMemoFile], threads: int) -> None:
-    """Print what a full replay did and record its pools: each walk's crate lines, the `[t]` ones tagged with its configuration where a label carries none, in the memos' order, then, on a passing replay, each absorb's `[t] settle_memo_emit <config>` line or its warning in the same order. The line keeps `entries=`, the windows the refill holds, and says what the absorb wrote (`wrote=head|segment|base`), a base's `reason=`, `adopted=true` and `overrun=true` where they hold, the rows its part holds (`rows_written=`), the standing rows its dead bitmaps name (`named=`), its part's bytes (`part_bytes=`), the segments the committed head lists and, on the segment route, the compare's seconds (`compare_seconds=`). Then one `replay-walk` record with each passing walk's own crate resident peak as one observation, and one `REPLAY_ABSORB_POOL_UNIT` record with the peak footprint of each absorb worker that read its memo whole, whatever the verdict, since the verdict moves no absorb's peak."""
+    """Print what a full replay did and record its pools: each walk's crate lines, the `[t]` ones tagged with its configuration where a label carries none, in the memos' order, then, on a passing replay, each absorb's `[t] settle_memo_emit <config>` line or its warning in the same order. The line keeps `entries=`, the windows the refill holds, and says what the absorb wrote (`wrote=head|segment|base`), a base's `reason=`, `overrun=true` where it holds, the rows its part holds (`rows_written=`), the standing rows its dead bitmaps name (`named=`), its part's bytes (`part_bytes=`), the segments the committed head lists and, on the segment route, the compare's seconds (`compare_seconds=`). Then one `replay-walk` record with each passing walk's own crate resident peak as one observation, and one `REPLAY_ABSORB_POOL_UNIT` record with the peak footprint of each absorb worker that read its memo whole, whatever the verdict, since the verdict moves no absorb's peak."""
     for config, walk in replayed.walks.items():
         kernel_exec._write_lines(
             [kernel_exec._tagged(line, config) if line.startswith("[t] ") else line for line in walk.lines]
@@ -2092,8 +2056,6 @@ def report_replay(replayed: FullReplay, memos: Mapping[str, conform.SettleMemoFi
             tokens = [f"entries={absorb.entries}", f"wrote={absorb.wrote}"]
             if route.route == conform.BASE_ROUTE:
                 tokens.append(f"reason={route.reason}")
-            if route.adopted:
-                tokens.append("adopted=true")
             if route.forced:
                 tokens.append("overrun=true")
             tokens += [
@@ -2354,7 +2316,7 @@ def serialized_tables(out_dir: Path, inputs: str) -> dict[str, DecisionTable] | 
 def tables_inputs() -> str:
     """Return the stamp serialized windows carry: `fingerprint.tables_value` plus one token for each semantics mode that is on by default (`kernel_exec.enumeration_tokens`: the simulated prospect, the shifted follower prefer slots, the class-grain deep slots), then, while the alphabet switch is set, `alphabet=` and its token (`spec_load.alphabet_token`). These environment settings change settlement semantics, enumeration grain or the alphabet without changing any hashed source, so without the tokens an enumeration made with a flag on, or over a small alphabet, would look current to a process with it off, or over the whole alphabet, and the reverse, and the sweep would replay tables the in-process kernel no longer produces.
 
-    The stamp covers what the fixpoint reads. The contact allow-list, which is in no fingerprint component, is the defect gate's input, read against tables that are already built, so editing it leaves every enumeration on disk as current as it was, and `--gates-only` can re-check over the tables and font on disk. The same holds for the comparison-side code `fingerprint.COMPARISON_CODE_MODULES` names: the stamp's code half is `fingerprint.table_code_paths`, the pipeline code without those modules, and engine/test_build_code_closure.py checks that the build never reaches them. These edits are still checked: every one of those labels is in the artifact cycle's run_build key (`artifact_cycle.run_build_skip_lines`), so the green record no longer matches and the gates they feed, the defect gate included, re-run over the artifacts on disk.
+    The stamp covers what the fixpoint reads. The contact allow-list, which is in no fingerprint component, is the defect gate's input, read against tables that are already built, so editing it leaves every enumeration on disk as current as it was, and `--gates-only` can re-check over the tables and font on disk. The same holds for the gate-side code `fingerprint.GATE_SIDE_CODE_MODULES` names: the stamp's code half is `fingerprint.table_code_paths`, the pipeline code without those modules, and engine/test_build_code_closure.py checks that the build never reaches them. These edits are still checked: every one of those labels is in the artifact cycle's run_build key (`artifact_cycle.run_build_skip_lines`), so the green record no longer matches and the gates they feed, the defect gate included, re-run over the artifacts on disk.
     """
     inputs = fingerprint.tables_value(REPO_ROOT)
     for token in kernel_exec.enumeration_tokens():

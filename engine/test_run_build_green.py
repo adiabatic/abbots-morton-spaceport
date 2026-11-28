@@ -1,4 +1,4 @@
-"""Tests for the green records and check lines run_build writes, plus its exit handling and the conformance sweep's fan-in. An interactive run_build, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its result as a check line in the timings journal. The results come from artifact_cycle's evaluators (`evaluate_run_build_gate`, `evaluate_conform_gate`). `--gates-only` records run_build's green only when a prior green exists and every input that moved since it is comparison-side (`artifact_cycle.gates_only_rerun`), so the next cycle can skip run_build after a contact allow-list bless."""
+"""Tests for the green records and check lines run_build writes, plus its exit handling and the conformance sweep's fan-in. An interactive run_build, `--conform-only`, and `--gates-only` record the same green files the artifact cycle skips on, so a fix verified by hand is not verified again by the next cycle, and each records its result as a check line in the timings journal. The results come from artifact_cycle's evaluators (`evaluate_run_build_gate`, `evaluate_conform_gate`). `--gates-only` records run_build's green only when a prior green exists and every input that moved since it is gate-side (`artifact_cycle.gates_only_rerun`), so the next cycle can skip run_build after a contact allow-list bless."""
 
 import json
 import os
@@ -1090,7 +1090,7 @@ class TestConformFanIn:
 
 
 class TestGatesOnly:
-    """`--gates-only` re-runs the defect gate and the Manual-pin replay over the build already on disk, without the stages that make the artifacts. It exits with an error on a stamp that no longer matches the runes and on a build that left no summary to rewrite the defect fields into. It records a green only when every input that moved since the last green build is comparison-side, so a bless of the contact allow-list leaves the next cycle nothing to do, while a toolchain bump does not."""
+    """`--gates-only` re-runs the defect gate and the Manual-pin replay over the build already on disk, without the stages that make the artifacts. It exits with an error on a stamp that no longer matches the runes and on a build that left no summary to rewrite the defect fields into. It records a green only when every input that moved since the last green build is gate-side, so a bless of the contact allow-list leaves the next cycle nothing to do, while a toolchain bump does not."""
 
     def _reuse(self, monkeypatch, tables):
         """Stubs the Stage A capture and the stamp check, which read live files under engine/out that a contracts-lane test may not read. Returns the stage log the ordering test reads."""
@@ -1301,7 +1301,7 @@ class TestGatesOnly:
         report = defects.DefectReport(
             flags=[defects.Defect("W-CONTACT", "qsAh~qsBay", "grazes")],
             unused_records=["qsZoo", "qsAh"],
-            waiting_on_unmigrated=["qsNo"],
+            waiting_on_absent_family=["qsNo"],
             notes=["blessed one signature"],
         )
         ran = self._reuse(monkeypatch, {})
@@ -1323,7 +1323,7 @@ class TestGatesOnly:
             "notes": ["blessed one signature"],
             "defect_flags": ["W-CONTACT qsAh~qsBay: grazes"],
             "unused_records": ["qsAh", "qsZoo"],
-            "waiting_on_unmigrated": ["qsNo"],
+            "waiting_on_absent_family": ["qsNo"],
         }
         summary = tmp_path / "pipeline_summary.json"
         os.utime(summary, ns=(LONG_AGO_NS, LONG_AGO_NS))
@@ -1356,7 +1356,7 @@ class TestGatesOnly:
             "E-CONTACT qsAh~qsBay: ink collision"
         ]
 
-    def test_a_comparison_side_diff_records_the_green_the_next_cycle_skips_on(self, monkeypatch, tmp_path):
+    def test_a_gate_side_diff_records_the_green_the_next_cycle_skips_on(self, monkeypatch, tmp_path):
         """The prior green shows that a completed build over every build-side input its key names passed, the stamp shows the tables on disk were stamped from the current sources, and this pass re-runs the gates the changed inputs feed. Together these let the pass record a green over the new inputs, so the cycle after a contact allow-list bless skips run_build. The two checks are necessary conditions for the tables and Senior-Regular.otf on disk to be the green build's, not sufficient ones (`run_build_gates.run_gates_only` names the gaps). Of the runs behind the pass, only the prior green vouches for the build it stands on: a failed run never vouches for the artifacts it left."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
@@ -1380,7 +1380,7 @@ class TestGatesOnly:
     def test_a_cycle_gates_only_child_publishes_no_checks_or_greens(
         self, monkeypatch, tmp_path, replayed, prior_key
     ):
-        """The child still checks the reused build and comparison-side eligibility, while the cycle owns publication and invalidation. Even an eligible green leaves the prior record byte-identical, and a red leaves a matching record for the parent to clear."""
+        """The child still checks the reused build and gate-side eligibility, while the cycle owns publication and invalidation. Even an eligible green leaves the prior record byte-identical, and a red leaves a matching record for the parent to clear."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)
@@ -1419,7 +1419,7 @@ class TestGatesOnly:
     def test_a_build_side_input_among_the_moved_records_nothing_and_names_it(
         self, monkeypatch, tmp_path, capsys, build_side
     ):
-        """A build-side input that moved since the last green keeps the pass from recording one, and from writing the Stage A record. uv.lock is outside the tables' stamp and pins fontTools and uharfbuzz, so a bump there can change the compiled font's bytes and how HarfBuzz shapes them, and a font built by another toolchain must not be reused. A rune is inside the stamp, so tables stamped with the moved rune come from a build over it that left no green, such as one that went red at a comparison gate, and a failed run never vouches for the artifacts it left. The printed line names the input and holds in both cases, so it is clear without a diff that a full build is needed."""
+        """A build-side input that moved since the last green keeps the pass from recording one, and from writing the Stage A record. uv.lock is outside the tables' stamp and pins fontTools and uharfbuzz, so a bump there can change the compiled font's bytes and how HarfBuzz shapes them, and a font built by another toolchain must not be reused. A rune is inside the stamp, so tables stamped with the moved rune come from a build over it that left no green, such as one that went red at a gate, and a failed run never vouches for the artifacts it left. The printed line names the input and holds in both cases, so it is clear without a diff that a full build is needed."""
         ran = self._reuse(monkeypatch, {})
         self._build(monkeypatch, tmp_path, ran)
         self._summary(tmp_path)

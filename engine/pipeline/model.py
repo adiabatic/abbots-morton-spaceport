@@ -22,7 +22,7 @@ Height = str  # "baseline" | "x-height" | "y6" | "top" (registry-validated)
 NONE_STATE = "none"
 UNJOINED_SUFFIX = "-unjoined"
 
-RIGHT_WINDOW_SLOTS = 4  # right1..rightN, the raw window settlement sees. table.py checks its Transition and Rule slot counts against this at import, so raising the chain cap without widening the table fails at import instead of emitting records that read past the window.
+RIGHT_WINDOW_SLOTS = 4  # right1..rightN, the raw window settlement sees. table.py checks its Window and Rule slot counts against this at import, so raising the chain cap without widening the table fails at import instead of emitting records that read past the window.
 RIGHT_CHAIN_CAP = (
     RIGHT_WINDOW_SLOTS - 1
 )  # the most then: hops past the immediate right neighbor that spec_load's lint allows, counting hops inside except: entries; derived from the window size
@@ -107,7 +107,7 @@ class SurfaceRow:
         True  # False: settlement never selects this entry, and its anchor is kept for GPOS only (CellPlan.entry_curs_only)
     )
     ink_y: int | None = (
-        None  # the old font's exit_ink_y: the row where the anchor and junction-gap checks read the exit's ink when the exit anchor sits off the stroke's row
+        None  # the row where the anchor and junction-gap checks read the exit's ink when the exit anchor sits off the stroke's row; carried to the cell plan's and glyph record's `exit_ink_y`
     )
     x_off_convention: bool = False
     provenance: Provenance | None = None
@@ -187,7 +187,7 @@ class Stance:
 
 @dataclass(frozen=True)
 class PolicyRecord:
-    """One policy record (refuse, prefer, extend, contract, or resolve), in the record shape of design section 3.3. `id` lets a resolve's `against:` name the record. `against`, `pick`, and `migrated` are used only by resolve records (design section 5.8)."""
+    """One policy record (refuse, prefer, extend, contract, or resolve), in the record shape of design section 3.3. `id` lets a resolve's `against:` name the record. `against` and `pick` are used only by resolve records (design section 5.8)."""
 
     kind: str
     when: When = field(default_factory=When)
@@ -207,7 +207,6 @@ class PolicyRecord:
     pick: Mapping[str, str] | None = (
         None  # the winning cell pattern (or {stance: ...}) at the conflicted window
     )
-    migrated: str | None = None
     why: str | None = None
     provenance: Provenance | None = None
 

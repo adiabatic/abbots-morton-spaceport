@@ -2,10 +2,10 @@
 
 Mono and Junior come from the rune files and the non-Quikscript glyph files (`build_family.build_mono_and_junior`), which need no settlement table, so they build while the tables are stale or absent. Senior is run_build's build: the command copies engine/out/build/Senior-Regular.otf and Senior-Bold.otf, and before it writes anything it refuses with `StaleSeniorError`, naming the build command, when either is missing or no longer the build of its inputs (`senior_staleness`). `--build` runs that build first (`RUN_BUILD_COMMAND`) when the Senior is not current, and refuses only when the build fails. The glyph-facts sidecar the `data-expect` checker reads stays beside the build under engine/out/build (`glyph_facts.FILE_NAME`), so site/, which the deploy uploads whole, holds only what the site serves. The staleness decision reads run_build's own records:
 
-- the run_build green record (`cycle_paths.BUILD_GREEN`) must hold every line of the run_build skip key (`artifact_cycle.run_build_skip_lines`) as it reads on disk, a comparison-side line aside (`artifact_cycle.comparison_side_label`), since no font reads one;
+- the run_build green record (`cycle_paths.BUILD_GREEN`) must hold every line of the run_build skip key (`artifact_cycle.run_build_skip_lines`) as it reads on disk, a gate-side line aside (`artifact_cycle.gate_side_label`), since no font reads one;
 - the Stage A record must be present (`fingerprint.read_stage_a`), since a build deletes it before its first write under engine/out/build and writes it back only once its gates pass, so its absence means a build that wrote there stopped or failed since the green one.
 
-The module lives under engine/tools/ because the check imports `artifact_cycle`, which reaches the comparison side, and no build-side module under engine/pipeline/ may (engine/test_build_code_closure.py).
+The module lives under engine/tools/ because the check imports `artifact_cycle`, which reaches the gate side, and no build-side module under engine/pipeline/ may (engine/test_build_code_closure.py).
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ def senior_staleness(root: Path = REPO_ROOT) -> str | None:
     from engine.tools import cycle_paths
     from engine.tools.artifact_cycle import (
         capped_labels,
-        comparison_side_label,
+        gate_side_label,
         moved_input_labels,
         read_green_record,
         run_build_skip_files,
@@ -60,7 +60,7 @@ def senior_staleness(root: Path = REPO_ROOT) -> str | None:
     if record is None or not isinstance(record.get("files"), dict):
         return "run_build has no green build on record"
     moved = moved_input_labels(record, run_build_skip_files(root)) or []
-    font_side = [label for label in moved if not comparison_side_label(label)]
+    font_side = [label for label in moved if not gate_side_label(label)]
     if font_side:
         return f"its inputs moved since run_build's last green build: {capped_labels(font_side)}"
     return None

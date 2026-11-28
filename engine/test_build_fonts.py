@@ -81,7 +81,7 @@ class TestTheSenior:
         (root / build_fonts.BUILD_OUT / glyph_facts.FILE_NAME).unlink()
         assert build_fonts.senior_staleness(root) == f"engine/out/build/{glyph_facts.FILE_NAME} is missing"
 
-    def test_a_moved_comparison_side_input_leaves_it_current(self, tmp_path):
+    def test_a_moved_gate_side_input_leaves_it_current(self, tmp_path):
         root = tmp_path / "root"
         _fake_build(root)
         (root / fingerprint.CONTACT_ALLOW_LABEL).write_text("- signature: moved\n")

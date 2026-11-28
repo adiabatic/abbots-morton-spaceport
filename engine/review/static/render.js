@@ -244,7 +244,7 @@ export function corpusChipLabel(manifest) {
 export function corpusAlphabetLabel(manifest) {
   const alphabet = manifest.alphabet;
   if (!alphabet) return null;
-  return `${formatCount(alphabet.migrated)} of ${formatCount(alphabet.total)} letters`;
+  return `${formatCount(alphabet.built)} of ${formatCount(alphabet.total)} letters`;
 }
 
 export function corpusStampLine(manifest) {

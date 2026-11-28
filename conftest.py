@@ -180,7 +180,7 @@ def _pin_fonts() -> dict[str, "CheckFont"]:
     return _font_cache["fonts"]
 
 
-# The Senior and Junior under site/, for the any-of regression checks in test/test_calt_expectations.py.
+# The Senior and Junior under site/, for the any-of regression checks in test/test_any_of_expectations.py.
 @pytest.fixture(scope="session")
 def pin_fonts() -> dict[str, "CheckFont"]:
     return _pin_fonts()

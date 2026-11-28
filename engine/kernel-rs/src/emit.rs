@@ -32,7 +32,7 @@ pub fn json_string(value: &str) -> String {
 
 const HEX: [u8; 16] = *b"0123456789abcdef";
 
-/// Appends one quoted, escaped JSON string to `out`, so the transitions stream can write a label without allocating a `String` for it.
+/// Appends one quoted, escaped JSON string to `out`, so the windows writer can write a label without allocating a `String` for it.
 pub(crate) fn escape_into(out: &mut String, value: &str) {
     out.push('"');
     for letter in value.chars() {
@@ -350,8 +350,6 @@ impl<'a> Emitter<'a> {
         self.maybe_against(record.against);
         self.name("pick");
         self.maybe_symbol_object(record.pick.as_ref());
-        self.name("migrated");
-        self.maybe_symbol(record.migrated);
         self.name("why");
         self.maybe_prose(record.why.as_deref());
         self.name("provenance");

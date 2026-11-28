@@ -1,6 +1,6 @@
 """Peak and current RSS readings, shared by the pipeline, the cycle driver and the test suite so every figure is measured the same way. Every function returns bytes. The only display unit is the decimal gigabyte (1 GB = 1e9 bytes), which is what every `*_gb` field and `rss_gb=` token means.
 
-`getrusage`'s `ru_maxrss`, and the rusage `os.wait4` returns, is in bytes on Darwin and KiB on Linux, so every raw reading passes through `maxrss_to_bytes`. `/usr/bin/time` differs the same way: BSD `-l` reports bytes on Darwin and GNU `-v` reports KiB, and `parse_time_output` converts either to bytes.
+`getrusage`'s `ru_maxrss`, and the rusage `os.wait4` returns, is in bytes on Darwin and KiB on Linux, so every raw reading passes through `maxrss_to_bytes`.
 
 `peak_rss_self_bytes` is this process's own peak. `peak_rss_children_bytes` is the largest peak among the children this process has reaped. `process_peak_rss_bytes` is the larger of the two, which is the figure a `[t]` line for a stage that fans out should carry. A peak only rises, so the difference between two peak readings says nothing about what happened between them; `reap_peak_rss_bytes` gives a per-child figure. `current_rss_bytes` is the resident set at the moment of the call. A `[t]` line with both tokens (`rss_token`, `rss_now_token`) shows where in the step the peak was reached and what the phase that just ended leaves resident.
 
@@ -21,8 +21,6 @@ import subprocess
 import sys
 from typing import NamedTuple
 
-_BSD_TIME_RSS = re.compile(r"^\s*(\d+)\s+maximum resident set size", re.MULTILINE)
-_GNU_TIME_RSS = re.compile(r"maximum resident set size[^:]*:\s*(\d+)", re.IGNORECASE)
 _RUSAGE_INFO_V4 = 4
 _STATUS_KIB = re.compile(r"^(VmRSS|VmSwap|VmHWM):\s*(\d+)\s*kB\s*$", re.MULTILINE)
 _MEMINFO_SWAP_KIB = re.compile(r"^(SwapTotal|SwapFree):\s*(\d+)\s*kB\s*$", re.MULTILINE)
@@ -234,24 +232,6 @@ def current_rss_bytes() -> int | None:
         return int(reply.stdout.strip()) * 1024
     except OSError, ValueError:
         return None
-
-
-def time_wrapper(platform: str = sys.platform) -> list[str]:
-    """Return the argv prefix that makes `/usr/bin/time` report a child's peak RSS on stderr, or [] where there is no `/usr/bin/time`. For a child this process spawns and waits on, use `reap_peak_rss_bytes` instead; the wrapper is for children that outlive their spawner or run under a shell."""
-    if not os.path.isfile("/usr/bin/time"):
-        return []
-    return ["/usr/bin/time", "-l" if platform == "darwin" else "-v"]
-
-
-def parse_time_output(text: str) -> int | None:
-    """Return the peak RSS in bytes from `/usr/bin/time` output in either format, BSD `-l` (bytes on Darwin, the only BSD this repo runs on) or GNU `-v` (KiB), or None when the text has neither line."""
-    match = _BSD_TIME_RSS.search(text)
-    if match:
-        return int(match.group(1))
-    match = _GNU_TIME_RSS.search(text)
-    if match:
-        return int(match.group(1)) * 1024
-    return None
 
 
 def reap_peak_rss_bytes(proc: subprocess.Popen) -> int | None:

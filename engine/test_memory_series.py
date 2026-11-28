@@ -17,7 +17,7 @@ import pytest
 from engine.pipeline import conform, fixtures, kernel_exec, kernel_io, spec_load
 from engine.review import store_lock
 from engine.tools import memory_series as ms
-from engine.tools import scaling_sweep, write_meter
+from engine.tools import write_meter
 from engine.tools.write_meter import Member, WriteReading
 
 CONFIGS = list(conform.SETTLEMENT_CONFIGS)
@@ -74,12 +74,12 @@ def test_a_step_reads_through_pipes_what_a_build_on_files_writes_and_leaves_only
         payload = kernel_exec.windows_payload(files, config)
         assert answers[config]["windows_bytes"] == payload.stat().st_size
         with payload.open("rb") as source:
-            scanned = scaling_sweep.scan(source)
-        windows[config] = list(scaling_sweep.counts(scanned, payload, answers[config]["windows_bytes"]))
+            scanned = ms.scan(source)
+        windows[config] = list(ms.counts(scanned, payload, answers[config]["windows_bytes"]))
 
     step_dir = tmp_path / "step"
     seen = {}
-    run_child, scan = ms.run_child, scaling_sweep.scan
+    run_child, scan = ms.run_child, ms.scan
 
     def looking(arguments, **rest):
         seen["spawn"] = _listing(step_dir)
@@ -93,7 +93,7 @@ def test_a_step_reads_through_pipes_what_a_build_on_files_writes_and_leaves_only
         return scan(source)
 
     monkeypatch.setattr(ms, "run_child", looking)
-    monkeypatch.setattr(scaling_sweep, "scan", scanning)
+    monkeypatch.setattr(ms, "scan", scanning)
     measured = ms.measure_step(
         kernel_exec.BINARY,
         spec_path,
@@ -122,13 +122,13 @@ def test_a_step_reads_through_pipes_what_a_build_on_files_writes_and_leaves_only
 
 def test_a_step_whose_payload_lost_bytes_stops_the_run(monkeypatch, tmp_path):
     """A payload whose reader receives fewer bytes than the crate answers it wrote, here one row another reader took, stops the run naming both counts instead of recording a short count, and the step's directory is still removed."""
-    scan = scaling_sweep.scan
+    scan = ms.scan
 
     def losing(source):
         head, columns, _taken, rest = source.readline(), source.readline(), source.readline(), source.read()
         return scan(io.BytesIO(head + columns + rest))
 
-    monkeypatch.setattr(scaling_sweep, "scan", losing)
+    monkeypatch.setattr(ms, "scan", losing)
     step_dir = tmp_path / "step"
     with pytest.raises(SystemExit, match=r"received \d+ bytes where the crate wrote \d+"):
         ms.measure_step(
@@ -145,6 +145,24 @@ def test_a_step_whose_payload_lost_bytes_stops_the_run(monkeypatch, tmp_path):
             machine=lambda: QUIET,
         )
     assert not step_dir.exists()
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        b'{"config":"default","digest":"ab"}\n',
+        b'{"config":"default","digest":"ab","windows_bytes":"12"}\n',
+        b'{"config":"ss03","digest":"ab","windows_bytes":12}\n',
+        b"not json\n",
+    ],
+    ids=["no byte count", "a byte count that is not a number", "another configuration", "not JSON"],
+)
+def test_an_answer_that_is_not_the_table_builds_stops_the_run(stdout):
+    """Each `build-tables` answer line must be a `{config, digest, windows_bytes}` object with an integer byte count, for the configurations named and no others."""
+    with pytest.raises(SystemExit, match="build-tables"):
+        ms.table_answers(stdout, ["default"])
+    good = b'{"config":"default","digest":"ab","windows_bytes":12}\n'
+    assert ms.table_answers(good, ["default"]) == [{"config": "default", "digest": "ab", "windows_bytes": 12}]
 
 
 def test_a_replay_cuts_tables_are_written_plain_with_their_payloads_drained_from_pipes(tmp_path):

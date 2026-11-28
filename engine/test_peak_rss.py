@@ -7,20 +7,6 @@ import pytest
 from engine.tools import peak_rss
 from engine.tools.cycle_timings import parse_inner_timings
 
-BSD_TIME_OUTPUT = """\
-       86.25 real        84.94 user         1.09 sys
-          4712480768  maximum resident set size
-                   0  average shared memory size
-             2337210  page reclaims
-"""
-
-GNU_TIME_OUTPUT = """\
-\tCommand being timed: "python x.py"
-\tUser time (seconds): 84.94
-\tMaximum resident set size (kbytes): 4602032
-\tExit status: 0
-"""
-
 
 def test_maxrss_is_bytes_on_darwin_and_kib_elsewhere():
     assert peak_rss.maxrss_to_bytes(4712480768, platform="darwin") == 4712480768
@@ -37,17 +23,6 @@ def test_gb_means_decimal_gigabytes_everywhere():
     assert peak_rss.bytes_to_gb(8_940_000_000) == 8.94
     assert peak_rss.format_gb(8_940_000_000) == "8.94"
     assert peak_rss.rss_token(8_940_000_000) == "rss_gb=8.94"
-
-
-def test_parse_time_output_reads_both_dialects_back_to_bytes():
-    assert peak_rss.parse_time_output(BSD_TIME_OUTPUT) == 4712480768
-    assert peak_rss.parse_time_output(GNU_TIME_OUTPUT) == 4602032 * 1024
-    assert peak_rss.parse_time_output("no rss here\n1.0 real") is None
-
-
-def test_time_wrapper_picks_the_platform_flag():
-    assert peak_rss.time_wrapper(platform="darwin") in ([], ["/usr/bin/time", "-l"])
-    assert peak_rss.time_wrapper(platform="linux") in ([], ["/usr/bin/time", "-v"])
 
 
 def test_rss_token_round_trips_through_the_inner_line_grammar():

@@ -106,18 +106,18 @@ def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
     pipeline.mkdir(parents=True)
     (pipeline / "__init__.py").write_text("")
     (pipeline / "table.py").write_text(
-        "from pathlib import Path\n\n"
-        "def windows_path(out_dir, config):\n    return Path(out_dir) / f'windows-{config}.tsv.gz'\n\n"
-        "def read_windows(path):\n    return 'inputs', path.name\n\n"
+        "from types import SimpleNamespace\n\n"
+        "TABLE_DIGEST_STAMP = 'table_digest'\n\n"
+        "def windows_head(out_dir, config):\n    return SimpleNamespace(stamps={'table_digest': f'sentinel {config} joins'})\n\n"
         "def read_join_tsv(path):\n    return path.read_text().strip()\n\n"
-        "def table_digest(decision, joins):\n    return f'sentinel {decision} {joins}'\n"
+        "def materialized_table_digest(out_dir, config, joins):\n    return f'sentinel {config} {joins}'\n"
     )
     (pipeline / "fingerprint.py").write_text(
         "def font_content_digest(path):\n    return 'the tree’s font digest'\n"
     )
     build_out = root / "engine" / "out" / "build"
     build_out.mkdir(parents=True)
-    (build_out / "windows-default.tsv.gz").write_bytes(b"not read by the stub")
+    (build_out / "windows-default.tsv.gz.head").write_bytes(b"not read by the stub")
     (build_out / "joins-default.tsv").write_text("joins\n")
     (build_out / "Senior-Regular.otf").write_bytes(b"font")
     out = tmp_path / "fingerprint.json"
@@ -126,7 +126,7 @@ def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
     )
     document = json.loads(out.read_text())
     assert document["format"] == pf.FORMAT
-    assert document["tables"] == {"default": "sentinel windows-default.tsv.gz joins"}
+    assert document["tables"] == {"default": "sentinel default joins"}
     assert document["fonts"]["engine/out/build/Senior-Regular.otf"] == "the tree’s font digest"
     assert document["fonts"]["site/AbbotsMortonSpaceportMono-Regular.otf"] is None
     assert "accepted" not in document
@@ -135,29 +135,17 @@ def test_the_tables_are_digested_with_the_trees_own_code(tmp_path):
 def test_windows_rows_held_as_a_base_and_segments_fingerprint_as_their_folded_form(
     tmp_path, monkeypatch, capsys
 ):
-    """A tree whose windows rows are a base and segments fingerprints as the tree a from-scratch build of the same tables leaves, and as the single file per configuration a tree from before the segment format holds, so the bar's `tables` block reads the same across the landing pass and across any later segment or fold. A configuration with a head is hashed as its materialized rows stream (`table.materialized_table_digest`), with no `Window` row built, to the `table_digest` of the table those rows read into. A head whose recorded digest is not the one its materialized rows give stops the fingerprint naming the configuration, and the script exits 1 without writing its document."""
-    import io
-    import shutil
-
+    """A tree whose windows rows are a base and segments fingerprints as the tree a from-scratch build of the same tables leaves, so the bar's `tables` block reads the same across any segment or fold. A configuration with a head is hashed as its materialized rows stream (`table.materialized_table_digest`), with no `Window` row built, to the `table_digest` of the table those rows read into. A head whose recorded digest is not the one its materialized rows give stops the fingerprint naming the configuration, and the script exits 1 without writing its document."""
     from engine.pipeline import conform, fingerprint, fixtures, run_build, spec_load
     from engine.pipeline import table as table_module
 
     spec = fixtures.mini_spec()
     narrow = spec_load.narrowed(spec, ("qsTea", "qsMay", "qsIt"))
-    held, scratch, single = (
-        tmp_path / name / "engine" / "out" / "build" for name in ("held", "scratch", "single")
-    )
+    held, scratch = (tmp_path / name / "engine" / "out" / "build" for name in ("held", "scratch"))
     run_build.build_tables(narrow, held, inputs="fp")
     run_build.build_tables(spec, held, inputs="fp")
     run_build.build_tables(spec, scratch, inputs="fp")
     assert all(table_module.windows_head(held, config).segments for config in conform.SETTLEMENT_CONFIGS)
-    single.mkdir(parents=True)
-    for config in conform.SETTLEMENT_CONFIGS:
-        shutil.copyfile(scratch / f"joins-{config}.tsv", single / f"joins-{config}.tsv")
-        payload = io.BytesIO(b"".join(table_module.materialized_windows(held, config)))
-        head = payload.readline()
-        part = run_build._pack_windows(payload, single, table_module.windows_output(config), head)
-        assert part.name == table_module.windows_path(single, config).name
     with monkeypatch.context() as streaming:
         streaming.setattr(table_module, "read_materialized_windows", None)
         digests = pf.table_digests(held, table_module)
@@ -166,7 +154,7 @@ def test_windows_rows_held_as_a_base_and_segments_fingerprint_as_their_folded_fo
         _, decision = table_module.read_materialized_windows(held, config, sha256=True)
         joins = table_module.read_join_tsv(held / f"joins-{config}.tsv")
         assert digests[config] == table_module.table_digest(decision, joins), config
-    assert digests == pf.table_digests(scratch, table_module) == pf.table_digests(single, table_module)
+    assert digests == pf.table_digests(scratch, table_module)
     path = table_module.windows_head_path(held, "ss04")
     document = json.loads(path.read_text())
     document["stamps"][table_module.TABLE_DIGEST_STAMP] = "0" * 64

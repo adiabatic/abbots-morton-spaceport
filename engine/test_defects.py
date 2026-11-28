@@ -368,16 +368,16 @@ class TestDeadPolicy:
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {})
         assert not report.unused_records
 
-    def test_records_waiting_on_unmigrated_letters_are_partitioned(self, spec):
+    def test_records_waiting_on_an_absent_family_are_partitioned(self, spec):
         report = defects.run_gates(spec, _tables(), {})
-        waiting = "\n".join(report.waiting_on_unmigrated)
-        # The fixture's qsMay contract names only qsFee, which the fixture spec lacks, so it is waiting on an unmigrated letter. The real qsMay gets pulled-back-stubless from its x-height entry row's `joined:` key instead of from a contract.
+        waiting = "\n".join(report.waiting_on_absent_family)
+        # The fixture's qsMay contract names only qsFee, which the fixture spec lacks, so it is waiting on an absent family. The real qsMay gets pulled-back-stubless from its x-height entry row's `joined:` key instead of from a contract.
         assert "qsMay.yaml:policy.contract[0]" in waiting
 
-    def test_unexercised_records_not_waiting_on_unmigrated_letters_are_unused(self, spec):
+    def test_unexercised_records_not_waiting_on_an_absent_family_are_unused(self, spec):
         report = defects.run_gates(spec, _tables(), {})
         unused = "\n".join(report.unused_records)
-        # qsIt's baseline-exit extension has only a `self_entry` condition and names no family, so when no rule cites it, it is unused, not waiting on an unmigrated letter.
+        # qsIt's baseline-exit extension has only a `self_entry` condition and names no family, so when no rule cites it, it is unused, not waiting on an absent family.
         assert "qsIt.yaml:policy.extend[2]" in unused
 
     def test_fail_if_broken_raises(self, spec):

@@ -429,7 +429,7 @@ def test_every_plan_step_says_what_it_is_for():
     for plan in (
         _plan(),
         _plan(skip_gates=True),
-        _plan(rerun_gates_only=True, run_build_note="comparison-side"),
+        _plan(rerun_gates_only=True, run_build_note="gate-side"),
         _plan(
             skip_corpus=True,
             promote_corpus=Path("var/staged-review"),
@@ -441,7 +441,7 @@ def test_every_plan_step_says_what_it_is_for():
         for step in plan.steps:
             assert step.describe, step.name
             assert step.describe in ac.STEP_DESCRIPTIONS.values(), step.name
-    rerun = _plan(rerun_gates_only=True, run_build_note="comparison-side")
+    rerun = _plan(rerun_gates_only=True, run_build_note="gate-side")
     assert rerun.describe("build") == ac.STEP_DESCRIPTIONS[ac.BUILD_GATES_ONLY_STEP]
     assert "rebuilding nothing" in rerun.describe("build")
     assert _plan().describe("build") == ac.STEP_DESCRIPTIONS["build"]
@@ -478,7 +478,7 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
     assert "uv run pytest" in _step_lines(text, "gate:engine-contracts")
     assert console.counts_line(rows) == f"{len(rows)} steps: {len(rows) - 2}–{len(rows)} will run, 0 skipped"
 
-    rerun = _plan(rerun_gates_only=True, run_build_note="only comparison-side inputs moved")
+    rerun = _plan(rerun_gates_only=True, run_build_note="only gate-side inputs moved")
     rerun_by_name = {row.name: row for row in ac.plan_rows(rerun)}
     assert rerun_by_name["gate:conform"].status == console.STATUS_MAYBE
     assert rerun_by_name["gate:make-test"].status == console.STATUS_RUN
@@ -1138,7 +1138,7 @@ def test_a_failed_step_replays_its_whole_output_under_its_own_banner(tmp_path, c
 
 def test_the_gates_only_rerun_banners_under_the_plans_run_build_row(tmp_path, capsys):
     """`make cycle-timings --by-step` groups by step name, so the seconds-long gates-only rerun spawns under its own name to keep its time out of the row for a full build. The reader watching the pass expects the plan's run_build row, so the alias maps the spawn name to it for the banner, the log filename and the step column."""
-    plan = _plan(rerun_gates_only=True, run_build_note="only comparison-side inputs moved")
+    plan = _plan(rerun_gates_only=True, run_build_note="only gate-side inputs moved")
     log_dir = tmp_path / "logs"
     registry = ac._ChildRegistry()
     report = ac.CycleReport()
@@ -2388,7 +2388,7 @@ def test_the_land_row_says_whether_the_land_carried_the_store_and_what_it_kept_a
 
 def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_width_to_it():
     """The summary must tell the three run_build modes apart. A gates-only rerun is not a skip, and the thread widths it reports are the ones passed to the child, which for a gates-only rerun are none."""
-    plan = _plan(rerun_gates_only=True, run_build_note="only comparison-side inputs moved")
+    plan = _plan(rerun_gates_only=True, run_build_note="only gate-side inputs moved")
     payload = ac.cycle_summary_payload(_green_report(), [], plan, "ok")
     assert payload["plan"]["rerun_gates_only"] is True
     assert payload["plan"]["skip_run_build"] is False
@@ -2572,8 +2572,8 @@ def test_make_test_exempt_classification():
         "tmp/scratch.txt",
         "var/build-logs/latest/plan.txt",
         ".claude/settings.json",
-        "engine/tools/scaling_sweep.py",
-        "engine/scaling-series.txt",
+        "engine/tools/memory_series.py",
+        "engine/memory-series.txt",
         "Makefile",
         ".vscode/settings.json",
         ".vscode/permissive.schema.json",
@@ -3308,7 +3308,7 @@ def test_conform_skip_fingerprint_includes_max_length_and_the_behavior_classes(t
 
 
 def _fake_run_build_root(tmp_path):
-    """Build a repo skeleton with one file of each kind the run_build skip key reads: each data input, the contact allow-list, the table-side and comparison-side pipeline code, the crate, and uv.lock. It also writes a behavior-class sidecar, the compile code and Senior-Regular.otf for the conform key. The files are real so the tests see the labels the real readers produce."""
+    """Build a repo skeleton with one file of each kind the run_build skip key reads: each data input, the contact allow-list, the table-side and gate-side pipeline code, the crate, and uv.lock. It also writes a behavior-class sidecar, the compile code and Senior-Regular.otf for the conform key. The files are real so the tests see the labels the real readers produce."""
     for rel in (
         "glyph_data/runes",
         "engine/schema",
@@ -3344,21 +3344,21 @@ def _fake_run_build_root(tmp_path):
     return tmp_path
 
 
-def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
-    """`comparison_side_label` decides which inputs may change while a cycle reuses the enumeration and font on disk, so a label wrongly on it would let a pass rerun the gates against artifacts that no longer match their sources. uv.lock is left off although the tables' stamp does not cover it, because it pins fontTools and uharfbuzz, and a bump there can change the font the rerun would rely on."""
+def test_gate_side_label_names_only_the_inputs_no_table_stage_reads():
+    """`gate_side_label` decides which inputs may change while a cycle reuses the enumeration and font on disk, so a label wrongly on it would let a pass rerun the gates against artifacts that no longer match their sources. uv.lock is left off although the tables' stamp does not cover it, because it pins fontTools and uharfbuzz, and a bump there can change the font the rerun would rely on."""
     from engine.pipeline import fingerprint
 
-    assert ac.comparison_side_label(fingerprint.CONTACT_ALLOW_LABEL)
-    assert all(ac.comparison_side_label(label) for label in fingerprint.COMPARISON_CODE_MODULES)
-    assert not ac.comparison_side_label("uv.lock")
-    assert not ac.comparison_side_label("glyph_data/runes/qsPea.yaml")
-    assert not ac.comparison_side_label("glyph_data/script.yaml")
-    assert not ac.comparison_side_label("engine/pipeline/settle.py")
-    assert not ac.comparison_side_label("engine/kernel-rs/src/lib.rs")
+    assert ac.gate_side_label(fingerprint.CONTACT_ALLOW_LABEL)
+    assert all(ac.gate_side_label(label) for label in fingerprint.GATE_SIDE_CODE_MODULES)
+    assert not ac.gate_side_label("uv.lock")
+    assert not ac.gate_side_label("glyph_data/runes/qsPea.yaml")
+    assert not ac.gate_side_label("glyph_data/script.yaml")
+    assert not ac.gate_side_label("engine/pipeline/settle.py")
+    assert not ac.gate_side_label("engine/kernel-rs/src/lib.rs")
 
 
-def test_every_run_build_label_is_stamped_the_toolchain_kern_or_comparison_side(tmp_path):
-    """Every label in the run_build key must be covered by the tables' stamp, named by `comparison_side_label`, or reach the font alone (`font_only_label`: a rune's kern line or a font-data line); otherwise a gates-only rerun or a kern-only rebuild would reuse artifacts that no longer match that input. The one exception is uv.lock, which is none of them, so a change to it prevents both. A new key line that fits no group fails this test."""
+def test_every_run_build_label_is_stamped_the_toolchain_kern_or_gate_side(tmp_path):
+    """Every label in the run_build key must be covered by the tables' stamp, named by `gate_side_label`, or reach the font alone (`font_only_label`: a rune's kern line or a font-data line); otherwise a gates-only rerun or a kern-only rebuild would reuse artifacts that no longer match that input. The one exception is uv.lock, which is none of them, so a change to it prevents both. A new key line that fits no group fails this test."""
     from engine.pipeline import fingerprint
 
     root = _fake_run_build_root(tmp_path)
@@ -3372,11 +3372,11 @@ def test_every_run_build_label_is_stamped_the_toolchain_kern_or_comparison_side(
         for label in labels
         if label not in stamped
         and label != "uv.lock"
-        and not ac.comparison_side_label(label)
+        and not ac.gate_side_label(label)
         and not ac.font_only_label(label)
     ] == []
     assert stamped & set(labels)
-    assert [label for label in labels if ac.comparison_side_label(label)]
+    assert [label for label in labels if ac.gate_side_label(label)]
     assert [label for label in labels if ac.kern_side_label(label)]
     assert [label for label in labels if ac.font_data_label(label)] == ["glyph_data/latin_letters.yaml#font"]
     assert not stamped & {label for label in labels if ac.font_only_label(label)}
@@ -3406,7 +3406,7 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
     assert ac.run_build_skip_fingerprint(root) != before
 
 
-def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
+def test_a_gate_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
     """The run_build key and the conform key cover different inputs. The conformance sweep shapes the compiled font and re-settles the windows beside it. It reads no allow-list or Manual-pin code, so editing either changes the run_build key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_build covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the font assembly it passes the font to, the uharfbuzz version and the maximum length each change it."""
     root = _fake_run_build_root(tmp_path)
     conform = ac.conform_skip_fingerprint(root, 4)
@@ -3446,7 +3446,7 @@ def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tm
 
 
 def test_gates_only_rerun_licenses_only_a_diff_the_tables_stamp_cannot_see():
-    """`gates_only_rerun` returns None in three cases, each meaning no gates-only rerun is planned: there is no usable green record, nothing moved (the plain skip handles that), or a build-side input moved and the tables must be rebuilt. The test also checks `moved_input_labels`, because the annotated labels the note prints, such as `name (changed)`, would match no `comparison_side_label` entry, and the rerun would silently never be planned."""
+    """`gates_only_rerun` returns None in three cases, each meaning no gates-only rerun is planned: there is no usable green record, nothing moved (the plain skip handles that), or a build-side input moved and the tables must be rebuilt. The test also checks `moved_input_labels`, because the annotated labels the note prints, such as `name (changed)`, would match no `gate_side_label` entry, and the rerun would silently never be planned."""
     stored = {
         "glyph_data/runes/qsX.yaml": "r1",
         "engine/contact-allow.yaml": "c1",
@@ -4285,7 +4285,7 @@ def _full_build_step(out: str):
     )
 
 
-def _comparison_side_drift(tmp_path, monkeypatch, moved="engine/contact-allow.yaml"):
+def _gate_side_drift(tmp_path, monkeypatch, moved="engine/contact-allow.yaml"):
     """Set up a repo whose last green build differs from the current inputs only in `moved`, with the build a gates-only rerun reads on disk (`gates_only_base_present`). The tests that use it each change one of these conditions and read the chosen mode from the plan."""
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.BUILD_GREEN, "green-key", files={moved: "before", "uv.lock": "lock-1"})
@@ -4293,15 +4293,15 @@ def _comparison_side_drift(tmp_path, monkeypatch, moved="engine/contact-allow.ya
     monkeypatch.setattr(ac, "gates_only_base_present", lambda: True)
 
 
-def test_main_reruns_the_gates_when_only_comparison_side_inputs_moved(tmp_path, monkeypatch, capsys):
+def test_main_reruns_the_gates_when_only_gate_side_inputs_moved(tmp_path, monkeypatch, capsys):
     """When only the contact allow-list changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration's stamp still matches the runes, and `run_build --gates-only` re-runs the gates over the tables and font on disk. The rerun rests on the prior green, since a failed run never vouches for the artifacts it left, and the stamp is only a necessary condition for the tables and Senior-Regular.otf on disk to be the green build's (`run_build_gates.run_gates_only` names the gaps). The fixture's root has no engine/out/build, so every file the rerun only writes is missing (manual_pins_summary.json and the Stage A record), a superset of what a red rerun leaves missing, and the plan rests only on what the rerun reads (`gates_only_base_present`). No `--kernel-threads` or `--replay-threads` is passed, because this mode enumerates and replays nothing."""
-    _comparison_side_drift(tmp_path, monkeypatch)
+    _gate_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     row = _step_lines(out, "build")
     assert "engine/contact-allow.yaml" in row
     assert re.search(
-        r"^ +run +build +only comparison-side inputs moved[^\n]*the tables and font are reused[^\n]*\n"
+        r"^ +run +build +only gate-side inputs moved[^\n]*the tables and font are reused[^\n]*\n"
         r" +\$ uv run python -m engine\.pipeline\.run_build --gates-only",
         row,
         re.MULTILINE,
@@ -4316,7 +4316,7 @@ def test_a_plan_that_skips_run_build_never_also_reruns_its_gates():
     both = _plan(skip_run_build=True, rerun_gates_only=True, run_build_note="build inputs unchanged")
     assert both.rerun_gates_only is False
     assert not both.runs("build")
-    rerun = _plan(rerun_gates_only=True, run_build_note="only comparison-side inputs moved")
+    rerun = _plan(rerun_gates_only=True, run_build_note="only gate-side inputs moved")
     assert rerun.runs("build")
     assert "--gates-only" in rerun.argv("build")
     assert "--kernel-threads" not in rerun.argv("build")
@@ -4327,7 +4327,7 @@ def test_main_skips_the_corpus_on_a_gates_only_rerun_only_when_stage_a_already_s
     tmp_path, monkeypatch, capsys
 ):
     """On a gates-only rerun the corpus build is skipped only when `stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass writes back is the one already on disk and the corpus cannot change. The skip can trust the record because a run writes it only once its gates pass, after deleting the old one before it rewrites anything."""
-    _comparison_side_drift(tmp_path, monkeypatch)
+    _gate_side_drift(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "stage_a_current", lambda root=None: True)
     assert ac.main(["--dry-run"]) == 0
@@ -4387,7 +4387,7 @@ def test_main_rebuilds_when_run_build_gates_only_would_refuse_the_build_on_disk(
     tmp_path, monkeypatch, capsys
 ):
     """A green record alone does not permit a gates-only rerun. It shows that a completed build over every build-side input once passed; only the build on disk shows that none of those inputs has moved since and that the child's check over that build passes (`gates_only_base_present`: the tables' stamp, Senior-Regular.otf, pipeline_summary.json and the join tables). Without it the pass rebuilds."""
-    _comparison_side_drift(tmp_path, monkeypatch)
+    _gate_side_drift(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "gates_only_base_present", lambda: False)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -4399,8 +4399,8 @@ def test_main_rebuilds_when_run_build_gates_only_would_refuse_the_build_on_disk(
 
 
 def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, capsys):
-    """One moved build-side label forces a rebuild, whatever comparison-side labels moved with it, even over a build on disk that `gates_only_base_present` accepts. The last green covers no build over the moved sources, so the artifacts on disk come either from the previous sources or from a build over these that left no green, and a failed run never vouches for the artifacts it left."""
-    _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsX.yaml")
+    """One moved build-side label forces a rebuild, whatever gate-side labels moved with it, even over a build on disk that `gates_only_base_present` accepts. The last green covers no build over the moved sources, so the artifacts on disk come either from the previous sources or from a build over these that left no green, and a failed run never vouches for the artifacts it left."""
+    _gate_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsX.yaml")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "inputs moved since its last green" in _step_lines(out, "build")
@@ -4412,7 +4412,7 @@ def test_main_plans_a_kern_only_rebuild_only_over_a_stage_a_record_that_stands(
     tmp_path, monkeypatch, capsys, stage_a
 ):
     """Only a kern line moved since the last green, and the build a gates-only rerun reads is on disk. A kern-only rebuild keeps the Manual-pin summary it finds, so it is planned only when the Stage A record matches the sources, which shows a passing run over these inputs wrote it. After a gates-only rerun that went red at the pin gate (its edit since reverted), the summaries on disk are that red run's and the record is gone; after a gates-only pass whose green and record were declined, the summary may describe other sources. Either way the pass rebuilds, instead of re-evaluating a stale red summary on every later pass until `--fresh`."""
-    _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsNo.yaml#kern")
+    _gate_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsNo.yaml#kern")
     monkeypatch.setattr(ac, "stage_a_current", lambda root=None: stage_a == "current")
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -4428,7 +4428,7 @@ def test_a_kern_only_rebuild_builds_the_corpus_without_asking_whether_it_could_s
     tmp_path, monkeypatch, capsys
 ):
     """A kern-only rebuild rewrites Senior-Regular.otf and kern.tsv, which the table-diff corpus's after font and kerning units show, so the pass builds the corpus without asking the skip, the assets refresh or the promotion, all of which compare against the font on disk before run_build rewrites it. A gates-only rerun, which writes no font, still asks."""
-    _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsNo.yaml#kern")
+    _gate_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsNo.yaml#kern")
     monkeypatch.setattr(ac, "stage_a_current", lambda root=None: True)
     monkeypatch.setattr(
         ac, "corpus_build_skippable", lambda *a, **k: pytest.fail("asked the corpus skip on a kern-only pass")
@@ -4440,7 +4440,7 @@ def test_a_kern_only_rebuild_builds_the_corpus_without_asking_whether_it_could_s
     assert "engine.review.build --out" in _step_lines(out, "corpus-build")
 
     asked: list[bool] = []
-    _comparison_side_drift(tmp_path / "gates-only", monkeypatch)
+    _gate_side_drift(tmp_path / "gates-only", monkeypatch)
     monkeypatch.setattr(ac, "stage_a_current", lambda root=None: True)
     monkeypatch.setattr(ac, "corpus_build_skippable", lambda *a, **k: asked.append(True) or True)
     assert ac.main(["--dry-run"]) == 0
@@ -4450,7 +4450,7 @@ def test_a_kern_only_rebuild_builds_the_corpus_without_asking_whether_it_could_s
 
 def test_main_takes_neither_mode_under_fresh(tmp_path, monkeypatch, capsys):
     """--fresh disables both modes. It covers the case no input fingerprint can detect: an artifact on disk that is wrong for some other reason."""
-    _comparison_side_drift(tmp_path, monkeypatch)
+    _gate_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run", "--fresh"]) == 0
     out = capsys.readouterr().out
     assert "--gates-only" not in out
@@ -4729,7 +4729,7 @@ def test_a_kern_only_child_green_is_not_recorded_over_a_stage_a_record_that_does
 
 
 def test_a_kern_only_rebuild_is_planned_only_when_every_moved_label_is_a_kern_line():
-    """`kern_only_rebuild` is the kern counterpart of `gates_only_rerun`: it names the moved labels when every one is a rune's kern line, and None when there is no prior record, nothing moved, or anything else moved. A kern line is not comparison-side, since the font must be compiled again."""
+    """`kern_only_rebuild` is the kern counterpart of `gates_only_rerun`: it names the moved labels when every one is a rune's kern line, and None when there is no prior record, nothing moved, or anything else moved. A kern line is not gate-side, since the font must be compiled again."""
     prior = {"files": {"glyph_data/runes/qsNo.yaml#kern": "k1", "glyph_data/runes/qsNo.yaml": "r1"}}
     kern_moved = {"glyph_data/runes/qsNo.yaml#kern": "k2", "glyph_data/runes/qsNo.yaml": "r1"}
     both_moved = {"glyph_data/runes/qsNo.yaml#kern": "k2", "glyph_data/runes/qsNo.yaml": "r2"}
@@ -4737,7 +4737,7 @@ def test_a_kern_only_rebuild_is_planned_only_when_every_moved_label_is_a_kern_li
     assert ac.kern_only_rebuild(prior, both_moved) is None
     assert ac.kern_only_rebuild(prior, prior["files"]) is None
     assert ac.kern_only_rebuild(None, kern_moved) is None
-    assert not ac.comparison_side_label("glyph_data/runes/qsNo.yaml#kern")
+    assert not ac.gate_side_label("glyph_data/runes/qsNo.yaml#kern")
     assert ac.gates_only_rerun(prior, kern_moved) is None
 
 
@@ -4760,7 +4760,7 @@ def test_a_kern_only_rebuild_also_recompiles_the_font_over_moved_font_data():
     ]
     assert ac.kern_only_rebuild(prior, rune_moved) is None
     assert ac.font_data_label("glyph_data/latin_letters.yaml#font")
-    assert not ac.comparison_side_label("glyph_data/latin_letters.yaml#font")
+    assert not ac.gate_side_label("glyph_data/latin_letters.yaml#font")
 
 
 def test_a_kern_only_plan_spawns_the_kern_only_child_and_sizes_no_fanout():
@@ -7151,7 +7151,7 @@ _SKIP_LOCK = (
 
 
 def test_a_version_bump_of_the_lock_moves_no_run_build_input_while_a_pin_bump_still_rebuilds(tmp_path):
-    """The run_build skip key hashes `uv.lock` without the project's own block (`fingerprint.lock_digest`). Changing the project version, which the bump-minor skill's `uv sync` writes, leaves the line and the key unchanged, so the green stands and `gates_only_rerun` sees nothing moved. Changing a dependency pin moves the line, and because the lock is not comparison-side the pass rebuilds. The `lock-1` stand-ins elsewhere in this module have no project block and hash by raw bytes, which the earlier tests cover."""
+    """The run_build skip key hashes `uv.lock` without the project's own block (`fingerprint.lock_digest`). Changing the project version, which the bump-minor skill's `uv sync` writes, leaves the line and the key unchanged, so the green stands and `gates_only_rerun` sees nothing moved. Changing a dependency pin moves the line, and because the lock is not gate-side the pass rebuilds. The `lock-1` stand-ins elsewhere in this module have no project block and hash by raw bytes, which the earlier tests cover."""
     root = _fake_run_build_root(tmp_path)
     (root / "uv.lock").write_text(_SKIP_LOCK)
     stored = ac.run_build_skip_files(root)

@@ -30,7 +30,7 @@ Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run a
 
 - Skips in a few seconds when nothing it reads has changed since its last passing run. `make_test_exempt` in `engine/tools/artifact_cycle.py` defines what is outside its input closure. A change there cannot affect this gate; the engine suite or the artifact cycle checks it, so don't force a run for one.
 - `make test FORCE=1` runs it regardless.
-- The session first publishes the six fonts into `site/` through `engine/tools/build_fonts.py`'s command, the one `make all` runs, and fails with its message, which names the build command, while the build's Senior is stale; a test session never starts the Senior's build. Every test reads the fonts there. The `data-expect` pins on the pin pages (`corpus.PIN_PAGES`) and the any-of regression checks (`test/test_calt_expectations.py`) are checked against Senior and Junior by `engine/validation/check.py`, the checker the build's pin gate runs, with the Senior's glyph-facts sidecar read beside the build under `engine/out/build/`.
+- The session first publishes the six fonts into `site/` through `engine/tools/build_fonts.py`'s command, the one `make all` runs, and fails with its message, which names the build command, while the build's Senior is stale; a test session never starts the Senior's build. Every test reads the fonts there. The `data-expect` pins on the pin pages (`corpus.PIN_PAGES`) and the any-of regression checks (`test/test_any_of_expectations.py`) are checked against Senior and Junior by `engine/validation/check.py`, the checker the build's pin gate runs, with the Senior's glyph-facts sidecar read beside the build under `engine/out/build/`.
   - The key covers the published fonts by what they are published from (`make_test_font_lines`): the Senior under `engine/out/build/` with its glyph-facts sidecar and whether it is current, and Mono's and Junior's code and data. So a rune or pipeline edit reruns the suite once run_build has rebuilt the Senior, and the artifact cycle starts gate:make-test only once the build gate passes.
   - A pin the engine disagrees with, pending the author's ruling, is an expected failure, and a pending pin that passes fails (`doc/data-expect.md` § Pending pins).
 - Pyright runs in the same invocation over the whole tree. `[tool.pyright] include` in `pyproject.toml` defines what it checks, so every invocation is a bare `uv run pyright` with no paths.
@@ -62,13 +62,13 @@ Never single-thread a broad run; `doc/parallelism.md` has the width rules. Run a
 
 ## Rerunning the gates without a build
 
-The comparison-side inputs (the contact allow-list and the code `fingerprint.COMPARISON_CODE_MODULES` names) are not part of the tables' stamp, so a change to one of them needs no new enumeration:
+The gate-side inputs (the contact allow-list and the code `fingerprint.GATE_SIDE_CODE_MODULES` names) are not part of the tables' stamp, so a change to one of them needs no new enumeration:
 
 ```zsh
 uv run python -m engine.pipeline.run_build --gates-only
 ```
 
-That reruns the defect gate and the pin gate (`manual_pins`, over every pin page) over the tables and font already on disk, and fails if the tables' stamp is stale. The artifact cycle plans this gates-only rerun itself when everything that changed since the last passing build is comparison-side (`comparison_side_label` in `engine/tools/artifact_cycle.py` lists what counts), and the green record it writes lets the next pass skip the build entirely.
+That reruns the defect gate and the pin gate (`manual_pins`, over every pin page) over the tables and font already on disk, and fails if the tables' stamp is stale. The artifact cycle plans this gates-only rerun itself when everything that changed since the last passing build is gate-side (`gate_side_label` in `engine/tools/artifact_cycle.py` lists what counts), and the green record it writes lets the next pass skip the build entirely.
 
 ## The settle memo
 

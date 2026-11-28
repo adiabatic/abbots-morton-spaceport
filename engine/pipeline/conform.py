@@ -794,64 +794,51 @@ def _open_memo_head(directory: Path, output: str) -> tuple[row_delta.Head | None
         return row_delta.parse_head(handle.read(), output), status
 
 
-def _memo_source(head: row_delta.Head | None, status: os.stat_result | None) -> tuple:
-    """What a writer checks the settle memo it planned against by: a head's generation, content generation and parts with their sizes and sha256, or a single file's inode, size and modification time, or nothing."""
-    if head is not None:
-        return (
-            "head",
-            head.generation,
-            head.content,
-            tuple((part.name, part.size, part.sha256) for part in head.parts),
-        )
-    if status is not None:
-        return ("file", status.st_ino, status.st_size, status.st_mtime_ns)
-    return ("none",)
+def _memo_source(head: row_delta.Head | None) -> tuple:
+    """What a writer checks the settle memo it planned against by: a head's generation, content generation and parts with their sizes and sha256, or nothing."""
+    if head is None:
+        return ("none",)
+    return (
+        "head",
+        head.generation,
+        head.content,
+        tuple((part.name, part.size, part.sha256) for part in head.parts),
+    )
 
 
 def settle_memo_source(memo: SettleMemoFile) -> tuple:
     """The settle memo at `memo.path` as a writer checks it (`_memo_source`) read from disk now, `("unreadable",)` for a head that does not parse."""
     try:
         head, _status = _open_memo_head(memo.path.parent, memo.path.name)
-    except row_delta.HeadError:
+    except row_delta.HeadError, OSError:
         return ("unreadable",)
-    except OSError:
-        return ("unreadable",)
-    if head is not None:
-        return _memo_source(head, None)
-    try:
-        return _memo_source(None, os.stat(memo.path))
-    except FileNotFoundError:
-        return ("none",)
+    return _memo_source(head)
 
 
 def settle_memo_identity(memo: SettleMemoFile) -> tuple | None:
-    """The identity a store that loads the memo at `memo.path` now takes (`_MemoStore.identity`), read from its head file's or single file's status without loading it, or None when there is none or its head does not read."""
+    """The identity a store that loads the memo at `memo.path` now takes (`_MemoStore.identity`), read from its head file's status without loading it, or None when there is no head or it does not read."""
     try:
         head, status = _open_memo_head(memo.path.parent, memo.path.name)
     except row_delta.HeadError, OSError:
         return None
-    if head is not None:
-        assert status is not None
-        return (
-            "head",
-            status.st_dev,
-            status.st_ino,
-            head.content,
-            tuple((part.name, part.size) for part in head.parts),
-        )
-    try:
-        status = os.stat(memo.path)
-    except OSError:
+    if head is None:
         return None
-    return ("file", status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns)
+    assert status is not None
+    return (
+        "head",
+        status.st_dev,
+        status.st_ino,
+        head.content,
+        tuple((part.name, part.size) for part in head.parts),
+    )
 
 
 class _MemoStore:
-    """One configuration's settle memo, mapped read-only: the part of a walk's memo loaded from disk. The memo is a head and the parts it lists, a base and its segments (`row_delta`'s segment format with the probe merge), or, with no head, one single file, which reads as a base alone.
+    """One configuration's settle memo, mapped read-only: the part of a walk's memo loaded from disk. The memo is a head and the parts it lists, a base and its segments (`row_delta`'s segment format with the probe merge).
 
     `load` reads the head, opens and maps every part it lists with each part's size checked against the head, and keeps the mappings and their file objects until `close`. It reads the parts' tables into Python: `labels` (every part's label table in part order, interned: a segment lists only the labels no earlier part lists, so the ids of every part index this one table), `label_ids` (its inverse), and `outcomes` (each part's outcomes in part order, each passed through the walk's `_outcome`, so they are the same objects `windows` holds; an outcome whose cell the spec cannot name, for which `_outcome`'s `geometry.display_name` raises `LookupError`, as it does for a cell of a rune or an anchor height the spec does not hold, is held as a placeholder, its settled item with two empty names, which no writer reads past the settled item). Each part's six id columns, value column and probe index, and each segment's Bloom filter, are `memoryview.cast` slices over its mapping, so they cost the worker no heap. They are pages of the parts, held once per machine in the page cache however many walks map them, and the kernel can evict them under memory pressure.
 
-    Two byte arrays belong to each walk, a byte a row over every part's rows in part order, base first. `dead` flags every row this walk does not serve: every row of a part that records another stamp than `memo.stamp` (the part serves nothing, as a single file under another stamp serves nothing), a row naming a family whose key changed since its part was settled (`settle_memo_keys.StaleMask` at label grain over the keys its part records, computed over its six columns with C-level maps and one reduce), a row whose outcome is a placeholder (one C-level map over each part's value column, made only when the tables hold a placeholder), a row a later segment's dead bitmap names, or, for a walk restricted by `load_only_asked_by`, a row whose five settlement-independent slots are outside its asks. `reached` flags every row a probe has returned. `live` counts the rows `dead` does not flag, `stale` the rows the stale fold flags that no dead bitmap names, `loaded` the live rows plus the stale ones (the `loaded=` of the `[t] settle_memo` line), `unasked` the rows the restriction dropped, and `buried` the rows of the parts that serve under `memo.stamp` that a dead bitmap names. A load with `every_stamp` (the full replay's compare) flags only the rows a dead bitmap names.
+    Two byte arrays belong to each walk, a byte a row over every part's rows in part order, base first. `dead` flags every row this walk does not serve: every row of a part that records another stamp than `memo.stamp` (the part serves nothing), a row naming a family whose key changed since its part was settled (`settle_memo_keys.StaleMask` at label grain over the keys its part records, computed over its six columns with C-level maps and one reduce), a row whose outcome is a placeholder (one C-level map over each part's value column, made only when the tables hold a placeholder), a row a later segment's dead bitmap names, or, for a walk restricted by `load_only_asked_by`, a row whose five settlement-independent slots are outside its asks. `reached` flags every row a probe has returned. `live` counts the rows `dead` does not flag, `stale` the rows the stale fold flags that no dead bitmap names, `loaded` the live rows plus the stale ones (the `loaded=` of the `[t] settle_memo` line), `unasked` the rows the restriction dropped, and `buried` the rows of the parts that serve under `memo.stamp` that a dead bitmap names. A load with `every_stamp` (the full replay's compare) flags only the rows a dead bitmap names.
 
     A probe maps the window's six labels through `label_ids`, and a label the tables lack is a miss before any hashing. It hashes the six ids once as every writer did: each id times its slot's odd 64-bit constant in `_MEMO_MIX`, summed modulo 2^64. It then tests the segments newest first, each through its Bloom filter (the test `row_delta.bloom_contains` makes, keyed on that sum) and then its index, shifted right by 64 - k for its 2^k slots with linear probing from there, and then the base through its index, and returns the first live row it finds, marked reached. The hash is written out so the file does not depend on Python's tuple hash, and `_memo_slots` and `_memo_hashes` are the writers' vectorized forms of it. It sums per-column products so that the ids never have to share one word: six ids at the `H` columns' 16-bit width need 96 bits, a multiply-shift over a 64-bit word that drops two of them clusters badly on the live ids, and the sum keeps chains near one probe at the writer's half-full sizing. Each part's keys are distinct (every writer keeps one row a key in a part), so a probe stops a part at the first row whose ids match, and a dead row there sends it on to the next older part.
 
@@ -896,7 +883,7 @@ class _MemoStore:
         *,
         every_stamp: bool = False,
     ) -> None:
-        """Map the memo at `memo.path` and keep what a walk keyed with `memo` may serve: the head and every part it lists, or the single file when there is no head. A memo that is missing loads nothing, silently, and a part under another stamp, or whose moved family the registry cannot place, is mapped and serves nothing. An outcome `outcome_of` cannot name, raising `LookupError` as the walk's `_outcome` does for a cell of a rune or an anchor height the spec does not hold, loads as a placeholder (the class docstring), and every row holding it serves nothing, counted with the rows of such parts in `foreign`, and the memo still loads and serves its other rows. An absorb's fold carries the outcome tables whole, so a memo can list such an outcome long after its last row is gone. A memo that cannot be read (a head that does not parse, a part missing or not the size its head records, a part short or torn, a header or table that will not unpickle, a layout that runs past the end of its part, a segment or dead bitmap naming another generation or another part's row count) loads nothing and prints a warning. The memo only saves time, so the walk then settles everything itself. An id past a table or an index chain longer than the row count is left for the probe that reaches it, which retires every row, so the load need not scan every page. A part whose recorded family keys differ from `memo.family_keys` serves every row except those naming a changed family, counted in `stale`. A load restricted to `asks` drops the rows outside them, counted in `unasked`. `every_stamp` reads every row no dead bitmap names, whatever stamp or keys its part records. `source` is the version of the memo it read (`_memo_source`), whether it loaded it or refused it, so a writer tells a memo that changed after its plan from one that does not load (`SettleMemoRoute.loaded`)."""
+        """Map the memo at `memo.path` and keep what a walk keyed with `memo` may serve: the head and every part it lists. A memo with no head loads nothing, silently, and a part under another stamp, or whose moved family the registry cannot place, is mapped and serves nothing. An outcome `outcome_of` cannot name, raising `LookupError` as the walk's `_outcome` does for a cell of a rune or an anchor height the spec does not hold, loads as a placeholder (the class docstring), and every row holding it serves nothing, counted with the rows of such parts in `foreign`, and the memo still loads and serves its other rows. An absorb's fold carries the outcome tables whole, so a memo can list such an outcome long after its last row is gone. A memo that cannot be read (a head that does not parse, a part missing or not the size its head records, a part short or torn, a header or table that will not unpickle, a layout that runs past the end of its part, a segment or dead bitmap naming another generation or another part's row count) loads nothing and prints a warning. The memo only saves time, so the walk then settles everything itself. An id past a table or an index chain longer than the row count is left for the probe that reaches it, which retires every row, so the load need not scan every page. A part whose recorded family keys differ from `memo.family_keys` serves every row except those naming a changed family, counted in `stale`. A load restricted to `asks` drops the rows outside them, counted in `unasked`. `every_stamp` reads every row no dead bitmap names, whatever stamp or keys its part records. `source` is the version of the memo it read (`_memo_source`), whether it loaded it or refused it, so a writer tells a memo that changed after its plan from one that does not load (`SettleMemoRoute.loaded`)."""
         assert not self.parts and not self.refused, "the store is already loaded"
         directory, output = memo.path.parent, memo.path.name
         try:
@@ -905,44 +892,36 @@ class _MemoStore:
             self.source = ("unreadable",)
             self._refuse(memo, error)
             return
+        if head is None:
+            return
         try:
-            if head is None:
+            if head.merge != row_delta.MERGE_PROBE or any(part.settled is None for part in head.parts):
+                raise ValueError(f"{row_delta.head_name(output)} is not a settle memo's head")
+            for part in head.parts:
                 try:
-                    handle = open(memo.path, "rb")
+                    handle = open(directory / part.name, "rb")
                 except FileNotFoundError:
-                    return
+                    raise ValueError(f"{part.name} is missing") from None
                 self._handles.append(handle)
-                status = os.fstat(handle.fileno())
-                self._map_parts(memo, spec, asks, outcome_of, None, [handle], every_stamp)
-                self._identity = ("file", status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns)
-            else:
-                if head.merge != row_delta.MERGE_PROBE or any(part.settled is None for part in head.parts):
-                    raise ValueError(f"{row_delta.head_name(output)} is not a settle memo's head")
-                for part in head.parts:
-                    try:
-                        handle = open(directory / part.name, "rb")
-                    except FileNotFoundError:
-                        raise ValueError(f"{part.name} is missing") from None
-                    self._handles.append(handle)
-                    if os.fstat(handle.fileno()).st_size != part.size:
-                        raise ValueError(f"{part.name} is not the {part.size} bytes its head records")
-                self._map_parts(memo, spec, asks, outcome_of, head, self._handles, every_stamp)
-                assert status is not None
-                self._identity = (
-                    "head",
-                    status.st_dev,
-                    status.st_ino,
-                    head.content,
-                    tuple((part.name, part.size) for part in head.parts),
-                )
+                if os.fstat(handle.fileno()).st_size != part.size:
+                    raise ValueError(f"{part.name} is not the {part.size} bytes its head records")
+            self._map_parts(memo, spec, asks, outcome_of, head, self._handles, every_stamp)
+            assert status is not None
+            self._identity = (
+                "head",
+                status.st_dev,
+                status.st_ino,
+                head.content,
+                tuple((part.name, part.size) for part in head.parts),
+            )
             self.head = head
-            self.source = _memo_source(head, status)
+            self.source = _memo_source(head)
             self._path = memo.path
         except _NotThisFormat:
             self._unmap()
         except _SETTLE_MEMO_READ_ERRORS as error:
             self._unmap()
-            self.source = _memo_source(head, status)
+            self.source = _memo_source(head)
             self._refuse(memo, f"{error}" or type(error).__name__)
 
     def _refuse(self, memo: SettleMemoFile, problem: object) -> None:
@@ -959,7 +938,7 @@ class _MemoStore:
         spec: ResolvedSpec,
         asks: set[_Ask] | None,
         outcome_of: Callable[[Settled], _Outcome],
-        head: row_delta.Head | None,
+        head: row_delta.Head,
         handles: Sequence[IO[bytes]],
         every_stamp: bool,
     ) -> None:
@@ -983,17 +962,11 @@ class _MemoStore:
             if number == 0:
                 if header.get("format") != SETTLE_MEMO_FORMAT:
                     raise _NotThisFormat()
-                if head is None:
-                    stamps.append((header.get("stamp"), header.get("family_keys")))
-                else:
-                    stamps.append(
-                        (cast(row_delta.PartStamp, head.base.settled).stamp, head.part_keys(head.base))
-                    )
+                stamps.append((cast(row_delta.PartStamp, head.base.settled).stamp, head.part_keys(head.base)))
                 trailing: list[int] = []
                 bitmaps: list[dict] = []
                 blocks = shadows = 0
             else:
-                assert head is not None
                 part = head.segments[number - 1]
                 bitmaps = self._segment_checks(header, head, number, parts)
                 blocks, shadows = int(header["filter_blocks"]), int(header["shadows"])
@@ -1013,7 +986,7 @@ class _MemoStore:
                 named[target] = named.get(target, 0) | int.from_bytes(view[start : start + length], "little")
             parts.append(
                 _MemoPart(
-                    row_delta.base_name(memo.path.name, 0) if head is None else head.parts[number].name,
+                    head.parts[number].name,
                     sum(part.rows for part in parts),
                     rows,
                     len(new_labels),
@@ -1170,7 +1143,7 @@ class _MemoStore:
         return bitmaps
 
     def identity(self) -> tuple | None:
-        """Which version of the memo this store maps, or None when it maps nothing: under a head, the head file's device and inode, its content generation and the parts it lists with their sizes; for a single file, its device, inode, size and modification time. A store a probe retired still maps its parts and keeps its identity; `retired` says it found a part corrupt. Two stores with the same identity mapped the same version of the memo, so their `reached` flags index the same rows (`absorb_settle_memo`'s `SweepPrune`)."""
+        """Which version of the memo this store maps, or None when it maps nothing: the head file's device and inode, its content generation and the parts it lists with their sizes. A store a probe retired still maps its parts and keeps its identity; `retired` says it found a part corrupt. Two stores with the same identity mapped the same version of the memo, so their `reached` flags index the same rows (`absorb_settle_memo`'s `SweepPrune`)."""
         return self._identity
 
     @property
@@ -1374,7 +1347,7 @@ class _MemoStore:
         return self.reached.count(1)
 
     def standing(self) -> int:
-        """The rows of the memo's standing content under `memo`'s stamp, its stale ones included: every row less those of a part under another stamp, or whose moved family the registry cannot place, which load as no memo, less those holding an outcome the load's `outcome_of` cannot name, which serve nothing (`load`), and less those an earlier segment's dead bitmap names (`buried`), which an earlier absorb already dropped, so an absorb's `standing - carried` counts the rows it drops itself, as a single file's absorb counts them."""
+        """The rows of the memo's standing content under `memo`'s stamp, its stale ones included: every row less those of a part under another stamp, or whose moved family the registry cannot place, which load as no memo, less those holding an outcome the load's `outcome_of` cannot name, which serve nothing (`load`), and less those an earlier segment's dead bitmap names (`buried`), which an earlier absorb already dropped, so an absorb's `standing - carried` counts the rows it drops itself."""
         return len(self.dead) - self.foreign - self.buried
 
     def stale_rows(self) -> bytearray | None:
@@ -1457,12 +1430,12 @@ class _MemoStore:
 
 
 class _NotThisFormat(ValueError):
-    """A base or single file in another settle memo format, which a store reads as no memo, as it reads a file under another stamp."""
+    """A base in another settle memo format, which a store reads as no memo, as it reads a part under another stamp."""
 
 
 @dataclass(frozen=True)
 class SettleMemoFile:
-    """Where one configuration's settle memo lives between phases, and the keys a walk must match to read it. `path` names the output, `settle-memo-<config>.bin`: its head, `<path>.head`, its base, `<path>.<gen>.base`, and its segments, `<path>.<gen>.<n>.delta`, beside it (`row_delta`'s naming), or, in a tree from before the segment format, the single file at `path` itself, which the next writer adopts as generation 0's base. The string replay fills the memo on every full replay from the crate's window memo (`read_replay_memo`, `compare_replay`). The conformance sweep maps it, settles only what it lacks, and writes a segment of what it added. The witness stage maps it, settles what it lacks, and writes nothing (`read_only`).
+    """Where one configuration's settle memo lives between phases, and the keys a walk must match to read it. `path` names the output, `settle-memo-<config>.bin`: its head, `<path>.head`, its base, `<path>.<gen>.base`, and its segments, `<path>.<gen>.<n>.delta`, beside it (`row_delta`'s naming). The string replay fills the memo on every full replay from the crate's window memo (`read_replay_memo`, `compare_replay`). The conformance sweep maps it, settles only what it lacks, and writes a segment of what it added. The witness stage maps it, settles what it lacks, and writes nothing (`read_only`).
 
     `stamp` is the memo's stamp (`settle_memo_keys.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure, the capability features, the engine's settlement flags, and the configuration). `family_keys` holds the per-family rune keys (`settle_memo_keys.settle_family_keys`). The two keys follow the window locality rule (`doc/engine-design.md` §10): a window's settlement depends only on the rune files its six slots name (a formed ligature label names its rune directly, and every ligature rune whose components all appear among the slots counts too). Each part records the stamp and family keys it was settled under, so a part under another stamp serves nothing, and a part under this stamp serves every row that names no family whose key changed since that part was settled, and drops the rest.
 
@@ -1547,38 +1520,13 @@ def settle_memo_files(
     }
 
 
-def _settle_memo_header(memo: SettleMemoFile) -> dict | None:
-    """The header of the file at `memo.path` when it is one a walk keyed with `memo` would read (present, in this format, and under this stamp), or None. It reads only the header, never a table or a column."""
-    try:
-        with open(memo.path, "rb") as handle:
-            prefix = handle.read(_MEMO_PREFIX.size)
-            if len(prefix) < _MEMO_PREFIX.size:
-                return None
-            (header_length,) = _MEMO_PREFIX.unpack(prefix)
-            if header_length > _MEMO_HEADER_CAP:
-                return None
-            header = pickle.loads(handle.read(header_length))
-    except _SETTLE_MEMO_READ_ERRORS:
-        return None
-    if (
-        isinstance(header, dict)
-        and header.get("format") == SETTLE_MEMO_FORMAT
-        and header.get("stamp") == memo.stamp
-        and isinstance(header.get("family_keys"), dict)
-    ):
-        return header
-    return None
-
-
 def settle_memo_standing(memo: SettleMemoFile) -> bool:
-    """Whether the memo at `memo.path` is one a walk keyed with `memo` would read whole: a head that reads, every part it lists present at the size it records, and every part recording `memo.stamp`; with no head, a single file present, in this format and under this stamp. It reads only the head, or the single file's header, never a table or a column. Family keys are not checked, because a part whose keys changed still serves every entry naming no changed family (`_MemoStore.load`), and only a rune edit changes them. So a part left under another stamp makes the next full replay refill and restamp it, as a single file under another stamp does. `run_build.run_replay_strings` uses this to decide whether the replay must walk every text to refill the memo."""
+    """Whether the memo at `memo.path` is one a walk keyed with `memo` would read whole: a head that reads, every part it lists present at the size it records, and every part recording `memo.stamp`. It reads only the head, never a part. Family keys are not checked, because a part whose keys changed still serves every entry naming no changed family (`_MemoStore.load`), and only a rune edit changes them. So a part left under another stamp makes the next full replay refill and restamp it. `run_build.run_replay_strings` uses this to decide whether the replay must walk every text to refill the memo."""
     try:
         head, _status = _open_memo_head(memo.path.parent, memo.path.name)
     except row_delta.HeadError, OSError:
         return False
-    if head is None:
-        return _settle_memo_header(memo) is not None
-    if head.merge != row_delta.MERGE_PROBE:
+    if head is None or head.merge != row_delta.MERGE_PROBE:
         return False
     for part in head.parts:
         if part.settled is None or part.settled.stamp != memo.stamp:
@@ -1644,7 +1592,7 @@ class _MemoPieces:
 
 @dataclass(frozen=True)
 class FinishedSettleMemo:
-    """A settle memo part finished in memory and not yet written, a whole file or a segment: its header and table pickles and its sections, the six id columns, the value column and the probe index, in `_write_settle_memo`'s layout, and for a segment its Bloom filter and dead bitmaps after them (`_settle_memo_segment`), with the row count the header states. A section is a column, a `_MemoPieces` or bytes. `pieces` yields its bytes in file order with the padding between sections, each section a view over its column or over each of its pieces, so writing or hashing it copies no column. `SettleMemoRoute.write` writes it as a part, `stage` writes a whole file beside the single file it will replace (`_put_settle_memo`), and `digest` hashes it."""
+    """A settle memo part finished in memory and not yet written, a whole file or a segment: its header and table pickles and its sections, the six id columns, the value column and the probe index, in `_write_settle_memo`'s layout, and for a segment its Bloom filter and dead bitmaps after them (`_settle_memo_segment`), with the row count the header states. A section is a column, a `_MemoPieces` or bytes. `pieces` yields its bytes in file order with the padding between sections, each section a view over its column or over each of its pieces, so writing or hashing it copies no column. `SettleMemoRoute.write` writes it as a part, `stage` writes a whole file beside the path it will replace (`_put_settle_memo`), and `digest` hashes it."""
 
     header: bytes
     tables: bytes
@@ -1773,7 +1721,7 @@ def _settled_memo(
 
 
 def _put_settle_memo(finished: FinishedSettleMemo, path: Path) -> bool:
-    """Stage `finished` beside `path` (`FinishedSettleMemo.stage`) and move it into place with `os.replace`, and return whether it was written. If the filesystem refuses the write, this prints a warning and returns False without failing the build, because every reader settles what the file lacks."""
+    """Stage `finished` beside `path` (`FinishedSettleMemo.stage`) and move it into place with `os.replace`, and return whether it was written. If the filesystem refuses the write, this prints a warning and returns False."""
     path = Path(path)
     try:
         os.replace(finished.stage(path), path)
@@ -1795,7 +1743,7 @@ def _write_settle_memo(
     standing: tuple[array, int, int, int] | None = None,
     distinct: int | None = None,
 ) -> bool:
-    """Write a settle memo whole, as a single file at `path`, in the layout `_MemoStore` maps, and return whether it was written. This, `read_replay_memo`'s streaming absorb and `absorb_settle_memo`'s whole-file absorb (`_absorb`) are the writers of that layout, which a base is and a segment repeats before its filter and dead bitmaps (`_settle_memo_segment`), and all three lay it out through `_settle_memo_head` and `FinishedSettleMemo`. The pipeline writes a base through a route (`SettleMemoRoute.write`) and this single file only where a caller asks for one: the carry-and-append absorb's reference, `absorb_replay_memo`, the materialized form a test or the memory series writes, and the memory series' standing files.
+    """Write a settle memo whole, as a single file at `path`, in the layout `_MemoStore` maps, and return whether it was written. This, `read_replay_memo`'s streaming absorb and `absorb_settle_memo`'s whole-file absorb (`_absorb`) are the writers of that layout, which a base is and a segment repeats before its filter and dead bitmaps (`_settle_memo_segment`), and all three lay it out through `_settle_memo_head` and `FinishedSettleMemo`. The pipeline writes a base through a route (`SettleMemoRoute.write`), and so does a test or the memory series that seeds a standing memo (`_write_settle_memo_base`). No reader maps the single file this writes: `absorb_replay_memo` writes one for a test that compares its bytes with the streaming absorb's.
 
     The layout is: an eight-byte little-endian length, then the header pickle (the format, `memo.stamp`, `memo.family_keys`, the row count `rows`, the table sizes `labels` and `outcomes`, the index size `slots`, the column typecodes `typecode` and `value_typecode`, and the byte length `tables` of the next pickle), then the label and outcome tables as one pickle, then the six id columns, the value column, and the probe index as fixed-width little-endian arrays. Every section starts on an eight-byte boundary.
 
@@ -1803,9 +1751,9 @@ def _write_settle_memo(
 
     With `H` columns a window costs 12 key bytes, 2 value bytes, and 4 bytes per index slot over the index's 2N to 4N slots: 22 to 30 bytes uncompressed on disk, depending on where the row count falls below its power of two. The `[t] settle_memo` lines count the windows, and `du` on `engine/out/build/settle-memo-*.bin.*` reports the sizes of each configuration's head and parts; both grow with the alphabet. While writing, the heap holds the caller's columns, the remapped copies, and the index at once, roughly the file's size plus the columns'. The serial conformance sweep's save holds that much once per configuration on a base route (`_SettledWindowWalk._save_whole`); on the segment route it writes a segment of the windows it settled fresh instead, and holds what `_settle_memo_segment` lays out over those windows alone. On a base route, a save whose walk left a whole-text hit in the store (`promote_pinned` off) holds more: its columns also carry a copy of each row the walk copied into `windows` (`_SettledWindowWalk.save_memo`), and merging those copies away adds a keep flag a row, compacted copies of the columns, a renumbering of 4 bytes a row, and a renumbered copy of the index beside the first (`_finish_settle_memo`). `absorb_settle_memo` copies the standing rows straight from the mapping and holds only the fresh rows and the index, and the replay's streaming absorb holds the remapped columns alone, since it remaps each block of rows as it arrives (`read_replay_memo`).
 
-    `standing` is a standing file's index with its row, label, and outcome counts. It says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with none dropped before them. The index is then copied and only the later rows are inserted. The writer checks that its merges leave those ids unchanged and that the index has room, and builds a new index otherwise. No pipeline caller passes it: it is the form of the carry-and-append absorb that `engine/test_conform.py` and the memory series' absorbs holder prove `absorb_settle_memo`'s bytes against.
+    `standing` is a standing file's index with its row, label, and outcome counts. It says that the first rows of `columns`, up to that row count, are that file's live rows in its own id space with none dropped before them. The index is then copied and only the later rows are inserted. The writer checks that its merges leave those ids unchanged and that the index has room, and builds a new index otherwise. No pipeline caller passes it: the carry-and-append absorb that `engine/test_conform.py` and the memory series' absorbs holder prove `absorb_settle_memo`'s bytes against passes it, laying its file out through `_settled_memo`.
 
-    The file is written to `<path>.<pid>.tmp` (`FinishedSettleMemo.stage`), each section as one write of a view over its array, and moved into place with `os.replace` (`_put_settle_memo`). A reader that mapped the old file keeps it unchanged until it closes, and a reader that opens afterward maps the whole new file, so no reader sees a partial file. `path` defaults to `memo.path`, where a memo with no head reads as one single file. If the filesystem refuses the write, this prints a warning and returns False without failing the build, because every reader settles what the file lacks.
+    The file is written to `<path>.<pid>.tmp` (`FinishedSettleMemo.stage`), each section as one write of a view over its array, and moved into place with `os.replace` (`_put_settle_memo`), so the file at `path` is never partial. `path` defaults to `memo.path`. If the filesystem refuses the write, this prints a warning and returns False.
     """
     return _put_settle_memo(
         _settled_memo(memo, labels, outcomes, columns, values, standing, distinct),
@@ -1868,9 +1816,9 @@ class SettleMemoRoute:
     """How one configuration's settle memo is written by one writer, decided before any writer of the pass writes (`plan_settle_memos`), as #618's decisions 74 and 75 settle it for the segment format, with no size test and no stamp clause:
 
     - `segment`: one segment of what this writer changes, over `head`, beside the dead bitmaps naming the earlier rows it drops; a full replay whose refill settles every window as the memo already holds it writes the head alone.
-    - `base`: a whole file as the next generation's base, with its `reason`: `first`, no head and no single file; `unusable`, a head that does not parse, a part missing or not the size and sha256 its head records or whose header does not read, a single file whose header does not read, a memo the plan passed that a writer's load then refuses (`unusable`, `loaded`), or one whose tables list an outcome the spec cannot name when a full replay compares its refill with it (`compare_replay`), which the cycle reports as `rewritten whole` (`output_sink.note_rewritten`); or `fold`, `head`'s fold is due and this configuration holds the pass's fold (`row_delta.claim_fold`), or holds `row_delta.FOLD_OVERRUN` segments past its cap (`forced`), so it folds whatever another output did.
+    - `base`: a whole file as the next generation's base, with its `reason`: `first`, no head; `unusable`, a head that does not parse, a part missing or not the size and sha256 its head records or whose header does not read, a memo the plan passed that a writer's load then refuses (`unusable`, `loaded`), or one whose tables list an outcome the spec cannot name when a full replay compares its refill with it (`compare_replay`), which the cycle reports as `rewritten whole` (`output_sink.note_rewritten`); or `fold`, `head`'s fold is due and this configuration holds the pass's fold (`row_delta.claim_fold`), or holds `row_delta.FOLD_OVERRUN` segments past its cap (`forced`), so it folds whatever another output did.
 
-    `adopted` says `head` is the single file a tree from before the segment format holds, linked as generation 0's base under a head no writer has committed (`_adopted_head`); `discard` deletes that link when nothing commits it. `signature` is the memo as the plan found it (`settle_memo_source`): a writer refuses to write once the memo on disk is no longer that one (`current`), warning and writing nothing, since every reader settles what the memo lacks.
+    `signature` is the memo as the plan found it (`settle_memo_source`): a writer refuses to write once the memo on disk is no longer that one (`current`), warning and writing nothing, since every reader settles what the memo lacks.
     """
 
     output: str
@@ -1878,7 +1826,6 @@ class SettleMemoRoute:
     route: str
     reason: str = ""
     head: row_delta.Head | None = None
-    adopted: bool = False
     forced: bool = False
     signature: tuple = ()
 
@@ -1948,13 +1895,11 @@ class SettleMemoRoute:
     def commit(
         self, memo: SettleMemoFile, part: row_delta.Part | None, restamp: bool = False
     ) -> row_delta.Head:
-        """Commit this writer's head (`committed`) through `row_delta.commit`, which then deletes every part it does not list, and delete the single file a tree from before the segment format held, which the committed head no longer needs. A base written because the memo did not read is counted as `rewritten whole` (`output_sink.note_rewritten`)."""
+        """Commit this writer's head (`committed`) through `row_delta.commit`, which then deletes every part it does not list. A base written because the memo did not read is counted as `rewritten whole` (`output_sink.note_rewritten`)."""
         head = self.committed(memo, part, restamp)
         if self.reason == "unusable":
             output_sink.note_rewritten(self.output)
         row_delta.commit(self.directory, head)
-        with suppress(OSError):
-            (self.directory / self.output).unlink(missing_ok=True)
         return head
 
     def put(
@@ -1980,52 +1925,17 @@ class SettleMemoRoute:
             return self.unusable()
         return self
 
-    def discard(self) -> None:
-        """Delete what this route made that no head lists, for a writer that commits nothing: the link an adoption made, while no head lists it."""
-        if not self.adopted:
-            return
-        with suppress(row_delta.HeadError, OSError):
-            if row_delta.read_head(self.directory, self.output) is None:
-                (self.directory / row_delta.base_name(self.output, 0)).unlink(missing_ok=True)
 
-
-def _single_file_header(path: Path) -> dict | None:
-    """The header of the single file at `path` when it is a settle memo in this format with a stamp and family keys, whatever its stamp, or None."""
-    try:
-        with open(path, "rb") as handle:
-            prefix = handle.read(_MEMO_PREFIX.size)
-            if len(prefix) < _MEMO_PREFIX.size:
-                return None
-            (header_length,) = _MEMO_PREFIX.unpack(prefix)
-            if header_length > _MEMO_HEADER_CAP:
-                return None
-            header = pickle.loads(handle.read(header_length))
-    except _SETTLE_MEMO_READ_ERRORS:
-        return None
-    if (
-        isinstance(header, dict)
-        and header.get("format") == SETTLE_MEMO_FORMAT
-        and isinstance(header.get("stamp"), str)
-        and isinstance(header.get("family_keys"), dict)
-        and isinstance(header.get("rows"), int)
-        and header.get("typecode") in ("H", "I")
-        and header.get("value_typecode") in ("H", "I")
-    ):
-        return header
-    return None
-
-
-def _adopted_head(memo: SettleMemoFile, header: dict) -> row_delta.Head:
-    """Link the single file at `memo.path` as generation 0's base, which writes no data, and return a head over it no writer has committed: its base records the stamp and family keys the file's own header names, its rows from the header, and its size and sha256, read through once."""
-    directory, output = memo.path.parent, memo.path.name
-    name = row_delta.base_name(output, 0)
-    link = directory / name
-    os.link(memo.path, link)
-    rows = int(header["rows"])
-    width = 6 * array(header["typecode"]).itemsize + array(header["value_typecode"]).itemsize
-    base = row_delta.Part(name, link.stat().st_size, row_delta.file_sha256(link), rows, rows * width)
-    head = row_delta.Head(output, 0, 0, {"stamp": header["stamp"]}, base, (), row_delta.MERGE_PROBE)
-    return row_delta.settled_parts(head, [(header["stamp"], header["family_keys"])])
+def _write_settle_memo_base(
+    memo: SettleMemoFile,
+    labels: Sequence[str],
+    outcomes: Sequence[Settled],
+    columns: Sequence[array],
+    values: array,
+) -> bool:
+    """Write a settle memo whole, laid out as `_write_settle_memo` lays it out, as generation 0's base of `memo` under a head of its own, as the `first` route writes and commits a base (`SettleMemoRoute.put`), and return whether it was written. The commit deletes every part of an earlier head that the new head does not list (`row_delta.commit`). A test or the memory series seeds a standing memo through this, for a walk, a plan or an absorb to find."""
+    route = SettleMemoRoute(memo.path.name, memo.path.parent, BASE_ROUTE, "first")
+    return route.put(memo, _settled_memo(memo, labels, outcomes, columns, values)) is not None
 
 
 def _parts_read(opened: row_delta.OpenParts) -> bool:
@@ -2060,7 +1970,7 @@ def _parts_read(opened: row_delta.OpenParts) -> bool:
 
 
 def _plan_route(memo: SettleMemoFile) -> SettleMemoRoute:
-    """One configuration's route before any fold is claimed (`plan_settle_memos`): `segment` over a head whose every part opens, hashes to what the head records and passes its header check (`_parts_read`), or over the single file a tree from before the segment format holds, adopted (`_adopted_head`); otherwise a base, `first` or `unusable`. The staging files a killed writer left and the parts no head lists are deleted first (`row_delta.remove_staging`, `row_delta.remove_unlisted`)."""
+    """One configuration's route before any fold is claimed (`plan_settle_memos`): `segment` over a head whose every part opens, hashes to what the head records and passes its header check (`_parts_read`); otherwise a base, `first` with no head or `unusable`. The staging files a killed writer left and the parts no head lists are deleted first (`row_delta.remove_staging`, `row_delta.remove_unlisted`)."""
     directory, output = memo.path.parent, memo.path.name
     if not directory.is_dir():
         return SettleMemoRoute(output, directory, BASE_ROUTE, "first", signature=("none",))
@@ -2073,15 +1983,7 @@ def _plan_route(memo: SettleMemoFile) -> SettleMemoRoute:
         return SettleMemoRoute(output, directory, BASE_ROUTE, "unusable", signature=signature)
     row_delta.remove_unlisted(directory, output, head)
     if head is None:
-        if not memo.path.exists():
-            return SettleMemoRoute(output, directory, BASE_ROUTE, "first", signature=signature)
-        header = _single_file_header(memo.path)
-        if header is None:
-            return SettleMemoRoute(output, directory, BASE_ROUTE, "unusable", signature=signature)
-        adopted = _adopted_head(memo, header)
-        return SettleMemoRoute(
-            output, directory, SEGMENT_ROUTE, head=adopted, adopted=True, signature=signature
-        )
+        return SettleMemoRoute(output, directory, BASE_ROUTE, "first", signature=signature)
     if head.merge != row_delta.MERGE_PROBE or any(part.settled is None for part in head.parts):
         return SettleMemoRoute(output, directory, BASE_ROUTE, "unusable", head=head, signature=signature)
     try:
@@ -2102,29 +2004,22 @@ class SettleMemoPlan:
     seconds: float
 
     def tail(self) -> str:
-        """The tail of `[t] settle_memo_plan`: how many configurations take each route, the base routes counted again by reason (`first=`, `unusable=`, `fold=`), and how many adopt a single file."""
+        """The tail of `[t] settle_memo_plan`: how many configurations take each route, and the base routes counted again by reason (`first=`, `unusable=`, `fold=`)."""
         routes = self.routes.values()
         segment = sum(route.route == SEGMENT_ROUTE for route in routes)
         reasons = " ".join(
             f"{reason}={sum(route.route == BASE_ROUTE and route.reason == reason for route in routes)}"
             for reason in ("first", "unusable", "fold")
         )
-        return f"segment_routes={segment} base_routes={len(self.routes) - segment} {reasons} adopting={sum(route.adopted for route in routes)}"
+        return f"segment_routes={segment} base_routes={len(self.routes) - segment} {reasons}"
 
     def report(self) -> None:
         """Print `[t] settle_memo_plan` with the plan's seconds and `tail`, once a caller has its plan."""
         console.timing("settle_memo_plan", self.seconds, self.tail())
 
-    def discard(self, committed: Iterable[str] = ()) -> None:
-        """Delete what the plan made for every configuration not in `committed` that no head lists (`SettleMemoRoute.discard`)."""
-        kept = set(committed)
-        for config, route in self.routes.items():
-            if config not in kept:
-                route.discard()
-
 
 def plan_settle_memos(memos: Mapping[str, SettleMemoFile]) -> SettleMemoPlan:
-    """Decide each configuration's settle memo route for one writer step before any of its writers writes (`SettleMemoRoute`), each configuration's head read and its parts hashed, or its single file adopted, on a thread of its own, since the hashes release the interpreter lock. Then the pass's fold is claimed (`row_delta.claim_fold`) among the configurations whose fold is due, the one with the most segments first and then in `memos`' order: the one that holds it folds, and so does any at its overrun (`row_delta.fold_forced`), and the rest write a segment and wait. The full replay plans in `run_build.replay_and_absorb` and the conformance sweep in `run_build_gates.run_font_conformance`, each before it hands any absorb its route, and the serial save and an absorb handed no route in their own processes (`_SettledWindowWalk.save_memo`, `absorb_settle_memo`); each caller prints `[t] settle_memo_plan` once it has its plan (`SettleMemoPlan.report`), whether or not a writer then writes."""
+    """Decide each configuration's settle memo route for one writer step before any of its writers writes (`SettleMemoRoute`), each configuration's head read and its parts hashed on a thread of its own, since the hashes release the interpreter lock. Then the pass's fold is claimed (`row_delta.claim_fold`) among the configurations whose fold is due, the one with the most segments first and then in `memos`' order: the one that holds it folds, and so does any at its overrun (`row_delta.fold_forced`), and the rest write a segment and wait. The full replay plans in `run_build.replay_and_absorb` and the conformance sweep in `run_build_gates.run_font_conformance`, each before it hands any absorb its route, and the serial save and an absorb handed no route in their own processes (`_SettledWindowWalk.save_memo`, `absorb_settle_memo`); each caller prints `[t] settle_memo_plan` once it has its plan (`SettleMemoPlan.report`), whether or not a writer then writes."""
     started = time.perf_counter()
     with ThreadPoolExecutor(max_workers=max(1, len(memos)), thread_name_prefix="settle-memo-plan") as pool:
         routes = dict(zip(memos, pool.map(_plan_route, memos.values())))
@@ -2168,7 +2063,7 @@ def _settle_memo_segment(
     *,
     restating: bool = False,
 ) -> _Segment:
-    """Lay out one segment of `route`'s memo over `store`, the parts `route.head` lists as mapped, from `columns` and `values` in the id space and typecodes of `tables`, every earlier part's tables with this segment's appended, and with a dead bitmap for each part some row of which `named` flags, a flag a store row. The rows are indexed as `_memo_index` indexes a file, a later row's outcome merging onto the first row of its window, and the merged rows dropped; with `restating`, for a writer whose rows can restate a live earlier row's window (an absorb's fresh rows, settled by walks that may have loaded another version of the memo), each kept row whose window a live earlier row holds that `named` leaves live is counted in the header as one it restates (`shadows`), so a reader looks for the rows it shadows only in such a segment; a walk's own fresh windows and a replay's compared rows restate none. The Bloom filter is keyed on each row's 64-bit hash (`_memo_hashes`), hashed and set `_ABSORB_BLOCK_ROWS` rows at a time, so it holds the packed filter, 10 bits a row, and one block's hashes. Layout: today's file's sections in its order (`_write_settle_memo`), then the filter, then each dead bitmap, each section on an eight-byte boundary, through `_settle_memo_segment_head` and `FinishedSettleMemo`."""
+    """Lay out one segment of `route`'s memo over `store`, the parts `route.head` lists as mapped, from `columns` and `values` in the id space and typecodes of `tables`, every earlier part's tables with this segment's appended, and with a dead bitmap for each part some row of which `named` flags, a flag a store row. The rows are indexed as `_memo_index` indexes a file, a later row's outcome merging onto the first row of its window, and the merged rows dropped; with `restating`, for a writer whose rows can restate a live earlier row's window (an absorb's fresh rows, settled by walks that may have loaded another version of the memo), each kept row whose window a live earlier row holds that `named` leaves live is counted in the header as one it restates (`shadows`), so a reader looks for the rows it shadows only in such a segment; a walk's own fresh windows and a replay's compared rows restate none. The Bloom filter is keyed on each row's 64-bit hash (`_memo_hashes`), hashed and set `_ABSORB_BLOCK_ROWS` rows at a time, so it holds the packed filter, 10 bits a row, and one block's hashes. Layout: a whole file's sections in its order (`_write_settle_memo`), then the filter, then each dead bitmap, each section on an eight-byte boundary, through `_settle_memo_segment_head` and `FinishedSettleMemo`."""
     index, keep = _memo_index(columns, values)
     rows = len(values)
     if keep is not None:
@@ -2321,7 +2216,7 @@ class SweepPrune:
 
 @dataclass(frozen=True)
 class MemoAbsorb:
-    """What `absorb_settle_memo` did with one configuration's memo. `written` says whether it wrote a part, `carried` counts the standing rows it kept, `pruned` the windows the sweep's prune or discard dropped, and `fresh` the rows its part added once each window that an earlier row of the part holds merged onto that row, or the rows the parts held when nothing was written. `standing` counts the standing memo's rows, stale ones included and those an earlier segment's dead bitmap names left out (`_MemoStore.standing`; 0 when it loaded nothing), `parts` the rows the parts held, `patched` the rows that restated a window an earlier row holds, standing or fresh, and gave it their outcome instead of a row of their own (on the segment route a fresh row restating a live standing row's window keeps its row in the segment and wins by the probe's order, and is counted here too), `index` how its index was built: the standing index copied and extended (`reused`) or built anew over every row (`rebuilt`) for a whole file, or the segment's own (`segment`), None when nothing was laid out, and `slots` its slot count. `wrote` is what it wrote (`segment` or `base`, empty for nothing), `reason` a base's reason, `adopted` and `overrun` its route's (`SettleMemoRoute`), `rows_written` the rows its part holds, `named` the standing rows its dead bitmaps name, `part_bytes` its part's bytes on disk, and `segments` the segments the head it committed lists."""
+    """What `absorb_settle_memo` did with one configuration's memo. `written` says whether it wrote a part, `carried` counts the standing rows it kept, `pruned` the windows the sweep's prune or discard dropped, and `fresh` the rows its part added once each window that an earlier row of the part holds merged onto that row, or the rows the parts held when nothing was written. `standing` counts the standing memo's rows, stale ones included and those an earlier segment's dead bitmap names left out (`_MemoStore.standing`; 0 when it loaded nothing), `parts` the rows the parts held, `patched` the rows that restated a window an earlier row holds, standing or fresh, and gave it their outcome instead of a row of their own (on the segment route a fresh row restating a live standing row's window keeps its row in the segment and wins by the probe's order, and is counted here too), `index` how its index was built: the standing index copied and extended (`reused`) or built anew over every row (`rebuilt`) for a whole file, or the segment's own (`segment`), None when nothing was laid out, and `slots` its slot count. `wrote` is what it wrote (`segment` or `base`, empty for nothing), `reason` a base's reason, `overrun` its route's (`SettleMemoRoute.forced`), `rows_written` the rows its part holds, `named` the standing rows its dead bitmaps name, `part_bytes` its part's bytes on disk, and `segments` the segments the head it committed lists."""
 
     written: bool
     carried: int
@@ -2334,7 +2229,6 @@ class MemoAbsorb:
     slots: int = 0
     wrote: str = ""
     reason: str = ""
-    adopted: bool = False
     overrun: bool = False
     rows_written: int = 0
     named: int = 0
@@ -2347,7 +2241,7 @@ class MemoAbsorb:
         return self.standing - self.carried
 
     def tokens(self, fresh: bool = True) -> str:
-        """The path and counts a `[t]` line reports: `index=`, then the standing, kept, fresh (left out with `fresh` False, for a line that already has one), patched and dropped rows, then what it wrote: `wrote=`, a base's `reason=`, `adopted=true` and `overrun=true` where they hold, the rows its part holds, the standing rows its dead bitmaps name, its part's bytes and the segments its head lists."""
+        """The path and counts a `[t]` line reports: `index=`, then the standing, kept, fresh (left out with `fresh` False, for a line that already has one), patched and dropped rows, then what it wrote: `wrote=`, a base's `reason=`, `overrun=true` where it holds, the rows its part holds, the standing rows its dead bitmaps name, its part's bytes and the segments its head lists."""
         counts = [("standing", self.standing), ("kept", self.carried)]
         if fresh:
             counts.append(("fresh", self.fresh))
@@ -2357,8 +2251,6 @@ class MemoAbsorb:
             tokens.append(f"wrote={self.wrote}")
             if self.reason:
                 tokens.append(f"reason={self.reason}")
-            if self.adopted:
-                tokens.append("adopted=true")
             if self.overrun:
                 tokens.append("overrun=true")
             tokens += [
@@ -2382,7 +2274,7 @@ def absorb_settle_memo(
 
     On the segment route it maps the memo read-only and unrestricted (`_MemoStore.load`), so a part under another stamp contributes nothing and a row naming a family whose key changed since its part was settled is dead, and writes one segment (`_absorb_segment`): the parts' fresh rows, and dead bitmaps naming exactly the standing rows a whole-file absorb drops, the rows stale under the current keys, the rows the sweep's prune drops and every live row after a retirement. With `sweep`, the pooled conformance sweep's parent says which rows its units reached: together the units walk every text of the configuration, so a window none of them reached is one no text produces any more, and its rows are dropped, as the serial sweep's `save_memo(prune=True)` drops them. When the memo on disk is not the version the units mapped, or its row count differs from the flags', the flags index another version's rows, so this warns and keeps every live row, as it does when `sweep.prune` is False; rows are never lost, only the prune waits for the next sweep. `sweep.discard`, after a unit's probe retired its store, drops every live row under the same version check and keeps only the parts, as the serial sweep's pruning save does after a retirement. With no part and nothing dropped it writes nothing, so the memo's files and their modification times stand. The head it commits keeps each earlier part's recorded stamp and keys and records the segment under the current ones.
 
-    On a base route it writes a whole file as the next generation's base (`_absorb`): from the parts alone with no standing file (`first`, `unusable`, the latter counted as `rewritten whole`), or, for a `fold`, the materialized form of every part with this absorb's changes, over the standing memo's live rows in part order (`_MemoStore.chosen` copies the rows it carries, and only those, out of the parts), as a whole-file absorb over a single file writes it. `emit`, for a reader that hashes the part instead (the memory series), takes the finished part in place of the write, and nothing is committed.
+    On a base route it writes a whole file as the next generation's base (`_absorb`): from the parts alone with no standing file (`first`, `unusable`, the latter counted as `rewritten whole`), or, for a `fold`, the materialized form of every part with this absorb's changes, over the standing memo's live rows in part order (`_MemoStore.chosen` copies the rows it carries, and only those, out of the parts). `emit`, for a reader that hashes the part instead (the memory series), takes the finished part in place of the write, and nothing is committed.
     """
     if route is None:
         plan = plan_settle_memos({memo.path.name: memo})
@@ -2397,7 +2289,6 @@ def absorb_settle_memo(
                 part.release()
 
     store = _MemoStore()
-    committed = False
     try:
         if not route.current(memo):
             return MemoAbsorb(False, 0, 0, 0)
@@ -2412,17 +2303,12 @@ def absorb_settle_memo(
                 store = _MemoStore()
             route = taken
         if route.route == SEGMENT_ROUTE:
-            absorbed = _absorb_segment(memo, store, route, parts, sweep, emit, release)
-        else:
-            absorbed = _absorb_base(memo, store, route, parts, sweep, emit, release)
-        committed = absorbed.written and emit is None
-        return absorbed
+            return _absorb_segment(memo, store, route, parts, sweep, emit, release)
+        return _absorb_base(memo, store, route, parts, sweep, emit, release)
     finally:
         store.close()
         for part in parts:
             release(part)
-        if not committed:
-            route.discard()
 
 
 def _absorb_base(
@@ -2466,7 +2352,7 @@ def _absorb_base(
 def materialize_settle_memo(
     memo: SettleMemoFile, spec: ResolvedSpec, emit: Callable[[FinishedSettleMemo], bool]
 ) -> bool:
-    """Lay out the materialized form of the memo at `memo.path` and hand it to `emit`, returning what `emit` returns, or False when there is no memo: `_write_settle_memo` under `memo`'s stamp and family keys over every part's live rows in part order, base first, with every part's tables concatenated, a window a later part repeats merging onto its first row with the later part's outcome, and the index sized from the rows passed, as `_write_settle_memo` sizes it. It is the whole-file absorb (`_absorb`) with nothing to add and its index built anew, so the fold, which is that absorb over every part with its changes, writes it as the next generation's base, and the tests and the memory series compare it with today's writer's file. The file's pieces read the mapped parts, so `emit` must consume them before this returns."""
+    """Lay out the materialized form of the memo at `memo.path` and hand it to `emit`, returning what `emit` returns, or False when there is no memo: `_write_settle_memo` under `memo`'s stamp and family keys over every part's live rows in part order, base first, with every part's tables concatenated, a window a later part repeats merging onto its first row with the later part's outcome, and the index sized from the rows passed, as `_write_settle_memo` sizes it. It is the whole-file absorb (`_absorb`) with nothing to add and its index built anew, so the fold, which is that absorb over every part with its changes, writes it as the next generation's base, and the tests and the memory series compare it with the file the carry-and-append absorb writes. The file's pieces read the mapped parts, so `emit` must consume them before this returns."""
     store = _MemoStore()
     try:
         store.load(memo, spec, None, lambda item: (item, "", ""))
@@ -2543,7 +2429,6 @@ def _absorb_segment(
             written=emit(segment.finished),
             fresh=segment.rows,
             wrote="segment",
-            adopted=route.adopted,
             rows_written=segment.rows,
             named=segment.named,
         )
@@ -2556,7 +2441,6 @@ def _absorb_segment(
         written=True,
         fresh=segment.rows,
         wrote="segment",
-        adopted=route.adopted,
         rows_written=segment.rows,
         named=segment.named,
         part_bytes=part.size,
@@ -2744,7 +2628,7 @@ def _absorb(
     store: _MemoStore,
     parts: Sequence[FreshMemo],
     sweep: SweepPrune | None,
-    emit: Callable[[FinishedSettleMemo], bool] | None,
+    emit: Callable[[FinishedSettleMemo], bool],
     release: Callable[[FreshMemo], None],
     *,
     force: bool = False,
@@ -2826,7 +2710,7 @@ def _absorb(
         else _MemoPieces(slots * 4, functools.partial(_index_pieces, index, merged))
     )
     finished = FinishedSettleMemo(header, pickled, tuple(sections), final)
-    written = (emit or functools.partial(_put_settle_memo, path=memo.path))(finished)
+    written = emit(finished)
     return MemoAbsorb(
         written,
         carried,
@@ -3098,7 +2982,7 @@ def _check_respelled_rows(
 
 
 def absorb_replay_memo(dump: Path, memo: SettleMemoFile, spec: ResolvedSpec, config: str) -> int:
-    """Write the crate's window memo for `config`, a dump on disk that `replay-strings --memo-dir` wrote, as the configuration's settle memo file under `memo`'s stamp and family keys, and return the row count. This is the in-memory form of the absorb: it reads the whole dump, slices its seven columns out of it, and writes them through `_write_settle_memo`. The build's replay reads each memo through a pipe as it arrives instead (`read_replay_memo`), and gives the same file's bytes from the same dump.
+    """Write the crate's window memo for `config`, a dump on disk that `replay-strings --memo-dir` wrote, as a single settle memo file at `memo.path` under `memo`'s stamp and family keys, and return the row count. This is the in-memory form of the absorb: it reads the whole dump, slices its seven columns out of it, and writes them through `_write_settle_memo`. The build's replay reads each memo through a pipe as it arrives instead (`read_replay_memo`), and gives the same file's bytes from the same dump, which `engine/test_conform.py` holds it to.
 
     The dump names every window in the crate's form: the input as the raw rune name or its `.noentry` locked copy, the rights as raw labels, and the left as a boundary label or an index into its record table. This function converts that to the `formed_labels` form. Each label is renamed through `model.raw_rename_map` once, each record is decoded through `kernel_exec.settled_of_row` once, and each record's left label is its `geometry.display_name` (`_replay_memo_tables`). The conversion touches only a few thousand strings, and the rows pass through as integer columns: the walk's label table is the renamed label table followed by the records' display names, which is the id space the dump's left column already indexes.
 
@@ -3720,7 +3604,6 @@ class _SettledWindowWalk:
         plan = plan_settle_memos({memo.path.name: memo})
         plan.report()
         route = plan.routes[memo.path.name]
-        written = False
         try:
             if not route.current(memo):
                 return False
@@ -3731,14 +3614,10 @@ class _SettledWindowWalk:
                     return False
                 route = taken
             if route.route == SEGMENT_ROUTE:
-                written = self._save_segment(route, prune)
-            else:
-                written = self._save_whole(route, prune)
-            return written
+                return self._save_segment(route, prune)
+            return self._save_whole(route, prune)
         finally:
             store.close()
-            if not written:
-                route.discard()
             self.memo_seconds += time.perf_counter() - started
 
     def _settled_items(self, windows: Iterable[_Window] | None = None) -> Iterable[tuple[_Window, _Outcome]]:

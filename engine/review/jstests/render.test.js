@@ -686,8 +686,8 @@ test('a lone machine check merges back into the total row', () => {
   );
 });
 
-test('the popover corner says how much of the alphabet has migrated', () => {
-  assert.equal(corpusAlphabetLabel({ alphabet: { migrated: 16, total: 44 } }), '16 of 44 letters');
+test('the popover corner says how much of the alphabet the build holds', () => {
+  assert.equal(corpusAlphabetLabel({ alphabet: { built: 16, total: 44 } }), '16 of 44 letters');
   assert.equal(corpusAlphabetLabel({}), null);
 });
 

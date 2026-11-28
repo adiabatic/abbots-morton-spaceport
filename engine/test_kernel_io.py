@@ -1,20 +1,15 @@
-"""Tests for the two serializations at the kernel interface in `engine/pipeline/kernel_io.py`.
+"""Tests for the serialization at the kernel interface in `engine/pipeline/kernel_io.py`, the resolved-spec dump.
 
 The resolved-spec dump is how the Rust kernel reads a spec. These tests cover the value round trip, canonical form, the collection order the dump preserves, and the errors that stop a wrong dump from parsing as a partial one. They run on the mini fixture, widened by `_reaching_mini` so the encoder meets every shape it meets on the live alphabet, which `TestTheMiniReachesEveryShapeTheLiveDumpDoes` checks. The live alphabet is used there and in `TestTheCrateEchoesTheDumpByteForByte`, where the dump goes through the crate's `spec-echo` and must come back byte for byte; that is where a Rust model lagging a `model.py` change shows up.
-
-The transition stream is the return direction. Its tests write a fixpoint product, parse it back, compare the two field by field and row by row, and check the wire layout against the raw bytes. They use the mini spec alone, because they test the format.
 """
 
 import dataclasses
-import gzip
 import json
 import warnings
 
 import pytest
 
 from engine.pipeline import fixtures, kernel_exec, kernel_io, spec_load
-from engine.pipeline import table as table_module
-from engine.pipeline.kernel_exec import enumerate_transitions
 from engine.pipeline.model import (
     KERNEL_FIELD,
     Bitmap,
@@ -31,8 +26,6 @@ from engine.pipeline.model import (
     When,
 )
 
-MINI = fixtures.mini_spec()
-CONFIGS = {"default": frozenset(), "ss03": frozenset({"ss03"}), "ss04": frozenset({"ss04"})}
 CONTEXT = 48
 
 
@@ -342,105 +335,3 @@ class TestTheCrateEchoesTheDumpByteForByte:
             finished.stderr == b""
         ), f"the kernel wrote to stderr on a clean exit: {finished.stderr.decode(errors='replace').strip()}"
         assert finished.stdout == written, _first_difference(written, finished.stdout)
-
-
-@pytest.fixture(scope="module")
-def stream(tmp_path_factory):
-    directory = tmp_path_factory.mktemp("transitions")
-    written = {}
-    for name, features in CONFIGS.items():
-        product = enumerate_transitions(MINI, features)
-        path = directory / f"transitions-{name}.gz"
-        kernel_io.write_transitions(product, path)
-        written[name] = (product, path)
-    return written
-
-
-@pytest.mark.parametrize("config", sorted(CONFIGS))
-class TestTheTransitionStreamCarriesTheWholeProduct:
-    def test_a_parsed_stream_is_the_product_that_was_written(self, stream, config):
-        product, path = stream[config]
-        parsed = kernel_io.read_transitions(path)
-        assert parsed.config == product.config
-        assert parsed.transitions == product.transitions
-        assert parsed.deep_classes == product.deep_classes
-        assert parsed.cited_provenance == product.cited_provenance
-        assert parsed.cells == product.cells
-        assert parsed == product
-
-    def test_the_rows_come_back_in_the_order_they_were_written(self, stream, config):
-        product, path = stream[config]
-        parsed = kernel_io.read_transitions(path)
-        assert [row.key for row in parsed.transitions] == [row.key for row in product.transitions]
-
-    def test_two_writes_of_one_product_are_identical(self, stream, config, tmp_path):
-        product, path = stream[config]
-        again = tmp_path / "again.gz"
-        kernel_io.write_transitions(product, again)
-        assert again.read_bytes() == path.read_bytes()
-
-    def test_an_open_plain_handle_parses_to_the_same_product(self, stream, config, tmp_path):
-        """`kernel_exec.read_stream` passes `read_transitions` an open handle on the crate's plain ndjson stream. The bytes are the same as the gzip file's contents, so the product must be the same."""
-        product, path = stream[config]
-        plain = tmp_path / f"transitions-{config}.ndjson"
-        with gzip.open(path, "rb") as packed:
-            plain.write_bytes(packed.read())
-        with plain.open("rt", encoding="utf-8") as handle:
-            assert kernel_io.read_transitions(handle) == product
-
-
-class TestTheWireLayoutIsTheDocumentedOne:
-    """A round trip cannot catch a Python writer and reader that changed together, and the crate writes the same `ams-transitions/1` format, so this test checks the raw bytes against the layout the `kernel_io` module docstring documents: the marker line, the head's keys in order, the head's cell format, and all twelve row positions."""
-
-    def test_the_stream_spells_the_layout_the_contract_names(self, stream):
-        product, path = stream["default"]
-        with gzip.open(path, "rt") as handle:
-            marker, _, payload = handle.readline().rstrip("\n").partition("\t")
-            head = json.loads(payload)
-            first = json.loads(handle.readline())
-        assert marker == f"# {kernel_io.TRANSITIONS_FORMAT}"
-        assert list(head) == ["config", "cells", "deep_classes", "cited_provenance"]
-        cells = sorted(product.cells, key=table_module._cell_key)
-        lead = cells[0]
-        assert head["cells"][0] == [lead.rune, lead.stance, lead.entry, lead.exit, list(lead.adjustments)]
-        row = product.transitions[0]
-        assert len(first) == 12
-        assert first[:7] == [
-            row.input_glyph,
-            row.left,
-            row.right1,
-            row.right2,
-            row.right3,
-            row.right4,
-            row.outcome,
-        ]
-        assert first[7] == [cells.index(row.settled.cell), row.settled.junction, row.settled.extension]
-        assert first[8] == (
-            None
-            if row.left_settled is None
-            else [cells.index(row.left_settled.cell), row.left_settled.junction, row.left_settled.extension]
-        )
-        assert first[9] == row.joint
-        assert first[10] == row.prospect
-        assert first[11] == list(row.provenance)
-
-
-class TestTheStreamRefusesWhatItCannotCarry:
-    def test_a_gzip_file_that_is_not_a_stream_is_refused(self, tmp_path):
-        path = tmp_path / "elsewhere.gz"
-        with path.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as handle:
-            handle.write(b'# ams-windows/1\t{"config":"default"}\n')
-        with pytest.raises(ValueError):
-            kernel_io.read_transitions(path)
-
-    def test_an_absent_file_raises(self, tmp_path):
-        with pytest.raises(OSError):
-            kernel_io.read_transitions(tmp_path / "never-written.gz")
-
-    def test_a_row_settling_outside_the_products_cells_is_refused(self, stream, tmp_path):
-        product, _path = stream["default"]
-        starved = dataclasses.replace(
-            product, cells=frozenset(product.cells - {product.transitions[0].settled.cell})
-        )
-        with pytest.raises(table_module.PartitionError):
-            kernel_io.write_transitions(starved, tmp_path / "starved.gz")

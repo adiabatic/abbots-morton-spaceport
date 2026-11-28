@@ -4,7 +4,7 @@ The crate under `engine/kernel-rs` builds both tables and nothing here folds. `s
 
 The kernel tabulates settlement over every (settled left, rune, right1, right2) window reachable for one feature configuration, by fixpoint over reachable left states, so the table is exact. Windows that formation makes impossible are left out, except that a ligature's component pair is enumerated where the §5.7 late-formation guard blocks the ligature. A window with a formed ligature as its input or at right1 is enumerated only where that ligature's guard does not block. A ZWNJ-locked entry-bearing input is enumerated under its locked copy's name (`model.locked_glyph_name`).
 
-Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by the third raw token only where both nearer slots are letters and the window's outcome can still depend on that token, and by the fourth token likewise one slot deeper. Elsewhere the slot holds `#NA`. The crate's `deep_slots.rs` and `liveness.rs` decide which windows are split. In the pinned mode set only runes whose window reads a `prefer` or `resolve` record whose right chain reaches the slot can be split: the rune's own records, and the resolve records of any rune whose `against:` names it. Under the simulated prospect or the follower prefer slots every rune can be. Under class grain (`kernel_exec.class_grain`) a deep slot holds a class id (`deep_class_id`) standing for the letters that settle identically there, listed in `deep_classes`. Class rows are expanded back to labels before folding (`expanded_transitions` on this side), and the fold, the joint-flag pass, the join fold, and the rules all read that expanded stream, so `Rule` objects hold labels only. doc/engine-design.md §3.4 describes the deep slots. `_assert_window_arity` checks at import that `Transition` and `Rule` have `model.RIGHT_WINDOW_SLOTS` right slots.
+Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by the third raw token only where both nearer slots are letters and the window's outcome can still depend on that token, and by the fourth token likewise one slot deeper. Elsewhere the slot holds `#NA`. The crate's `deep_slots.rs` and `liveness.rs` decide which windows are split. In the pinned mode set only runes whose window reads a `prefer` or `resolve` record whose right chain reaches the slot can be split: the rune's own records, and the resolve records of any rune whose `against:` names it. Under the simulated prospect or the follower prefer slots every rune can be. Under class grain (`kernel_exec.class_grain`) a deep slot holds a class id (`deep_class_id`) standing for the letters that settle identically there, listed in `deep_classes`. Class rows are expanded back to labels before folding (`expanded_transitions` on this side), and the fold, the joint-flag pass, the join fold, and the rules all read that expanded stream, so `Rule` objects hold labels only. doc/engine-design.md §3.4 describes the deep slots. `_assert_window_arity` checks at import that `Window` and `Rule` have `model.RIGHT_WINDOW_SLOTS` right slots.
 
 `src/rulefold.rs` specifies how each input's rows are compressed into rules and the order of those rules. The crate checks the rules by replaying the rows against them under first-match-wins (`fold::assert_outcome_partition`).
 
@@ -17,7 +17,7 @@ Each configuration's windows artifact is held in two files and the segment forma
 - The head file, `windows-<config>.head.json.gz` (`windows_head_file`): the payload's head line exactly as the crate writes it, the marker, a tab, the JSON head and a newline, gzipped as a base is, so `read_windows` reads it with `windows=False` as it reads a whole payload.
 - The rows, the output `windows-<config>.tsv.gz` (`windows_output`): a head, `windows-<config>.tsv.gz.head` (`windows_head_path`), which merges its parts by key (`row_delta.MERGE_KEY`), lists a base, a whole payload as the crate wrote it once, its inline head line included, and the segments of the rows that differ that later builds wrote over it. Its stamps are the build's `inputs`, the crate's `table_digest` over the table's own rows and the head file's name, size and sha256, so the head is the single commit point for both files.
 
-`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it (`read_head_line`, which also hands a pass that reuses the tables the line it re-stamps, `restamped_head_line`), so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_build.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest`, `deep_sweep.targeted_lines`, and the review server's kern routes, which read only the cells (`cells_only`)) goes through it, and `engine/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` reads, and `materialized_table_digest` hashes as it streams for `perf_fingerprint` without building the rows. A tree from before the segment format holds the whole payload gzipped in the single file `windows-<config>.tsv.gz` (`windows_path`), which the next build adopts as its output's first base.
+`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it (`read_head_line`, which also hands a pass that reuses the tables the line it re-stamps, `restamped_head_line`), so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_build.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest`, `deep_sweep.targeted_lines`, and the review server's kern routes, which read only the cells (`cells_only`)) goes through it, and `engine/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` reads, and `materialized_table_digest` hashes as it streams for `perf_fingerprint` without building the rows.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import IO, Generator, Iterable, Iterator, Mapping, Protocol
 
 from engine.pipeline import row_delta
-from engine.pipeline.model import RIGHT_WINDOW_SLOTS, CellId, Settled
+from engine.pipeline.model import RIGHT_WINDOW_SLOTS, CellId
 
 EDGE_LABEL = "#EDGE"
 NA_LABEL = "#NA"
@@ -55,10 +55,6 @@ def deep_class_id(members: tuple[str, ...]) -> str:
     return f"{DEEP_CLASS_PREFIX}{digest[:12]}"
 
 
-class PartitionError(RuntimeError):
-    pass
-
-
 @dataclass(frozen=True, slots=True)
 class Window:
     """The label view of one settlement window: the slots that key it and the outcome. This is all a replay reads, so it is all the windows artifact stores and all `read_windows` returns."""
@@ -76,17 +72,6 @@ class Window:
         return (self.input_glyph, self.left, self.right1, self.right2, self.right3, self.right4)
 
 
-@dataclass(frozen=True, slots=True)
-class Transition(Window):
-    """A window plus the fields only the fold reads: the settled cells the join table is folded from, the optimistic prospect the joint flag is scored against, and the provenance pointers the rule fold copies onto rules."""
-
-    settled: Settled
-    left_settled: Settled | None
-    joint: bool
-    prospect: int
-    provenance: tuple[str, ...]
-
-
 @dataclass(frozen=True)
 class Rule:
     input_glyph: str
@@ -101,15 +86,15 @@ class Rule:
 
 
 def _assert_window_arity(expected: int) -> None:
-    transition_slots = sum(
-        1 for name in Transition.__dataclass_fields__ if name.startswith("right") and name[5:].isdigit()
+    window_slots = sum(
+        1 for name in Window.__dataclass_fields__ if name.startswith("right") and name[5:].isdigit()
     )
     rule_slots = sum(
         1 for name in Rule.__dataclass_fields__ if name.startswith("look") and name[4:].isdigit()
     )
-    if transition_slots != expected or rule_slots != expected:
+    if window_slots != expected or rule_slots != expected:
         raise AssertionError(
-            f"model.RIGHT_WINDOW_SLOTS = {expected} but table.Transition carries {transition_slots} right slots and table.Rule {rule_slots} look slots — a chain-cap raise without the matching table widening would bake records past the window in silently; widen table/settle/emit_gsub/conform/tablediff together with the constant"
+            f"model.RIGHT_WINDOW_SLOTS = {expected} but table.Window carries {window_slots} right slots and table.Rule {rule_slots} look slots — a chain-cap raise without the matching table widening would bake records past the window in silently; widen table/settle/emit_gsub/conform/tablediff together with the constant"
         )
 
 
@@ -248,13 +233,8 @@ HEAD_FILE_STAMP = "head_file"
 
 
 def windows_output(config: str) -> str:
-    """The name of one configuration's windows rows as an output in the segment format (`row_delta`), whose head is `<name>.head` and whose parts are `<name>.<gen>.base` and `<name>.<gen>.<n>.delta`; also the name of the single file a tree from before the segment format holds (`windows_path`)."""
+    """The name of one configuration's windows rows as an output in the segment format (`row_delta`), whose head is `<name>.head` and whose parts are `<name>.<gen>.base` and `<name>.<gen>.<n>.delta`."""
     return f"windows-{config}.tsv.gz"
-
-
-def windows_path(out_dir: Path, config: str) -> Path:
-    """The single file, the whole payload gzipped, that a tree from before the segment format holds for one configuration, and that the next build adopts as its output's first base."""
-    return Path(out_dir) / windows_output(config)
 
 
 def windows_head_path(out_dir: Path, config: str) -> Path:
@@ -590,14 +570,3 @@ def _table_digest_parts(decision: DecisionTable, joins: JoinTable, rows: Iterabl
     for pointer in sorted(decision.cited_provenance):
         yield pointer.encode() + b"\n"
     yield f"--guards--\t{decision.identity_guard_rules}\n".encode()
-
-
-@dataclass(frozen=True)
-class FixpointProduct:
-    """Everything one configuration's fixpoint produces that a fold reads: the key-sorted transition stream, the deep-class map its class tokens resolve through, the provenance pointers the engine fired while tabulating, and the cells the stream settles into. `joint` on these rows is the trace's `joint_tiebreak` alone, because the prospect-divergence pass runs later, in the crate's fold. `cells` is computed at class grain, which equals the expanded set because a class row's members share its settled fields. `kernel_exec.enumerate_transitions` returns one. No build or tool uses this type, because the crate folds the product it already holds; only the engine tests read it."""
-
-    config: str
-    transitions: tuple[Transition, ...]
-    deep_classes: Mapping[str, tuple[str, ...]]
-    cited_provenance: frozenset[str]
-    cells: frozenset[CellId]

@@ -1,15 +1,15 @@
-"""The memory series: measure what the table build and the string replay hold and write at each of several alphabet cuts, and what a settle-memo absorb holds at each of several row counts, one heavy process at a time, so a change that claims a term is flat shows it across the cuts instead of at the whole alphabet alone. It has the scaling sweep's shape (`engine/tools/scaling_sweep.py`), which times one configuration, and measures the whole build instead. It measures one holder a run, which `--holder` picks: the table build (`tables`, the default), whose step the paragraphs up to "The replay step" describe, the string replay (`replay`), whose step "The replay step" describes, or the settle-memo absorb (`absorbs`), whose step "The absorbs step" describes.
+"""The memory series: measure what the table build and the string replay hold and write at each of several alphabet cuts, and what a settle-memo absorb holds at each of several row counts, one heavy process at a time, so a change that claims a term is flat shows it across the cuts instead of at the whole alphabet alone. It measures one holder a run, which `--holder` picks: the table build (`tables`, the default), whose step the paragraphs up to "The replay step" describe, the string replay (`replay`), whose step "The replay step" describes, or the settle-memo absorb (`absorbs`), whose step "The absorbs step" describes.
 
 Each table step is one `build-tables` over the configurations named (every settlement configuration unless `--configs` narrows them) on one alphabet cut, at the flags a bare run_build derives on this machine (`bare_flags`, as `run_build.build_tables` derives them with nothing beside the build: the width and how many deltas start from scratch beside `default`), unless `--kernel-threads` or `--scratch-beside-default` states one. Every step runs the same flags, so the cuts differ only in their alphabet. The cut is `scaling_series.sub_spec`'s, over `scaling_series.series_order`, the rule the alphabet switch (`spec_load.RUNES_ENV`) narrows by too, so a line's `alphabet` is what that switch takes to build the same cut in a tree of the fault kit's kind. The sizes default to `SIZES` below the whole alphabet and the whole alphabet itself, so the largest line is the live build's; positional arguments name other rune counts, and a count named twice is measured twice.
 
-A step's build writes no file. Each configuration's windows payload goes through a pipe the crate inherits, named to it as `--windows=<config>=/dev/fd/<number>`, and is counted as it arrives (`scaling_sweep.scan`, through `kernel_exec.stream_payloads`, in `run_piped`), so it stands at no path; the bytes counted must be the bytes the crate answers it wrote (`scaling_sweep.counts`). The settlement and joins paths are symbolic links to the null device, which the crate opens with `File::create`, which does not truncate it. The crate's stdout and stderr come back through pipes. The `--inputs` stamp is `STAMP_PREFIX` and the rune count, so one cut hashes the same from run to run.
+A step's build writes no file. Each configuration's windows payload goes through a pipe the crate inherits, named to it as `--windows=<config>=/dev/fd/<number>`, and is counted as it arrives (`scan`, through `kernel_exec.stream_payloads`, in `run_piped`), so it stands at no path; the bytes counted must be the bytes the crate answers it wrote (`counts`). The settlement and joins paths are symbolic links to the null device, which the crate opens with `File::create`, which does not truncate it. The crate's stdout and stderr come back through pipes. The `--inputs` stamp is `STAMP_PREFIX` and the rune count, so one cut hashes the same from run to run.
 
 A table line holds, beside `step` (`tables`) and the cut (`runes`, `letters`, `ligs`, `configs`, the two flags and `modes`, the settlement modes `kernel_exec.mode_flags` passes):
 
 - `wall_s` and `cpu_s`: the child's wall time and its own user and system time, from the rusage `os.wait4` reaps it with.
 - `peak_resident` and `peak_footprint`: the child's resident peak from that rusage and its lifetime peak footprint, read between its exit and its reap as `peak_rss.reap_peaks_bytes` reads it. This module reaps the child itself, because that function discards the rusage the CPU figure comes from.
 - `start`, `peak` and `end`: a sampler thread reads the child's resident set and footprint (`peak_rss.resident_bytes`, `peak_rss.footprint_bytes`) and the machine (`read_machine`: swap in use, `peak_rss.swap_used_bytes`; the compressor's occupancy, `peak_rss.parse_compressor_bytes`, and the swapout count, `peak_rss.parse_swapouts`, both over `vm_stat`; and the internal SSD's write counter, as the write meter reads it) every `--interval` seconds. `start` is the machine just before the spawn, `peak` the sample whose footprint was highest, and `end` the machine once the child is reaped beside the last sample's child figures, whose footprint reads None when that sample caught the child exiting (`peak_rss.footprint_bytes`). `compressor_max` and `swap_used_max` are the highest of every reading, and `samples` how many the sampler took.
-- `windows`: each configuration's `[windows, rules, cells]`, counted from its payload as `scaling_sweep.counts` counts them. `digests`: each configuration's table digest from the child's stdout.
+- `windows`: each configuration's `[windows, rules, cells]`, counted from its payload as `counts` counts them. `digests`: each configuration's table digest from the child's stdout.
 - `phases`: the child's `[t]` lines, label to seconds. `tables`: the `[c]` lines that give a collection's length and capacity, as `[len, cap, load]` by configuration and collection, the load being length over capacity. `resident`: the `[c]` lines that give a resident size, in bytes. `stats`: every other `[c]` line's fields (`cache_lines` says how a line is keyed).
 - `written`: the write meter's fields (`engine/tools/write_meter.py`). The meter is read with the device `--idle-seconds` before the step and again just before the child's spawn, which gives the device's idle rate (`idle_rate`); then once the child is reaped and every payload's pipe drained (`end`), and again `--after-seconds` after that (`after`), since a write the kernel defers and the swap the pressure leaves reach the device late. Each of the two blocks reads from the reading just before the spawn: `basis`, `written` (the coalition's logical writes, `WriteDelta.bytes`), `diskio`, `device`, `device_net` (the device's delta less the idle rate over the same seconds), `swap` (the VM volume's writes), `swapouts` (the `vm_stat` swapout delta from `start`), `seconds`, and the meter's `warning` when it has one. `vm.swapusage` lags and does not fall back once the pressure ends, so the swapout delta is the swap reading a step owns. The window from that reading to `end` holds the build and the machine reading before its spawn, and nothing on the disk for the payloads, whose pipes have no path; it holds neither the step directory's making, with its links, nor its removal. Before the first step's idle reading the run flushes its own setup's writes (the crate's build, the binary's copy, the spec dumps, the index refresh `git describe` makes and the record's truncation) with `os.sync` and waits `SETTLE_S` for them to reach the device, so the first step's idle rate holds none of them. A basis other than `own` or a warning also prints a `[warn]` line.
 - `alphabet` (the cut's rune names), `cpus` and `ram` (`memory_budget.usable_cores` and `total_memory_bytes`, which `doc/fleet.md` matches to a machine; no hostname is recorded), `head` (the commit, with `-dirty` after it when tracked files have changed) and `finished_at`.
@@ -30,11 +30,11 @@ A replay line holds, beside `step` (`replay`), the cut (`runes`, `letters`, `lig
 
 After a replay run's last line the record and stdout get the fit against runes of the windows, the walk, absorb, pair and combined peaks, the walks' CPU time, the row store and the largest unit's walk memo (`replay_report`).
 
-The absorbs step measures one settle-memo absorb (`conform.absorb_settle_memo`) a line, over inputs made from the live `default` settle memo at a row count, and beside it the carry-and-append absorb its bytes are proven against over the same inputs (`memory_series_child.carry_and_append_absorb`). The run clones the live memo, its head and every part the head lists, or the single file a tree from before the segment format holds, into `<tree>/absorbs/live/` with `clonefile(2)` (`clone_memo`, through `_clone`, which writes no data) and maps the clone, and it builds its inputs from the live rows across the parts in part order (`_CountRows`). Positional arguments name the row counts, `live` for the live memo's own rows (3,649,648 at 45 runes); the default is `ABSORB_COUNTS`, and a count named twice is measured twice. For each distinct count the run makes the inputs once (`absorb_count`): the `live` count's standing memo is the clone, and each other count's is one single file written once a run from the live rows, a prefix of them below the live count and, above it, the live rows followed by the live rows restated under labels of their own, `.r<copy>` after every label, so each restated window is one no other row holds and names the same family (`_CountRows`). Such a file holds 14 bytes a row of columns and 4 bytes a slot of index at 2 to 4 slots a row, about 0.02 GB at a million rows, 0.26 GB at nine million and 0.30 GB at twelve million, about 0.6 GB a run at the default counts, and the run removes it, the clone and every line's clone as it ends, however it ends. Beside it the run holds each count's fresh windows compressed in memory, as a walk hands them (`conform.FreshMemo`): the standing rows' last `ABSORB_TAIL` rows restating their own windows, the last rows again under labels the file lacks, as many as the file's index has room for beside its own rows (all `ABSORB_TAIL` at the live count, 48,576 at a million rows), each in `ABSORB_RANGES` row ranges, and every row in the `default` sweep's unit count of parts. `--paths` names the paths a count's lines read (`absorb_job`), every one of `ABSORB_PATHS` by default: `fast`, the standing file and the new windows, as many as its index has room for, which the carry-and-append absorb reuses; `duplicate`, the standing file and the restated windows, each restating a standing window with its outcome; `stale`, the same with `ABSORB_STALE_FAMILY`'s key moved, which names rows in the segment's dead bitmaps; `prune`, the standing file's last `ABSORB_PRUNED` rows unreached and no fresh row, through the sweep's absorb; `fresh`, no standing file and every row fresh in the units' parts, through an absorb with no prune; and `fresh-sweep`, the same through the sweep's. The units' parts split the rows disjointly, so no fresh line merges a row, and none reads the merge state an all-fresh pass's repeated windows bring (`conform.absorb_settle_memo`). A count's standing file, and its tail and new windows, are made only when `--paths` names a path that reads them, so a path that needs no standing file writes none. Each line ships its parts' blocks into POSIX shared memory segments as the pools do, naming each in `ABSORB_SEGMENTS` under the run's directory before making it (`_AbsorbSegments`), and unlinks every one once its two absorbs have run, or however the line ends; a run killed with SIGKILL leaves that record, and the next run's `empty_tree` unlinks the segments it names.
+The absorbs step measures one settle-memo absorb (`conform.absorb_settle_memo`) a line, over inputs made from the live `default` settle memo at a row count, and beside it the carry-and-append absorb its bytes are proven against over the same inputs (`memory_series_child.carry_and_append_absorb`). The run clones the live memo, its head and every part the head lists, into `<tree>/absorbs/live/` with `clonefile(2)` (`clone_memo`, through `_clone`, which writes no data) and maps the clone, and it builds its inputs from the live rows across the parts in part order (`_CountRows`). Positional arguments name the row counts, `live` for the live memo's own rows (3,649,648 at 45 runes); the default is `ABSORB_COUNTS`, and a count named twice is measured twice. For each distinct count the run makes the inputs once (`absorb_count`): the `live` count's standing memo is the clone, and each other count's is a memo of one base under a head of its own, written once a run from the live rows (`conform._write_settle_memo_base`), a prefix of them below the live count and, above it, the live rows followed by the live rows restated under labels of their own, `.r<copy>` after every label, so each restated window is one no other row holds and names the same family (`_CountRows`). Such a base holds 14 bytes a row of columns and 4 bytes a slot of index at 2 to 4 slots a row, about 0.02 GB at a million rows, 0.26 GB at nine million and 0.30 GB at twelve million, about 0.6 GB a run at the default counts, and the run removes it, the clone and every line's clone as it ends, however it ends. Beside it the run holds each count's fresh windows compressed in memory, as a walk hands them (`conform.FreshMemo`): the standing rows' last `ABSORB_TAIL` rows restating their own windows, the last rows again under labels the file lacks, as many as the file's index has room for beside its own rows (all `ABSORB_TAIL` at the live count, 48,576 at a million rows), each in `ABSORB_RANGES` row ranges, and every row in the `default` sweep's unit count of parts. `--paths` names the paths a count's lines read (`absorb_job`), every one of `ABSORB_PATHS` by default: `fast`, the standing file and the new windows, as many as its index has room for, which the carry-and-append absorb reuses; `duplicate`, the standing file and the restated windows, each restating a standing window with its outcome; `stale`, the same with `ABSORB_STALE_FAMILY`'s key moved, which names rows in the segment's dead bitmaps; `prune`, the standing file's last `ABSORB_PRUNED` rows unreached and no fresh row, through the sweep's absorb; `fresh`, no standing file and every row fresh in the units' parts, through an absorb with no prune; and `fresh-sweep`, the same through the sweep's. The units' parts split the rows disjointly, so no fresh line merges a row, and none reads the merge state an all-fresh pass's repeated windows bring (`conform.absorb_settle_memo`). A count's standing file, and its tail and new windows, are made only when `--paths` names a path that reads them, so a path that needs no standing file writes none. Each line ships its parts' blocks into POSIX shared memory segments as the pools do, naming each in `ABSORB_SEGMENTS` under the run's directory before making it (`_AbsorbSegments`), and unlinks every one once its two absorbs have run, or however the line ends; a run killed with SIGKILL leaves that record, and the next run's `empty_tree` unlinks the segments it names.
 
 Each line runs two children of `engine/tools/memory_series_child.py`'s `absorb` entry, one after the other, each a fresh process sampled as a table step's crate is (`run_absorb_child`): the absorb, then the carry-and-append absorb. Each child gets its own copy of the line's fresh windows in POSIX shared memory segments the harness makes, one a part, and its job (the memo, the spec, the segments' names and the parts' counts, and the sweep's prune) pickled on its stdin, as the sweep's pool hands an absorb worker its arguments; it maps each segment and unlinks its name at once, runs its absorb, and prints what it did. On a path that reads a standing memo the absorb runs over the line's own clone of it under `<tree>/absorbs/line/` (`clone_memo`), plans its route there as the pools' absorbs do, and writes its part, a segment or on a fold a base, and the head there, which the run removes once the line ends; once the meter's last reading is taken the harness hashes that clone's materialized form (`conform.materialize_settle_memo`), the file the line compares. On a fresh path, which takes the `first` route, the absorb hashes its base in order instead of writing it. The carry-and-append absorb reads the count's own standing memo and hashes its file. A line writes nothing but its record and the absorb's part, `standing_bytes` beside it giving the standing memo's bytes on disk. An absorbs line holds, beside `step` (`absorbs`), the count (`count`, `rows`, `standing_rows`, `fresh_rows`, `standing_bytes`) and the path (`path`):
 
-- `absorb`: the absorb's `conform.MemoAbsorb`, the row counts and index path its `[t]` lines report (`written`, `carried`, `pruned`, `fresh`, `standing`, `parts`, `patched`, `dropped`, `index`), the slot count (`slots`), and what it wrote (`wrote`, `reason`, `adopted`, `overrun`, `rows_written`, `named`, `part_bytes`, `segments`): the bytes of its segment, or its base.
+- `absorb`: the absorb's `conform.MemoAbsorb`, the row counts and index path its `[t]` lines report (`written`, `carried`, `pruned`, `fresh`, `standing`, `parts`, `patched`, `dropped`, `index`), the slot count (`slots`), and what it wrote (`wrote`, `reason`, `overrun`, `rows_written`, `named`, `part_bytes`, `segments`): the bytes of its segment, or its base.
 - `wall_s`, `seconds` (the absorb's own), `cpu_s`, `peak_resident`, `peak_footprint`, `start`, `peak` and `end`, `compressor_max`, `swap_used_max`, `samples` and `interval_s`, as a table line holds them, of the absorb's child.
 - `file_rows`, `size` and `sha256` of the memo's materialized form once the absorb has written, or of the base it hashed; `carry_and_append`, the same figures and the child's peaks, CPU and seconds for the carry-and-append absorb; and `same`, whether the two files' digests are equal. A line whose files differ prints a `[warn]` line.
 - `written`, as a table line holds it, over both children, and `cpus`, `ram`, `head` and `finished_at`.
@@ -52,6 +52,7 @@ import errno
 import functools
 import itertools
 import json
+import math
 import os
 import pickle
 import re
@@ -68,7 +69,7 @@ from contextlib import ExitStack, suppress
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import IO, Any, cast
+from typing import IO, Any, NamedTuple, cast
 
 from engine.pipeline import (
     conform,
@@ -79,6 +80,7 @@ from engine.pipeline import (
     run_build,
     shared_segments,
     spec_load,
+    table,
 )
 from engine.pipeline.model import ResolvedSpec
 from engine.review import store_lock
@@ -87,11 +89,10 @@ from engine.tools import (
     memory_budget,
     peak_rss,
     scaling_series,
-    scaling_sweep,
     write_meter,
 )
 from engine.tools.console import INNER_LINE
-from engine.tools.kernel_all_configs import configs_from
+from engine.tools.scratch_build import configs_from
 
 ROOT = Path(__file__).resolve().parents[2]
 TREE_PATH = "var/perf/series"
@@ -356,17 +357,91 @@ def run_child(
     )
 
 
+def table_answers(stdout: bytes, configs: Sequence[str]) -> list[dict[str, Any]]:
+    """Read a `build-tables` child's stdout as `kernel_exec.build_table_files` reads it and return its answers: one `{config, digest, windows_bytes}` object (`kernel_exec.TABLE_ANSWER_KEYS`) for each of `configs`, in the order named, where `windows_bytes` is how many bytes the child wrote of that configuration's window payload. Any other line, or answers for any other configurations, stops the run."""
+    answers: list[dict[str, Any]] = []
+    for number, line in enumerate(stdout.decode(errors="replace").splitlines(), 1):
+        try:
+            answer = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise SystemExit(f"build-tables line {number} is not JSON: {error.msg}") from None
+        if (
+            not isinstance(answer, dict)
+            or set(answer) != kernel_exec.TABLE_ANSWER_KEYS
+            or type(answer["windows_bytes"]) is not int
+        ):
+            raise SystemExit(f"build-tables line {number} is not a {{config, digest, windows_bytes}} answer")
+        answers.append(answer)
+    named = [answer["config"] for answer in answers]
+    if named != list(configs):
+        raise SystemExit(f"build-tables answered for {named}, not for {list(configs)}")
+    return answers
+
+
+class Scan(NamedTuple):
+    """What `scan` read of one payload: its head line, its column line, how many lines follow them, and how many bytes it received in all."""
+
+    head: bytes
+    columns: bytes
+    rows: int
+    received: int
+
+
+def scan(source: IO[bytes]) -> Scan:
+    """Read one payload to its end and return its head line, its column line, how many lines follow them and how many bytes it read in all (`Scan`). The body is counted a chunk at a time instead of loaded, so this process never holds a cut's millions of rows. Nothing is parsed here, so a read of a stream a failing child cut short ends as the child does; `counts` checks the bytes received and parses what this kept."""
+    head = source.readline()
+    columns = source.readline()
+    received = len(head) + len(columns)
+    rows = 0
+    last = b"\n"
+    while chunk := source.read(READ_CHUNK_BYTES):
+        rows += chunk.count(b"\n")
+        received += len(chunk)
+        last = chunk[-1:]
+    return Scan(head, columns, rows if last == b"\n" else rows + 1, received)
+
+
+def counts(scanned: Scan, payload: Path, written: int) -> tuple[int, int, int]:
+    """Return one configuration's window, rule and reachable-cell counts from what `scan` read of the payload the child wrote at `payload`, or through a pipe, which goes by that name in a refusal. `written` is the bytes the child answered it wrote of the payload (`table_answers`), and a payload whose bytes received differ stops the run before anything is parsed, since a payload missing bytes would give short counts. The header gives the rules and cells, and the lines after the column line are the windows."""
+    if scanned.received != written:
+        raise SystemExit(
+            f"{payload}: the window payload's reader received {scanned.received} bytes where the crate wrote {written}"
+        )
+    _stamp, decision = table.read_windows(kernel_exec.payload_head(scanned.head, payload), windows=False)
+    if tuple(scanned.columns.decode().rstrip("\n").split("\t")) != table.WINDOWS_COLUMNS:
+        raise SystemExit(f"{payload}: window columns are not {table.WINDOWS_COLUMNS}")
+    return scanned.rows, len(decision.rules), len(decision.reachable_cells())
+
+
+def fit(xs: list[int], ys: list[float | None]) -> float | None:
+    """Return the least-squares slope of ln y on ln x, the whole-series exponent to quote instead of any one consecutive pair. A point whose y is None is left out. Returns None when fewer than two points have positive x and y, or when every point has the same x."""
+    points = [(math.log(x), math.log(y)) for x, y in zip(xs, ys) if x > 0 and y is not None and y > 0]
+    if len(points) < 2:
+        return None
+    mean_x = sum(x for x, _ in points) / len(points)
+    mean_y = sum(y for _, y in points) / len(points)
+    variance = sum((x - mean_x) ** 2 for x, _ in points)
+    if not variance:
+        return None
+    return sum((x - mean_x) * (y - mean_y) for x, y in points) / variance
+
+
+def exponent(slope: float | None) -> str:
+    """Return a fitted slope at two decimals, or `n/a` for no fit."""
+    return "n/a" if slope is None else f"{slope:.2f}"
+
+
 def check_child(
     child: ChildRun, configs: Sequence[str], arguments: Sequence[str]
 ) -> dict[str, dict[str, Any]]:
-    """Hold the child to the CLI contract `kernel_exec.build_table_files` holds a build to and return its answers by configuration, each its `config`, `digest` and `windows_bytes` (`kernel_exec.TABLE_ANSWER_KEYS`): exit 2 is a usage error, any other nonzero exit an error about the inputs, stdout one such line for each configuration in the order named (`scaling_sweep.table_answers`), and stderr on a clean exit only `[t]` and `[c]` lines."""
+    """Hold the child to the CLI contract `kernel_exec.build_table_files` holds a build to and return its answers by configuration, each its `config`, `digest` and `windows_bytes` (`kernel_exec.TABLE_ANSWER_KEYS`): exit 2 is a usage error, any other nonzero exit an error about the inputs, stdout one such line for each configuration in the order named (`table_answers`), and stderr on a clean exit only `[t]` and `[c]` lines."""
     if child.returncode == 2:
         raise SystemExit(
             f"the kernel rejected the invocation as a usage error: {child.stderr.strip()} ({' '.join(arguments)})"
         )
     if child.returncode != 0:
         raise SystemExit(f"the kernel exited {child.returncode} on build-tables: {child.stderr.strip()}")
-    answers = scaling_sweep.table_answers(child.stdout, configs)
+    answers = table_answers(child.stdout, configs)
     stray = [line for line in child.stderr.splitlines() if line and not line.startswith(("[t] ", "[c] "))]
     if stray:
         raise SystemExit(f"the kernel wrote a line that is neither [t] nor [c] on a clean exit: {stray[0]}")
@@ -497,7 +572,7 @@ def measure_step(
     machine: Callable[[], Machine] = read_machine,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Run one step in `step_dir`, which must not exist and is removed once the meter has read the step's end, so the window from the meter's reading just before the child's spawn to its reading at the end holds the machine reading before the spawn and the build, whose payloads go through pipes with no path (`run_piped`), and neither the directory's making, with its links (`route`), nor its removal, and return its measured fields, everything a line holds but the cut, the flags and the provenance (the module docstring lists them). A payload whose bytes received differ from the bytes the crate answers it wrote stops the run (`scaling_sweep.counts`). `meter`, `machine` and `sleep` are the write meter, the machine reading and the wait, which a test replaces."""
+    """Run one step in `step_dir`, which must not exist and is removed once the meter has read the step's end, so the window from the meter's reading just before the child's spawn to its reading at the end holds the machine reading before the spawn and the build, whose payloads go through pipes with no path (`run_piped`), and neither the directory's making, with its links (`route`), nor its removal, and return its measured fields, everything a line holds but the cut, the flags and the provenance (the module docstring lists them). A payload whose bytes received differ from the bytes the crate answers it wrote stops the run (`counts`). `meter`, `machine` and `sleep` are the write meter, the machine reading and the wait, which a test replaces."""
     arguments = step_arguments(binary, spec_path, step_dir, configs, stamp, flags)
     try:
         route(step_dir, configs)
@@ -507,7 +582,7 @@ def measure_step(
             sleep(idle_s)
         start = meter()
         arguments, child, scanned = run_piped(
-            arguments, configs, scaling_sweep.scan, env=env, interval=interval_s, machine=machine
+            arguments, configs, scan, env=env, interval=interval_s, machine=machine
         )
         end = meter()
     finally:
@@ -518,9 +593,7 @@ def measure_step(
     windows: dict[str, list[int]] = {}
     for config in configs:
         payload = kernel_exec.windows_payload(step_dir, config)
-        windows[config] = list(
-            scaling_sweep.counts(scanned[config], payload, answers[config]["windows_bytes"])
-        )
+        windows[config] = list(counts(scanned[config], payload, answers[config]["windows_bytes"]))
     after: dict[str, object] | None = None
     if after_s > 0:
         sleep(after_s)
@@ -575,7 +648,7 @@ def prepare_tree(tree: Path, binary: Path) -> Path:
 
 
 def report(lines: Sequence[Mapping]) -> list[str]:
-    """Return the whole-series fit against runes (`scaling_sweep.fit`) of the windows over every configuration, the peak footprint and resident, the CPU time, and the length of each collection the first configuration's `tables` name, one figure a line. A figure a line lacks is left out of its fit."""
+    """Return the whole-series fit against runes (`fit`) of the windows over every configuration, the peak footprint and resident, the CPU time, and the length of each collection the first configuration's `tables` name, one figure a line. A figure a line lacks is left out of its fit."""
     if len(lines) < 2:
         return [f"the whole-series fit needs two sizes; this run has {len(lines)}"]
     runes = [line["runes"] for line in lines]
@@ -594,10 +667,7 @@ def report(lines: Sequence[Mapping]) -> list[str]:
     width = max(len(label) for label in figures)
     return [
         f"whole-series fit over {len(lines)} sizes (runes {min(runes)}..{max(runes)})",
-        *(
-            f"  {label:<{width}} ~ runes^{scaling_sweep.exponent(scaling_sweep.fit(runes, values))}"
-            for label, values in figures.items()
-        ),
+        *(f"  {label:<{width}} ~ runes^{exponent(fit(runes, values))}" for label, values in figures.items()),
     ]
 
 
@@ -987,7 +1057,7 @@ def measure_replay_line(
 
 
 def replay_report(lines: Sequence[Mapping]) -> list[str]:
-    """Return the replay series' fit against runes (`scaling_sweep.fit`), one figure a line: the windows over every configuration, the highest walk peak, absorb peak and pair peak over the configurations (each the higher of its resident and footprint), the step's combined peak, the walks' CPU time over every configuration, the largest row store, and the first configuration's largest unit's walk memo length. A figure a line lacks is left out of its fit."""
+    """Return the replay series' fit against runes (`fit`), one figure a line: the windows over every configuration, the highest walk peak, absorb peak and pair peak over the configurations (each the higher of its resident and footprint), the step's combined peak, the walks' CPU time over every configuration, the largest row store, and the first configuration's largest unit's walk memo length. A figure a line lacks is left out of its fit."""
     if len({line["runes"] for line in lines}) < 2:
         return [f"the replay fit needs two cuts; this run has {len({line['runes'] for line in lines})}"]
     runes = [line["runes"] for line in lines]
@@ -1028,10 +1098,7 @@ def replay_report(lines: Sequence[Mapping]) -> list[str]:
     width = max(len(label) for label in figures)
     return [
         f"replay fit over {len(lines)} lines (runes {min(runes)}..{max(runes)})",
-        *(
-            f"  {label:<{width}} ~ runes^{scaling_sweep.exponent(scaling_sweep.fit(runes, values))}"
-            for label, values in figures.items()
-        ),
+        *(f"  {label:<{width}} ~ runes^{exponent(fit(runes, values))}" for label, values in figures.items()),
     ]
 
 
@@ -1162,7 +1229,7 @@ class _CountRows:
             at = upto
 
     def columns(self, count: int) -> tuple[list[str], list, list[array], array]:
-        """The first `count` rows as the tables and columns `conform._write_settle_memo` takes, built a copy at a time from the mapped columns without a window a row."""
+        """The first `count` rows as the tables and columns `conform._write_settle_memo_base` takes, built a copy at a time from the mapped columns without a window a row."""
         store = self.store
         copies = self.copies(count)
         labels = [label for copy in range(copies + 1) for label in self.labels(copy)]
@@ -1178,13 +1245,15 @@ class _CountRows:
 
 
 def _memo_header(path: Path) -> dict | None:
-    """The header of the whole file of the settle memo at `path`: its single file, or its head's base, whose header is the file it was written as."""
-    with suppress(row_delta.HeadError, OSError):
+    """The header of the base of the settle memo at `path`, the whole file its head's base was written as, or None when it has no head or the base does not read."""
+    try:
         head = row_delta.read_head(path.parent, path.name)
-        if head is not None:
-            path = path.parent / head.base.name
+    except row_delta.HeadError, OSError:
+        return None
+    if head is None:
+        return None
     with suppress(OSError, ValueError, EOFError, pickle.UnpicklingError):
-        with open(path, "rb") as handle:
+        with open(path.parent / head.base.name, "rb") as handle:
             (length,) = conform._MEMO_PREFIX.unpack(handle.read(conform._MEMO_PREFIX.size))
             header = pickle.loads(handle.read(length))
             return header if isinstance(header, dict) else None
@@ -1192,10 +1261,9 @@ def _memo_header(path: Path) -> dict | None:
 
 
 def _memo_bytes(path: Path) -> int:
-    """The bytes on disk of the settle memo at `path`: its single file, or its head and every part the head lists."""
+    """The bytes on disk of the settle memo at `path`: its head and every part the head lists."""
     head = row_delta.read_head(path.parent, path.name)
-    if head is None:
-        return path.stat().st_size
+    assert head is not None, f"{path} has no head"
     return row_delta.head_path(path.parent, path.name).stat().st_size + sum(part.size for part in head.parts)
 
 
@@ -1225,7 +1293,7 @@ def _clone(source: Path, target: Path) -> bool:
 
 
 def clone_memo(memo: conform.SettleMemoFile, directory: Path) -> conform.SettleMemoFile:
-    """Clone every file of `memo`'s output, its head and every part, or its single file, into `directory` under its own name (`_clone`, `clonefile(2)`, which writes no data), and return the memo there. A clone the volume refuses stops the run, since a copy would write the memo's bytes."""
+    """Clone every file of `memo`'s output, its head and every part, into `directory` under its own name (`_clone`, `clonefile(2)`, which writes no data), and return the memo there. A clone the volume refuses stops the run, since a copy would write the memo's bytes."""
     directory.mkdir(parents=True, exist_ok=True)
     for source in sorted(memo.path.parent.glob(f"{memo.path.name}*")):
         if source.is_file() and not source.name.endswith(output_sink.STAGING_SUFFIX):
@@ -1273,7 +1341,7 @@ def absorb_count(
     units: int,
     reads_standing: bool,
 ) -> AbsorbCount:
-    """Make one count's inputs (`AbsorbCount`): when `reads_standing` says a path of the run reads a standing memo, for `live` the clone of the live memo as that memo, and for any other count a single file of that many rows (`_CountRows`) written once under the live memo's stamp and keys, and the windows the paths over it take, the new windows as many as its whole file's index has room for (its single file's, or its base's); then every row in the units' parts. Without `reads_standing` it writes no file and makes no tail or new windows."""
+    """Make one count's inputs (`AbsorbCount`): when `reads_standing` says a path of the run reads a standing memo, for `live` the clone of the live memo as that memo, and for any other count a memo of one base of that many rows (`_CountRows`) written once under the live memo's stamp and keys (`conform._write_settle_memo_base`), and the windows the paths over it take, the new windows as many as its base's index has room for; then every row in the units' parts. Without `reads_standing` it writes no file and makes no tail or new windows."""
     if not reads_standing:
         rows = source.live if name == LIVE else int(name)
         return AbsorbCount(
@@ -1290,7 +1358,7 @@ def absorb_count(
     else:
         rows = int(name)
         standing = directory / f"standing-{rows}.bin"
-        if not conform._write_settle_memo(replace(memo, path=standing), *source.columns(rows)):
+        if not conform._write_settle_memo_base(replace(memo, path=standing), *source.columns(rows)):
             raise SystemExit(f"the absorbs holder could not write {standing}")
         written = True
     tail = max(0, rows - ABSORB_TAIL)
@@ -1540,7 +1608,7 @@ def measure_absorb_line(
 
 
 def absorbs_report(lines: Sequence[Mapping]) -> list[str]:
-    """Return each path's fit against the standing file's rows, or the fresh rows for a path with no standing file (`scaling_sweep.fit`), of the absorb's peak footprint and resident, and of the carry-and-append absorb's peak footprint, with how many of the path's lines read the same bytes as the carry-and-append absorb."""
+    """Return each path's fit against the standing file's rows, or the fresh rows for a path with no standing file (`fit`), of the absorb's peak footprint and resident, and of the carry-and-append absorb's peak footprint, with how many of the path's lines read the same bytes as the carry-and-append absorb."""
     report: list[str] = []
     for path in dict.fromkeys(line["path"] for line in lines):
         own = [line for line in lines if line["path"] == path]
@@ -1557,10 +1625,7 @@ def absorbs_report(lines: Sequence[Mapping]) -> list[str]:
         report.append(
             f"absorbs {path} over {len(own)} lines (rows {min(rows)}..{max(rows)}), {same} the same as the carry-and-append absorb"
         )
-        report.extend(
-            f"  {label} ~ rows^{scaling_sweep.exponent(scaling_sweep.fit(rows, values))}"
-            for label, values in figures.items()
-        )
+        report.extend(f"  {label} ~ rows^{exponent(fit(rows, values))}" for label, values in figures.items())
     return report
 
 

@@ -8,12 +8,12 @@ Run it with the tree under test's own interpreter and code, never the harness's:
 
 The output is one `ams-perf-fingerprint/3` document:
 
-- `tables`: for each configuration with a windows head under `engine/out/build` (`windows-<config>.tsv.gz.head`), and for a tree from before the segment format each `windows-<config>.tsv.gz` present, `table.table_digest` over its decision table and `joins-<config>.tsv`, read one configuration at a time through the tree's own readers, so a missing configuration shows up as a difference. A configuration with a head is read in its materialized form (`table.materialized_table_digest`): its head file checked against its head, every part's size and sha256 checked against it too, and the base and segments merged into the whole payload, each row line hashed as it streams, so no configuration's rows are held; a tree whose `table` has no such reader builds the rows one configuration at a time (`table.read_materialized_windows`). The digest recomputed from those rows must equal the crate's own, which the head records (`table.TABLE_DIGEST_STAMP`), and the script exits nonzero naming the configuration when it does not, so a fault in the merge cannot hide behind a digest the crate reported of itself.
+- `tables`: for each configuration with a windows head under `engine/out/build` (`windows-<config>.tsv.gz.head`), `table.table_digest` over its decision table and `joins-<config>.tsv`, read one configuration at a time through the tree's own readers, so a missing configuration shows up as a difference. Each is read in its materialized form (`table.materialized_table_digest`): its head file checked against its head, every part's size and sha256 checked against it too, and the base and segments merged into the whole payload, each row line hashed as it streams, so no configuration's rows are held. The digest recomputed from those rows must equal the crate's own, which the head records (`table.TABLE_DIGEST_STAMP`), and the script exits nonzero naming the configuration when it does not, so a fault in the merge cannot hide behind a digest the crate reported of itself.
 - `fonts`: `fingerprint.font_content_digest` of `engine/out/build/Senior-Regular.otf`, the corpus's `fonts/{before,after}.otf` and the six fonts under site/, which gate:make-test's session publishes from the build (`engine/tools/build_fonts.py`), null for a font that is missing.
 - `corpus`: one digest per file under `engine/out/review/`, and a digest over the sorted `path<TAB>digest` lines. `manifest.json` is digested as canonical JSON without the keys `MANIFEST_STAMPS` names and without each manifest font's raw `sha256`; a gzip sidecar as its decompressed stream, with a JSON header line re-serialized without the keys `SIDECAR_STAMPS` names; a corpus font by its content digest; every other file raw.
 - `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, which leaves out the store's stamps (`manifest_generated_at`, `exported_at`) and every record's `at`, which records when a verdict was made (`store_digest`).
 
-Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp, and a tree whose windows rows are held as a base and segments fingerprints as its folded form and as the single file a build before the segment format wrote.
+Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp, and a tree whose windows rows are held as a base and segments fingerprints as its folded form.
 """
 
 from __future__ import annotations
@@ -156,36 +156,21 @@ class DigestMismatch(Exception):
     """Raised when a configuration's table digest, recomputed from its materialized rows, is not the crate's digest its windows head records."""
 
 
-def table_configs(build_out: Path) -> dict[str, bool]:
-    """Return each configuration with windows rows under `build_out`, mapped to whether it has a windows head: every `windows-<config>.tsv.gz.head`, and every `windows-<config>.tsv.gz` a tree from before the segment format holds without one."""
-    prefix = "windows-"
-    found: dict[str, bool] = {}
-    for suffix, headed in ((".tsv.gz.head", True), (".tsv.gz", False)):
-        for path in build_out.glob(f"{prefix}*{suffix}"):
-            found.setdefault(path.name[len(prefix) : -len(suffix)], headed)
-    return dict(sorted(found.items()))
+def table_configs(build_out: Path) -> list[str]:
+    """Return each configuration with a windows head under `build_out` (`windows-<config>.tsv.gz.head`), in order."""
+    prefix, suffix = "windows-", ".tsv.gz.head"
+    return sorted(path.name[len(prefix) : -len(suffix)] for path in build_out.glob(f"{prefix}*{suffix}"))
 
 
 def table_digests(build_out: Path, table: ModuleType) -> dict[str, str]:
-    """Return `table.table_digest` per configuration with windows rows (`table_configs`), through the tree's own readers, one configuration at a time: from the materialized form, every part checked, where the configuration has a windows head, and raising `DigestMismatch` naming it when the digest is not the one its head records; from the single file otherwise. Where the tree's `table` has `materialized_table_digest`, a configuration with a head is hashed as its rows stream, and no `Window` row is built; a tree without it, and a configuration with no head, build one decision table at a time."""
-    streamed = getattr(table, "materialized_table_digest", None)
+    """Return `table.table_digest` per configuration with a windows head (`table_configs`), through the tree's own readers, one configuration at a time, from the materialized form with every part checked (`table.materialized_table_digest`), which hashes the rows as they stream and builds no `Window` row, and raising `DigestMismatch` naming the configuration when the digest is not the one its head records."""
     digests: dict[str, str] = {}
-    for config, headed in table_configs(build_out).items():
+    for config in table_configs(build_out):
         joins = table.read_join_tsv(build_out / f"joins-{config}.tsv")
-        recorded = (
-            table.windows_head(build_out, config).stamps.get(table.TABLE_DIGEST_STAMP) if headed else None
-        )
-        if headed and streamed is not None:
-            digests[config] = streamed(build_out, config, joins)
-        else:
-            if headed:
-                _, decision = table.read_materialized_windows(build_out, config, sha256=True)
-            else:
-                _, decision = table.read_windows(table.windows_path(build_out, config))
-            digests[config] = table.table_digest(decision, joins)
-            del decision
+        recorded = table.windows_head(build_out, config).stamps.get(table.TABLE_DIGEST_STAMP)
+        digests[config] = table.materialized_table_digest(build_out, config, joins)
         del joins
-        if headed and digests[config] != recorded:
+        if digests[config] != recorded:
             raise DigestMismatch(
                 f"{config}: the table digest of its materialized rows, {digests[config]}, is not the crate's {recorded} its windows head records"
             )

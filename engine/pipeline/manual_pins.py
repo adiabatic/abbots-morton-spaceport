@@ -61,7 +61,8 @@ class ManualPinReport:
         return not self.disagreements
 
 
-def migrated_alphabet(spec: ResolvedSpec) -> frozenset[int]:
+def spec_codepoints(spec: ResolvedSpec) -> frozenset[int]:
+    """Return the code points of the spec's alphabet (`labels.spec_alphabet`): its letters' and its boundary tokens'."""
     return frozenset(ord(ch) for ch in spec_alphabet(spec))
 
 
@@ -82,7 +83,7 @@ def _line(pin: corpus.Pin, text: str) -> str:
 def run_gate(font_path: Path, spec: ResolvedSpec, root: Path = REPO_ROOT) -> ManualPinReport:
     """Check every pin of the pin pages under `root` against the font at `font_path` and its glyph-facts sidecar (`check.glyph_facts_path`), leaving out what the module docstring lists."""
     report = ManualPinReport()
-    alphabet = migrated_alphabet(spec)
+    alphabet = spec_codepoints(spec)
     fonts: dict[str, check.CheckFont | None] = {
         "senior": check.CheckFont(font_path, glyph_facts=check.glyph_facts_path(font_path)),
         "junior": None,

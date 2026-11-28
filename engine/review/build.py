@@ -77,8 +77,8 @@ def _sha256(path: Path) -> str:
 
 
 def _alphabet_meta() -> dict:
-    """Return the alphabet count shown on the corpus chip. `migrated` counts the letters the build's alphabet (`alphabet.ALPHABET`) holds without its boundary tokens, which is the set of letters that have runes under glyph_data/runes/. `total` counts the whole Quikscript alphabet."""
-    return {"migrated": len(ALPHABET & set(LETTERS)), "total": len(LETTERS)}
+    """Return the alphabet count shown on the corpus chip. `built` counts the letters the build's alphabet (`alphabet.ALPHABET`) holds without its boundary tokens: every letter with a rune under glyph_data/runes/, or the narrowed set while the alphabet switch (`spec_load.RUNES_ENV`) is set. `total` counts the whole Quikscript alphabet."""
+    return {"built": len(ALPHABET & set(LETTERS)), "total": len(LETTERS)}
 
 
 def _upem(path: Path) -> int:
@@ -847,9 +847,9 @@ def check_manifest(manifest: dict) -> list[str]:
     alphabet = manifest.get("alphabet")
     need(
         isinstance(alphabet, dict)
-        and set(alphabet or ()) == {"migrated", "total"}
+        and set(alphabet or ()) == {"built", "total"}
         and all(isinstance(count, int) for count in (alphabet or {}).values()),
-        "alphabet must carry integer migrated/total letter counts",
+        "alphabet must carry integer built/total letter counts",
     )
     totals = manifest.get("totals")
     need(isinstance(totals, dict), "totals must be a mapping")

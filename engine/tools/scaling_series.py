@@ -1,6 +1,6 @@
-"""The rune order, the alphabet sizes, and the sub-spec at each size of the nested scaling series. The order lists the ligatures alphabetically, each preceded by any of its components not already listed, then the remaining runes alphabetically. The sizes are `sorted({*range(6, len(order), 2), len(order)})`, and an alphabet size keeps a ligature only when it also keeps every component the ligature names.
+"""The rune order alphabets are cut in, and the sub-spec at each cut: the alphabets the memory series measures (`engine/tools/memory_series.py`). The order lists the ligatures alphabetically, each preceded by any of its components not already listed, then the remaining runes alphabetically, and a cut keeps a ligature only when it also keeps every component the ligature names.
 
-`scaling_sweep.py` and `kernel_all_configs.py --alphabet-size` both import this module, so a given size is the same alphabet in both and their readings at that size are comparable. Because the sizes are nested, they are also comparable with each other: the alphabet at size k is the alphabet at size k-2 plus two more runes.
+The cuts are nested: the alphabet at a size holds the alphabet at every smaller size, so readings at two sizes are comparable, and a cut at a given size is the same alphabet wherever it is taken.
 """
 
 from __future__ import annotations
@@ -29,13 +29,8 @@ def series_order(spec: ResolvedSpec) -> list[str]:
     return order
 
 
-def series_sizes(order: list[str]) -> list[int]:
-    """Return the rune counts to cut sub-specs at: every even count from 6 below the alphabet's size, plus the whole alphabet."""
-    return sorted({*range(6, len(order), 2), len(order)})
-
-
 def sub_spec(spec: ResolvedSpec, order: list[str], size: int) -> ResolvedSpec:
-    """Return the first `size` runes of `order` as a spec of their own, in the original spec's rune order, without any ligature whose components are not all among them. The cut carries `narrowed` (`model.ResolvedSpec.narrowed`) when it holds fewer runes than `spec`, or `spec` is already narrowed, as `spec_load.narrowed`'s result does, so a cut's font build (`scaling_sweep`'s `AMS_SCALING_FONTS`) runs the kern stage as the fault kit's small alphabets do, and the whole alphabet's cut runs it as the live build does."""
+    """Return the first `size` runes of `order` as a spec of their own, in the original spec's rune order, without any ligature whose components are not all among them. The cut carries `narrowed` (`model.ResolvedSpec.narrowed`) when it holds fewer runes than `spec`, or `spec` is already narrowed, as `spec_load.narrowed`'s result does, so the kern stage reads a cut as it reads the fault kit's small alphabets, and the whole alphabet's cut as it reads the live build's."""
     candidates = set(order[:size])
     keep: set[str] = set()
     for name in candidates:

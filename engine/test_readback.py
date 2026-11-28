@@ -336,7 +336,7 @@ class TestReadback:
         assert report["pass"]
 
     def test_the_budget_figures_are_the_reports_own_under_the_names_the_journal_reads(self, built):
-        """`budget_figures` hands the timings journal and the scaling series the report's own figures, under exactly the names `cycle_timings.READBACK_TOKENS` reads, so a renamed report key cannot drop a figure from the journal unnoticed. A report with no settlement lookup gives no figure."""
+        """`budget_figures` hands the timings journal the report's own figures, under exactly the names `cycle_timings.READBACK_TOKENS` reads, so a renamed report key cannot drop a figure from the journal unnoticed. A report with no settlement lookup gives no figure."""
         font_path, plan, cursive, _copies = built
         report = readback.verify_font(font_path, plan, cursive)
         checked = report["checked"]

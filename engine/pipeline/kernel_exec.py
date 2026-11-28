@@ -1,16 +1,14 @@
-"""The kernel interface: the Python side of the Rust kernel. It builds the binary, runs the table build and the stream fan-out, reads the section 5.7 guard verdicts, settles batched windows for explain, review, conform and the tests, runs the string and shipped-order replays, and returns single-configuration products and tables to callers other than `run_build`. It lives in the pipeline because the pipeline calls it. The `engine/tools/kernel_*.py` scripts are separate measurement harnesses.
+"""The kernel interface: the Python side of the Rust kernel. It builds the binary, runs the table build, reads the section 5.7 guard verdicts, settles batched windows for explain, review, conform and the tests, runs the string and shipped-order replays, and returns single-configuration tables to callers other than `run_build`. It lives in the pipeline because the pipeline calls it.
 
 The semantics defaults live here beside the flags that pass them to the kernel. `SIMULATED_PROSPECT_DEFAULT` and `FOLLOWER_PREFER_SLOTS_DEFAULT` control settlement, and `DEEP_CLASSES_DEFAULT` controls enumeration. Each is a module attribute read at call time, so a process sets them through the environment and a test can monkeypatch them. A caller that wants a different mode set builds a `SettlementModes` and passes it to `settle_cases`, `settle_windows` or `settle_sequences`.
 
 The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `engine/test_kernel_io.py` both run `target/release/ams-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build. `make kernel-build` runs the same build by hand through `main`. `binary_sha256` hashes the binary that build left, for the table-reuse record's key (`run_build.table_reuse_lines`).
 
-`build_table_files` is what `run_build` calls. It hands the crate the spec dump (`kernel_io.spec_bytes`) through a pipe the crate inherits (`_InheritedPipes`), which the crate reads once, front to back, before it opens any payload, so the dump never reaches the disk. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window payload, which for a configuration whose previous windows rows it is handed (`PriorPart`, each part decompressed into a pipe of its own by a thread of this process, headers stripped) holds only the rows that differ from them, merged by key at the configuration's finish (`engine/kernel-rs/src/row_merge.rs`), and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest; `engine/kernel-rs/src/memo.rs` gives the argument. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`); when every delta does, `default` keeps no memo. The memo lives only inside the process: every build enumerates cold, and none reads or writes a memo file. Each fourth-slot prospect probe that runs whole groups its sweep: an ask whose token answers every question an earlier ask of the probe recorded alike takes that ask's result instead of settling its own window again, which writes the same tables (`engine/kernel-rs/src/liveness.rs`). Before any table is written, the configurations exchange windows (`engine/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
-
-`enumerate_configs` is the stream fan-out. One process enumerates every named configuration and writes each one's transition stream to its own file. Nothing on the build's path calls it; `enumerate_transitions` and the tests do.
+`build_table_files` is what `run_build` calls. It hands the crate the spec dump (`kernel_io.spec_bytes`) through a pipe the crate inherits (`_InheritedPipes`), which the crate reads once, front to back, before it opens any payload, so the dump never reaches the disk. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window payload, which for a configuration whose previous windows rows it is handed (`PriorPart`, each part decompressed into a pipe of its own by a thread of this process, headers stripped) holds only the rows that differ from them, merged by key at the configuration's finish (`engine/kernel-rs/src/row_merge.rs`), and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest; `engine/kernel-rs/src/memo.rs` gives the argument. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`); when every delta does, `default` keeps no memo. The memo lives only inside the process: every build enumerates cold, and none reads or writes a memo file. Each fourth-slot prospect probe that runs whole groups its sweep: an ask whose token answers every question an earlier ask of the probe recorded alike takes that ask's result instead of settling its own window again, which writes the same tables (`engine/kernel-rs/src/liveness.rs`). Before any table is written, the configurations exchange windows (`engine/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
 
 The table build's width is limited by memory, because a live configuration holds its whole working set until it has emitted. Each configuration runs on its own thread from its enumeration to its files, and its prepared product waits parked and compact from the end of its preparation until every configuration has parked, so at the end of the delta wave every configuration's parked product is resident beside the last delta's enumeration; then every configuration reads its product back whole for the cross-configuration exchange (`doc/parallelism.md`). `table_build_booking_bytes` is the memory a build at a given width is booked at: `DEFAULT_MEMO_BYTES` for the `default` memo snapshot kept alive for the wave, `PARKED_FOLD_BYTES` for each configuration's parked product, `DELTA_SLOT_BYTES` for each delta in flight beyond its parked product, and `FOLD_PREPARATION_BYTES` for a slot that runs only `default`'s fold preparation, which a width above the delta count has, and every width is booked at no less than the rendezvous, `READ_BACK_FOLD_BYTES` for each configuration's product read back. A build in which every configuration enumerates from scratch books each slot at `SCRATCH_PEAK_BYTES` less its parked product instead, and so does each delta a build starts from scratch beside `default`, in place of a delta's slot; such a build is booked at no less than its start, one `SCRATCH_PEAK_BYTES` for each of them and, for `default`, `UNCAPPED_SCRATCH_PEAK_BYTES` while a delta is left to read its memo, or one more `SCRATCH_PEAK_BYTES` once none is. `kernel_threads_default` is the widest width, up to the configuration count, whose booking fits the machine's memory less the reserve that policy states, floored at one; `deltas_from_scratch` then decides how many deltas start from scratch beside `default` at that width, and never narrows it. A larger machine, or a container limited by its cgroup, gets its own width without editing a constant. `AMS_KERNEL_THREADS` overrides the arithmetic in either direction. The artifacts are byte-identical at any width, so the override changes only memory use. Callers cap the width, a stated one included, at the number of settlement configurations (`conform.SETTLEMENT_CONFIGS`; the overlay configuration is never enumerated) and at the usable cores. The string replay after a build has its own divisor, `REPLAY_PEAK_BYTES`, what one configuration's walk and the worker absorbing its window memo hold together. `replay_threads_default` divides by it with nothing subtracted first, because the replay's engines are built after the build process has exited and no memo outlives it, and its answer is how many walks run at once. `AMS_REPLAY_THREADS` overrides it.
 
-`build_tables` and `enumerate_transitions` are the single-configuration forms, and neither writes anything that outlives the call. A single configuration has no other configuration to take windows from, so `build_tables` gives the same windows and joins as a build of the whole set but can give a different settlement table. `build_tables` hands `build-tables` its spec through a pipe, as `build_table_files` does, runs it into a scratch directory, and reads the two tables back through `table.read_windows` and `table.read_join_tsv`. `enumerate_transitions` dumps one spec to a scratch directory, enumerates the raw product into it as a stream and parses that into a `table.FixpointProduct`. Only tests call either.
+`build_tables` is the single-configuration form, and it writes nothing that outlives the call. A single configuration has no other configuration to take windows from, so `build_tables` gives the same windows and joins as a build of the whole set but can give a different settlement table. It hands `build-tables` its spec through a pipe, as `build_table_files` does, runs it into a scratch directory, and reads the two tables back through `table.read_windows` and `table.read_join_tsv`. Only tests call it.
 
 `guard_sweep` runs `guard-sweep` once and returns the complete mapping from `(ligature, first raw slot, second raw slot)` to the configuration-independent formation verdict. It is memoized per spec identity, so a process sweeps a spec once however many callers ask. `guard_sweep_under` returns the same mapping for one named configuration instead of quantifying over the powerset. It is not memoized, because only tests read it; they compare each configuration's verdicts with the quantified ones.
 
@@ -22,7 +20,7 @@ The codecs between the transport lines and the pipeline's model types live here 
 
 Every invocation is waited for up to a limit, and one that has not answered by then is killed and raises `KernelRunError` (`_run_kernel`'s `timeout`). The verbs that answer in seconds or minutes at any alphabet size wait `TIMEOUT`. `build-tables` and `replay-strings` grow with the alphabet, so each derives its limit at the call from the size of the spec's alphabet (`build_tables_timeout`, `replay_timeout`), and neither waits less than `TIMEOUT`.
 
-Every invocation's result is checked strictly against the CLI contract. Exit 2 is a usage error, which for a well-formed invocation means the subcommand is missing or the flag sets on the two sides have diverged. Any other nonzero exit is the kernel rejecting its inputs. Output on stderr after a clean exit is a failure unless timings were requested. In that case every `[t]` line is copied to this process's stderr verbatim, so the cycle journal records the kernel's per-configuration wall-clock times the same way it records Python's, and any other stderr line is still a failure. Enumeration writes its results to files, so any stdout output there is a failure. `build-tables` also writes files but reports its digests on stdout, one JSON object per line, and the configurations they name are checked against the ones requested. `guard-sweep` writes every verdict to stdout as TSV, which is parsed strictly.
+Every invocation's result is checked strictly against the CLI contract. Exit 2 is a usage error, which for a well-formed invocation means the subcommand is missing or the flag sets on the two sides have diverged. Any other nonzero exit is the kernel rejecting its inputs. Output on stderr after a clean exit is a failure unless timings were requested. In that case every `[t]` line is copied to this process's stderr verbatim, so the cycle journal records the kernel's per-configuration wall-clock times the same way it records Python's, and any other stderr line is still a failure. `build-tables` writes files and reports its digests on stdout, one JSON object per line, and the configurations they name are checked against the ones requested. `guard-sweep` writes every verdict to stdout as TSV, which is parsed strictly.
 """
 
 from __future__ import annotations
@@ -51,7 +49,7 @@ from typing import IO, BinaryIO
 
 from engine.pipeline import kernel_io, labels, row_delta, settle, table
 from engine.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
-from engine.pipeline.table import DecisionTable, FixpointProduct, JoinTable
+from engine.pipeline.table import DecisionTable, JoinTable
 from engine.tools import memory_budget
 from engine.tools.peak_rss import ReapedPeaks, format_gb, reap_peaks_bytes
 
@@ -190,7 +188,7 @@ def replay_threads_default(*, total_bytes: int | None = None) -> int:
     return memory_budget.how_many_fit(REPLAY_PEAK_BYTES, total_bytes=total_bytes)
 
 
-# How long a crate call that answers in seconds or minutes at any alphabet size is waited for before `_run_kernel` kills it: `enumerate-configs`, which only the tests run, `settle-cases`, `guard-sweep`, `replay-emitted`, `cargo build`, and the first run after it. A limit is there to stop a crate that has hung, not to bound a slow one, and a call it kills records nothing. So `build-tables` and `replay-strings`, whose time grows with the alphabet, derive their limits from it at the call (`build_tables_timeout`, `replay_timeout`), and neither waits less than this.
+# How long a crate call that answers in seconds or minutes at any alphabet size is waited for before `_run_kernel` kills it: `settle-cases`, `guard-sweep`, `replay-emitted`, `cargo build`, and the first run after it. A limit is there to stop a crate that has hung, not to bound a slow one, and a call it kills records nothing. So `build-tables` and `replay-strings`, whose time grows with the alphabet, derive their limits from it at the call (`build_tables_timeout`, `replay_timeout`), and neither waits less than this.
 TIMEOUT = 1800
 # The factor between the duration `build_tables_timeout` or `replay_timeout` scales from a measurement and the limit it returns. It covers what the scaling leaves out: the 12-core M4 Pro Mac mini (`doc/fleet.md`), which has no measured duration; a call that shares its cores with another pool; and for the replay, the growth in what a text costs as the tables grow, which the full-alphabet projection puts at up to 1.3 times. A limit set too low kills a healthy call and loses its whole work, while one set too high only delays the error a hung crate gets, so the margin errs high.
 KERNEL_TIMEOUT_MARGIN = 3
@@ -714,53 +712,6 @@ def _evict_spec_dumps() -> None:
             evicted_scratch.cleanup()
 
 
-def enumerate_configs(
-    spec_path: Path,
-    out_dir: Path,
-    configs: Sequence[str],
-    *,
-    threads: int,
-    timings: bool = False,
-    timings_tag: str | None = None,
-) -> dict[str, Path]:
-    """Every named configuration's transition stream, enumerated by one kernel process into `out_dir` and returned as `{config: path}`. The streams are byte-identical to what the same binary writes one configuration at a time, at any thread width. The files are plain ndjson, since compression is Python's job and the crate depends only on serde_json. The caller's configuration token names each file, because the crate rejects a token that is not the canonical form of the features it names. Raises `KernelRunError` for every kind of failure the CLI contract distinguishes, and for a clean exit that left a stream unwritten.
-
-    `timings_tag` names the configuration a whole invocation stands for, for a caller that runs one process per configuration. The crate already labels its per-configuration lines `enumerate[<config>]`, but `spec_parse` and `enumerate_total` name the process, so without a tag each process's pair could not be attributed in the cycle journal. Tagged, they read `spec_parse[<config>]`.
-    """
-    arguments = [
-        str(BINARY),
-        "enumerate-configs",
-        str(spec_path),
-        str(out_dir),
-        f"--configs={','.join(configs)}",
-        f"--threads={threads}",
-        *mode_flags(),
-    ]
-    if timings:
-        arguments.append("--timings")
-    finished = _run_kernel(arguments, "enumerate-configs", timeout=TIMEOUT)
-    errors = finished.stderr.decode(errors="replace").strip()
-    if finished.returncode == 2:
-        raise KernelRunError(
-            f"kernel does not support enumerate-configs yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
-        )
-    if finished.returncode != 0:
-        raise KernelRunError(f"the kernel exited {finished.returncode} on enumerate-configs: {errors}")
-    if finished.stdout:
-        raise KernelRunError(
-            f"the kernel wrote {len(finished.stdout)} bytes to stdout on a clean enumerate-configs exit, where the answer is the files"
-        )
-    _forward_stderr(errors, timings, arguments, timings_tag)
-    streams = {config: out_dir / f"transitions-{config}.ndjson" for config in configs}
-    missing = [config for config, path in streams.items() if not path.is_file()]
-    if missing:
-        left = sorted(found.name for found in out_dir.glob("*")) if out_dir.is_dir() else []
-        raise KernelRunError(
-            f"the kernel exited clean but wrote no stream for {', '.join(missing)} — it left {left}"
-        )
-    return streams
-
-
 @dataclass(frozen=True)
 class TableBuild:
     """What `build_table_files` returns: each configuration's table digest, keyed by configuration, the bytes the crate wrote of each configuration's window payload (`windows_bytes`), which a caller that read the payload from a pipe checks what it received against, the `[t]` lines the crate wrote under `--timings`, as `_forward_stderr` copied them to stderr, and the `build-tables` process's own resident peak and peak footprint (`_run_kernel_reaped`). `run_build.build_tables` keeps the lines for run_build's check line, which has no captured output to parse them from, and writes the two peaks on its `[t] kernel_build_tables` line."""
@@ -793,7 +744,7 @@ def build_table_files(
 
     `spec_bytes` is the spec dump (`kernel_io.spec_bytes`). The crate reads it as its spec positional, `/dev/fd/<number>`, from a pipe it inherits (`_InheritedPipes`), once, front to back, before it opens any payload, so the dump never reaches the disk.
 
-    This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json. `payloads` says where it goes. With it (`stream_payloads` hands one to its `run`), each configuration it names writes its payload into a pipe the crate inherits, named to the crate as `--windows=<config>=/dev/fd/<number>`, and the payload's reader takes it as the crate writes it, so it never reaches the disk and stands at no path another process could open: `run_build.build_tables` keeps its head line as the configuration's head file and packs the rest into the next segment or base of its windows output. Without it, the crate writes the file at `windows_payload`, as this module's `build_tables` and the tests want. Only `run_build.build_tables` passes `previous`, so every other caller's payload is the whole enumeration.
+    The fold runs in the enumerating process, on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json. `payloads` says where it goes. With it (`stream_payloads` hands one to its `run`), each configuration it names writes its payload into a pipe the crate inherits, named to the crate as `--windows=<config>=/dev/fd/<number>`, and the payload's reader takes it as the crate writes it, so it never reaches the disk and stands at no path another process could open: `run_build.build_tables` keeps its head line as the configuration's head file and packs the rest into the next segment or base of its windows output. Without it, the crate writes the file at `windows_payload`, as this module's `build_tables` and the tests want. Only `run_build.build_tables` passes `previous`, so every other caller's payload is the whole enumeration.
 
     One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold preparation in one of them. `engine/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `engine/test_kernel_exec.py` checks that it writes the same tables as the delta build. `scratch_beside_default` starts up to that many of the heaviest deltas from scratch beside `default` instead, in whole tiers of equal unlocking-rune count, which writes the same tables and holds what `table_build_booking_bytes` books for it (`deltas_from_scratch` decides it); when every delta starts that way, `default` keeps no memo. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts beside it, and a delta served one reruns only the probe's asks that name one of its own unlocking runes (`engine/kernel-rs/src/liveness.rs`); `verdict_sharing=False` runs every probe whole, and `engine/test_kernel_exec.py` checks that it writes the same tables.
 
@@ -995,7 +946,7 @@ def _stop_signals_interrupt() -> Iterator[None]:
 def stream_payloads[R, T](
     names: Iterable[str], read: Callable[[str, IO[bytes]], T], run: Callable[[PayloadPipes[T]], R]
 ) -> tuple[R, dict[str, T]]:
-    """Run `run`, which runs a crate process that writes a payload for each of `names`, with a pipe for each and a thread reading it as `read(name, stream)` (`PayloadPipes`), so each payload goes from the crate to its reader without reaching the disk or standing at a path, and return what `run` returned beside what each reader returned, keyed as `names` is. `run` takes the pipes: it spawns the crate with their write ends inherited (`pass_fds`) and names each to the crate by its path (`path`, or `windows_flags` for a table build), as `build_table_files` and `replay_memo_walk` do. However `run` ends, this process's write ends are closed and every reader is waited for, so a payload the crate never opened gives its reader an empty stream. A reader's failure is raised after a clean `run`, and otherwise set as the cause of `run`'s own failure, since a reader that stops early breaks the crate's pipe; an interrupt is raised as it came. `run` must not end while its crate still runs, so on an interrupt it kills and reaps the crate first, as `_run_kernel_reaped` and `engine/tools/scaling_sweep.py`'s `run_size` do: a crate left running holds its write ends, and the wait for the readers would not end.
+    """Run `run`, which runs a crate process that writes a payload for each of `names`, with a pipe for each and a thread reading it as `read(name, stream)` (`PayloadPipes`), so each payload goes from the crate to its reader without reaching the disk or standing at a path, and return what `run` returned beside what each reader returned, keyed as `names` is. `run` takes the pipes: it spawns the crate with their write ends inherited (`pass_fds`) and names each to the crate by its path (`path`, or `windows_flags` for a table build), as `build_table_files` and `replay_memo_walk` do. However `run` ends, this process's write ends are closed and every reader is waited for, so a payload the crate never opened gives its reader an empty stream. A reader's failure is raised after a clean `run`, and otherwise set as the cause of `run`'s own failure, since a reader that stops early breaks the crate's pipe; an interrupt is raised as it came. `run` must not end while its crate still runs, so on an interrupt it kills and reaps the crate first, as `_run_kernel_reaped` does: a crate left running holds its write ends, and the wait for the readers would not end.
 
     Called on the main thread, it makes a SIGTERM or SIGHUP that would end the process at once raise an interrupt instead for its length (`_stop_signals_interrupt`), so a stop that reaches only this process still kills and reaps the crate. A SIGKILL skips all of this: the crate it leaves running fails at its first write into a pipe whose reader is gone, and nothing is left on disk.
     """
@@ -1292,10 +1243,11 @@ def _forward_stderr(
     timings: bool,
     arguments: list[str],
     tag: str | None = None,
-    verb: str = "enumerate-configs",
+    *,
+    verb: str,
 ) -> list[str]:
     """Copy the kernel's timing lines to this process's stderr, return them as copied, and raise on anything else (`_stderr_lines`). Copying them verbatim puts the kernel's per-configuration wall-clock times in the same journal as the Python stage's, since `cycle_timings` reads both from a step's captured output."""
-    copied = _stderr_lines(errors, timings, arguments, tag, verb)
+    copied = _stderr_lines(errors, timings, arguments, tag, verb=verb)
     _write_lines(copied)
     return copied
 
@@ -1305,7 +1257,8 @@ def _stderr_lines(
     timings: bool,
     arguments: list[str],
     tag: str | None = None,
-    verb: str = "enumerate-configs",
+    *,
+    verb: str,
     cache_stats: bool = False,
 ) -> list[str]:
     """The kernel's stderr lines on a clean exit, tagged and checked, raising `KernelRunError` on anything else. Of the flags this module passes, `--timings` is the only one that writes to stderr on a clean exit unless `cache_stats` says `--cache-stats` was passed too, and they write only `[t] <label> <secs>s` and `[c] <config> …` lines, buffered and written in `--configs` order. A `tag` in brackets is appended to each `[t]` label that does not already end in one, so a fan-out that runs one process per configuration stays attributable."""
@@ -1854,27 +1807,6 @@ def guard_sweep_under(spec: ResolvedSpec, features: frozenset[str]) -> Formation
     spec_path = _spec_dump(spec)
     ensure_built()
     return _guard_verdicts(spec, spec_path, "+".join(sorted(features)) or "default")
-
-
-def read_stream(stream: Path) -> FixpointProduct:
-    """Read one kernel stream back as a `FixpointProduct`. `enumerate-configs` writes plain ndjson, which `kernel_io.read_transitions` reads from the open handle; the gzip it applies to a path is for the artifacts under `engine/out/`. The file is deleted once the product is read, because a live configuration's stream is hundreds of megabytes and a whole cycle's would otherwise stay in the scratch directory for the rest of the build."""
-    with stream.open("rt", encoding="utf-8") as handle:
-        product = kernel_io.read_transitions(handle)
-    stream.unlink()
-    return product
-
-
-def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> FixpointProduct:
-    """One configuration's reachable windows, enumerated by the crate and parsed into a `table.FixpointProduct`. The product holds everything the fold reads and nothing else the engine touched, so a consumer that wants what a table drops (the settled cells, the junctions, the optimistic prospect, the fired provenance per row) asks for the product. Only tests call this; `build_tables` folds in the crate without writing a stream. Nothing survives the call: the spec dump and the stream live in a scratch directory removed on return."""
-    with tempfile.TemporaryDirectory() as scratch:
-        directory = Path(scratch)
-        spec_path = directory / "spec.json"
-        kernel_io.write_spec(spec, spec_path)
-        ensure_built()
-        streams = enumerate_configs(
-            spec_path, directory / "streams", [feature_config_token(features)], threads=1
-        )
-        return read_stream(next(iter(streams.values())))
 
 
 def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, JoinTable]:

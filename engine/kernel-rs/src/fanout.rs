@@ -1,12 +1,11 @@
-//! Runs settlement configurations: one into a caller's sink, or a named set concurrently into a directory of files. The `enumerate` and `enumerate-configs` subcommands both serialize a configuration through [`run_config`], so a file the fan-out writes cannot differ from what `enumerate` writes to stdout for the same configuration.
+//! Runs a named set of settlement configurations concurrently: the table build, which writes each configuration's tables into a directory ([`run_configs_tables`]), and the string replay, which walks each configuration's persisted rules ([`run_configs_replay`]).
 //!
 //! The output does not depend on the thread count. All configurations share one [`SpecIndex`], which has no mutable state. The engine, the window options, the two slot filters, the liveness probe, and the fiber deriver are built inside the fixpoint on each call, so each configuration has its own. Enumerations share only `default`'s finished memo, a read-only snapshot behind an [`Arc`] that each delta reads through an exclusion saying which of its windows it may use ([`crate::memo`]). `default`'s enumeration finishes before any delta starts; a configuration enumerated from scratch beside it reads no memo. `default`'s fold preparation then runs in one of the wave's worker slots and does not use the memo. A table build's folds also share what [`crate::crossconfig`] exchanges between them, each configuration's published rules and the rows it sends the others, read only at the rendezvous [`run_configs_tables`] describes, so no fold depends on when another finished.
 //!
 //! Parallelism stops at the configuration. A configuration's product depends only on its row set, not on the order the worklist visits windows, because a class-grain row is traced at its fiber's canonical representative. The fixpoint keeps its LIFO worklist order fixed anyway. A configuration's `cited_provenance` is what its one engine fired while tracing its windows. Splitting one configuration's worklist across threads would require the threads to share one engine's memo and fired set to reproduce the sequential result, which would cost what the split was meant to save.
 
 use std::cmp::Reverse;
-use std::collections::BTreeSet;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -27,9 +26,9 @@ use crate::model::Sym;
 use crate::options::WindowOptions;
 use crate::replay;
 use crate::row_merge;
-use crate::stream::{self, FixpointProduct};
+use crate::stream::FixpointProduct;
 
-/// One configuration to run: the token that names it (the file name, the stream head's `config`, and the label on its timing lines) and the features the token resolves to.
+/// One configuration to run: the token that names it (the `<config>` in its artifact filenames, its windows head's `config`, and the label on its timing lines) and the features the token resolves to.
 pub struct Configuration<'a> {
     pub token: &'a str,
     pub features: Vec<Sym>,
@@ -70,24 +69,6 @@ impl Default for MemoSharing {
     }
 }
 
-/// Why one configuration failed. The two cases are separate variants with no prefix added, because the caller decides what the message blames: `enumerate` blames the spec for a refusal and stdout for a failed write, and `enumerate-configs` names the configuration for either.
-#[derive(Debug)]
-pub enum Failure {
-    /// The fixpoint or the emitter rejected this configuration, with that module's error message.
-    Refused(String),
-    /// Writing to the sink failed.
-    Sink(std::io::Error),
-}
-
-/// The file name pattern of a configuration's stream. A run both writes these names and sweeps for them, so they are defined once: if the two disagreed, a run would delete its own output or leave the previous run's behind.
-const STREAM_PREFIX: &str = "transitions-";
-const STREAM_SUFFIX: &str = ".ndjson";
-
-/// The file one configuration's stream is written to. The token is used unchanged as the rest of the name. The CLI rejects a non-canonical token before the run, so the file name matches the stream head's `config`.
-pub fn transitions_path(outdir: &Path, token: &str) -> PathBuf {
-    outdir.join(format!("{STREAM_PREFIX}{token}{STREAM_SUFFIX}"))
-}
-
 /// The cap on a caller's `--threads`: the machine's available parallelism, or 1 when it reports none. It ignores QoS: under `taskpolicy -b`, which is how `make test-slowly` runs, it returns the full logical core count, not the count of cores that background priority confines the tree to (the Makefile comment on `test-slowly` says which cores those are).
 pub fn available_threads() -> usize {
     std::thread::available_parallelism().map_or(1, std::num::NonZero::get)
@@ -125,61 +106,6 @@ impl Report {
     pub fn silent(self) -> bool {
         !self.timings && !self.cache_stats
     }
-}
-
-/// Runs one configuration into `sink`: its fixpoint, then its stream. When asked, it returns the cache stats' `[c]` lines followed by `enumerate[<config>]` and `emit[<config>]` timing lines. Errors carry no prefix; [`Failure`] says why.
-pub fn run_config(
-    index: &SpecIndex,
-    config: &Configuration<'_>,
-    modes: EnumerationModes,
-    sink: &mut dyn Write,
-    report: Report,
-) -> Result<Vec<String>, Failure> {
-    let token = config.token;
-    let timings = report.timings;
-    let mut timed: Vec<String> = Vec::new();
-    let mut stats: Vec<String> = Vec::new();
-    let started = Instant::now();
-    let product = if report.cache_stats {
-        fixpoint::enumerate_with_cache_stats(index, &config.features, modes, &mut stats)
-    } else {
-        fixpoint::enumerate_transitions(index, &config.features, modes)
-    }
-    .map_err(Failure::Refused)?;
-    timed.append(&mut stats);
-    if timings {
-        timed.push(timing_line(
-            &format!("enumerate[{token}]"),
-            started.elapsed(),
-        ));
-    }
-    let started = Instant::now();
-    stream::write_transitions(index, &product, sink).map_err(|failure| match failure {
-        stream::WriteFailure::Refused(error) => Failure::Refused(error),
-        stream::WriteFailure::Sink(error) => Failure::Sink(error),
-    })?;
-    if timings {
-        timed.push(timing_line(&format!("emit[{token}]"), started.elapsed()));
-    }
-    Ok(timed)
-}
-
-/// Writes every configuration's stream under `outdir`, running at most `workers` at once, and returns each one's timing lines in the order the caller listed the configurations.
-///
-/// The directory is created with its parents, as the Python artifact writers do, and an existing file at a stream's path is overwritten. Every other `transitions-*.ndjson` in the directory is removed first, so a consumer that globs the directory after a clean exit finds only this run's configurations. [`claim_all`] describes the scheduling and failure handling.
-pub fn run_configs(
-    index: &SpecIndex,
-    configs: &[Configuration<'_>],
-    modes: EnumerationModes,
-    outdir: &Path,
-    workers: usize,
-    report: Report,
-) -> Result<Vec<Vec<String>>, String> {
-    std::fs::create_dir_all(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
-    sweep_unnamed_streams(outdir, configs)?;
-    claim_all(configs, workers, |config| {
-        into_file(index, config, modes, outdir, report)
-    })
 }
 
 /// Runs `answer` on every configuration with at most `workers` at once, and returns the results in the order the configurations were listed.
@@ -364,7 +290,7 @@ const EXCHANGE_ROUNDS: usize = 64;
 ///
 /// The output does not depend on the width or on which thread finishes first: each step of the exchange reads only what every configuration published before the last rendezvous, a receiver takes its rows in list order of their sources, and results, digests and `[t]` lines are placed by list position. A configuration that fails before the exchange ends halts the board, which releases every thread waiting on it; one that fails while it finishes halts nothing, since no other configuration waits on it then, so every configuration still finishes. The error reported is the earliest-listed configuration's own among those that failed, never a halt.
 ///
-/// Unlike [`run_configs`], this removes nothing from `outdir`: `run_build.build_tables` writes into the build's artifact directory beside other artifacts, and deleting the tables of configurations the build no longer names is not this function's job.
+/// It removes nothing from `outdir`: `run_build.build_tables` writes into the build's artifact directory beside other artifacts, and deleting the tables of configurations the build no longer names is not this function's job.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_tables(
     index: &SpecIndex,
@@ -1179,49 +1105,6 @@ fn holds_exactly(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
     }
 }
 
-/// Runs one configuration into its own file under `outdir`. Every error names the configuration, since a caller running several has no other way to tell which one failed, and a filesystem error also names the file.
-fn into_file(
-    index: &SpecIndex,
-    config: &Configuration<'_>,
-    modes: EnumerationModes,
-    outdir: &Path,
-    report: Report,
-) -> Result<Vec<String>, String> {
-    let path = transitions_path(outdir, config.token);
-    let mut file = std::fs::File::create(&path)
-        .map_err(|error| format!("{}: {}: {error}", config.token, path.display()))?;
-    run_config(index, config, modes, &mut file, report).map_err(|failure| match failure {
-        Failure::Refused(error) => format!("{}: {error}", config.token),
-        Failure::Sink(error) => format!("{}: {}: {error}", config.token, path.display()),
-    })
-}
-
-/// Removes every `transitions-*.ndjson` file under `outdir` that this run does not name, before any configuration writes.
-///
-/// It removes only regular files that match the pattern [`transitions_path`] produces, and leaves everything else in the directory alone.
-fn sweep_unnamed_streams(outdir: &Path, configs: &[Configuration<'_>]) -> Result<(), String> {
-    let named: BTreeSet<&str> = configs.iter().map(|config| config.token).collect();
-    let listing =
-        std::fs::read_dir(outdir).map_err(|error| format!("{}: {error}", outdir.display()))?;
-    for entry in listing {
-        let entry = entry.map_err(|error| format!("{}: {error}", outdir.display()))?;
-        let name = entry.file_name();
-        let Some(token) = name
-            .to_str()
-            .and_then(|name| name.strip_prefix(STREAM_PREFIX))
-            .and_then(|name| name.strip_suffix(STREAM_SUFFIX))
-        else {
-            continue;
-        };
-        if named.contains(token) || !entry.file_type().is_ok_and(|kind| kind.is_file()) {
-            continue;
-        }
-        let path = entry.path();
-        std::fs::remove_file(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1275,122 +1158,6 @@ mod tests {
             .collect()
     }
 
-    /// The bytes `enumerate` writes for one configuration: [`run_config`] into a buffer instead of stdout.
-    fn enumerated(index: &SpecIndex, config: &Configuration<'_>) -> String {
-        let mut sink: Vec<u8> = Vec::new();
-        run_config(
-            index,
-            config,
-            DEFAULT_MODES,
-            &mut sink,
-            Report::timed(false),
-        )
-        .expect("the fixture's fixpoint closes and serializes");
-        String::from_utf8(sink).expect("a transitions stream is text")
-    }
-
-    /// Puts a directory at a configuration's stream path, so a worker fails during the run instead of before it.
-    fn block(outdir: &Path, token: &str) {
-        std::fs::create_dir_all(transitions_path(outdir, token))
-            .expect("a directory can occupy a stream's path");
-    }
-
-    /// The fan-out, at one thread and at more threads than configurations, writes the same bytes as enumerating each configuration alone.
-    ///
-    /// This is the thread-count invariant in the module doc at fixture scale: a concurrent run's files match a serial run's byte for byte, because the configurations share only a read-only spec.
-    #[test]
-    fn a_fan_out_writes_the_bytes_one_enumeration_at_a_time_writes() {
-        let index = fixtures::mini();
-        let configs = configurations(&index);
-        let expected: Vec<String> = configs
-            .iter()
-            .map(|config| enumerated(&index, config))
-            .collect();
-        let root = scratch("fan-out");
-        for workers in [1, 8] {
-            let outdir = root.join(format!("at-{workers}")).join("streams");
-            let timed = run_configs(
-                &index,
-                &configs,
-                DEFAULT_MODES,
-                &outdir,
-                workers,
-                Report::timed(false),
-            )
-            .expect("every configuration answers");
-            assert_eq!(timed.len(), configs.len());
-            for (config, expected) in configs.iter().zip(&expected) {
-                let written = std::fs::read_to_string(transitions_path(&outdir, config.token))
-                    .expect("every named configuration left a file behind");
-                assert_eq!(
-                    &written, expected,
-                    "{} at {workers} threads is not the bytes one enumeration writes",
-                    config.token
-                );
-            }
-        }
-        std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
-    }
-
-    /// Timing lines come back in the caller's configuration order at any thread count and name both phases of every configuration.
-    #[test]
-    fn the_timing_lines_come_back_in_the_order_the_configurations_were_named() {
-        let index = fixtures::mini();
-        let configs = configurations(&index);
-        let root = scratch("fan-out-timings");
-        for workers in [1, 8] {
-            let outdir = root.join(format!("at-{workers}")).join("streams");
-            let timed = run_configs(
-                &index,
-                &configs,
-                DEFAULT_MODES,
-                &outdir,
-                workers,
-                Report::timed(true),
-            )
-            .expect("every configuration answers");
-            let labels: Vec<String> = timed
-                .iter()
-                .flatten()
-                .map(|line| {
-                    line.split(' ')
-                        .nth(1)
-                        .expect("a timing line names its phase")
-                        .to_owned()
-                })
-                .collect();
-            assert_eq!(
-                labels,
-                [
-                    "enumerate[default]",
-                    "emit[default]",
-                    "enumerate[ss03]",
-                    "emit[ss03]"
-                ]
-            );
-        }
-        std::fs::remove_dir_all(&root).expect("the scratch directory is removable");
-    }
-
-    /// A run without `--timings` records no timing lines, so `kernel_exec._forward_stderr` can treat any stderr on a clean exit as a failure.
-    #[test]
-    fn a_run_that_was_not_asked_to_time_itself_records_nothing() {
-        let index = fixtures::mini();
-        let configs = configurations(&index);
-        let outdir = scratch("fan-out-untimed");
-        let timed = run_configs(
-            &index,
-            &configs,
-            DEFAULT_MODES,
-            &outdir,
-            2,
-            Report::timed(false),
-        )
-        .expect("every configuration answers");
-        assert!(timed.iter().all(Vec::is_empty));
-        std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
-    }
-
     /// The `[t]` line formats that `console.INNER_LINE` parses: ordinary phases at one decimal and fold subphases at millisecond precision.
     #[test]
     fn timing_lines_use_the_shapes_the_cycle_parses() {
@@ -1403,12 +1170,12 @@ mod tests {
             "[t] enumerate[ss03+ss05] 90.1s"
         );
         assert_eq!(
-            timing_line("emit[default]", Duration::from_millis(4)),
-            "[t] emit[default] 0.0s"
+            timing_line("fold[default]", Duration::from_millis(4)),
+            "[t] fold[default] 0.0s"
         );
         assert_eq!(
-            timing_line("enumerate_total", Duration::from_secs(75)),
-            "[t] enumerate_total 75.0s"
+            timing_line("tables_total", Duration::from_secs(75)),
+            "[t] tables_total 75.0s"
         );
         assert_eq!(
             fold_timing_line("fold.partition[default]", Duration::from_micros(1234)),
@@ -1416,120 +1183,51 @@ mod tests {
         );
     }
 
-    /// A configuration's stream is named `transitions-<token>.ndjson` with the caller's token unchanged, so a caller knows every file name before the run starts.
+    /// The replay's scheduler answers every configuration in the order the caller listed them, at one worker, at more workers than configurations, and at none named, since the count caps concurrency and a cap of 0 must not mean a run that does nothing.
     #[test]
-    fn a_configuration_files_its_stream_under_its_own_token() {
-        assert_eq!(
-            transitions_path(Path::new("out"), "ss03+ss05"),
-            Path::new("out/transitions-ss03+ss05.ndjson")
-        );
-    }
-
-    /// A stream that cannot be created stops the run, and the error names both the configuration and the path.
-    #[test]
-    fn a_stream_that_cannot_be_created_stops_the_run() {
+    fn every_configuration_is_answered_in_listed_order_at_any_width() {
         let index = fixtures::mini();
-        let configs = configurations(&index);
-        let outdir = scratch("fan-out-blocked");
-        std::fs::create_dir_all(&outdir).expect("the scratch directory is makeable");
-        block(&outdir, TOKENS[0]);
-        let error = run_configs(
-            &index,
-            &configs,
-            DEFAULT_MODES,
-            &outdir,
-            1,
-            Report::timed(false),
-        )
-        .expect_err("a directory in a stream's place is not writable");
-        assert!(
-            error.starts_with(&format!("{}: ", TOKENS[0])),
-            "the error names the configuration that failed: {error}"
-        );
-        assert!(
-            error.contains(&format!("transitions-{}.ndjson", TOKENS[0])),
-            "and the file it failed on: {error}"
-        );
-        std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
+        let configs = permuting(&index);
+        for workers in [0, 1, 8] {
+            let answered = claim_all(&configs, workers, |config| Ok(config.token.to_owned()))
+                .expect("every configuration answers");
+            assert_eq!(answered, PERMUTING, "at {workers} workers");
+        }
     }
 
-    /// With every stream path blocked and one worker per configuration, the run reports the error at the earliest list position, whichever worker reached it and however many others also failed. Position 0 is always claimed: the first claim takes it, and a worker stops claiming only after some worker has failed.
+    /// With every configuration failing and one worker each, the run reports the earliest-listed configuration's failure, whichever worker reached it and however many others also failed. Position 0 is always claimed: the first claim takes it, and a worker stops claiming only after some worker has failed.
     #[test]
     fn the_error_a_run_reports_is_the_earliest_listed_one() {
         let index = fixtures::mini();
-        let configs = configurations(&index);
-        let outdir = scratch("fan-out-all-blocked");
-        std::fs::create_dir_all(&outdir).expect("the scratch directory is makeable");
-        for token in TOKENS {
-            block(&outdir, token);
-        }
-        let error = run_configs(
-            &index,
-            &configs,
-            DEFAULT_MODES,
-            &outdir,
-            configs.len(),
-            Report::timed(false),
-        )
-        .expect_err("no configuration can write its stream");
-        assert!(
-            error.starts_with(&format!("{}: ", TOKENS[0])),
-            "the earliest configuration is the one reported: {error}"
-        );
-        std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
+        let configs = permuting(&index);
+        let error = claim_all(&configs, configs.len(), |config| -> Result<(), String> {
+            Err(format!("{}: refused", config.token))
+        })
+        .expect_err("no configuration answers");
+        assert_eq!(error, "default: refused");
     }
 
-    /// A run removes the streams of configurations it was not asked for, so a directory globbed after a clean exit holds only this run's output, and it leaves files that are not streams alone.
+    /// A table build asked for neither timings nor cache stats records no line for any configuration, so `kernel_exec._forward_stderr` can treat any stderr on a clean exit as a failure.
     #[test]
-    fn a_run_sweeps_the_streams_it_did_not_name() {
+    fn a_table_build_that_was_not_asked_to_report_records_nothing() {
         let index = fixtures::mini();
         let configs = configurations(&index);
-        let outdir = scratch("fan-out-sweep");
-        std::fs::create_dir_all(&outdir).expect("the scratch directory is makeable");
-        let stale = transitions_path(&outdir, "ss09");
-        std::fs::write(&stale, "a configuration this run was not asked about\n")
-            .expect("the scratch directory takes a file");
-        let bystander = outdir.join("manifest.json");
-        std::fs::write(&bystander, "{}\n").expect("and another that is not a stream");
-        run_configs(
+        let outdir = scratch("fan-out-tables-untimed");
+        let answers = run_configs_tables(
             &index,
             &configs,
             DEFAULT_MODES,
             &outdir,
+            INPUTS,
             2,
             Report::timed(false),
+            MemoSharing::default(),
+            &[],
+            &[],
         )
         .expect("every configuration answers");
-        assert!(
-            !stale.exists(),
-            "the unnamed configuration's stream is gone"
-        );
-        assert!(bystander.exists(), "and nothing else was touched");
-        for config in &configs {
-            assert!(transitions_path(&outdir, config.token).exists());
-        }
-        std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
-    }
-
-    /// A thread count of 0 runs one worker: the count caps concurrency, and a cap of 0 must not mean a run that does nothing.
-    #[test]
-    fn a_run_with_no_workers_named_still_answers_every_configuration() {
-        let index = fixtures::mini();
-        let configs = configurations(&index);
-        let outdir = scratch("fan-out-no-workers");
-        let timed = run_configs(
-            &index,
-            &configs,
-            DEFAULT_MODES,
-            &outdir,
-            0,
-            Report::timed(false),
-        )
-        .expect("the run happens");
-        assert_eq!(timed.len(), configs.len());
-        for config in &configs {
-            assert!(transitions_path(&outdir, config.token).exists());
-        }
+        assert_eq!(answers.len(), configs.len());
+        assert!(answers.iter().all(|answer| answer.timed.is_empty()));
         std::fs::remove_dir_all(&outdir).expect("the scratch directory is removable");
     }
 

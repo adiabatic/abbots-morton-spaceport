@@ -913,11 +913,11 @@ def _carry_and_append_absorb(
     memo: conform.SettleMemoFile,
     spec,
     parts: Sequence[conform.FreshMemo],
-    path: Path,
+    reference: conform.SettleMemoFile,
     sweep: conform.SweepPrune | None = None,
     distinct: int | None = None,
 ) -> bool:
-    """The carry-and-append absorb `conform.absorb_settle_memo`'s bytes are proven against, kept here as that algorithm, over the same blocks: decode every part's blocks, load the standing file unrestricted, mark the rows the sweep keeps, carry the kept rows into new columns (`_MemoStore.carry_into`), append each part's blocks with their ids shifted past the labels and records before them, and write it all through `_write_settle_memo` to `path`, passing the standing index when the standing memo is one part, no row was dropped and none is dead, and `distinct`, the count of distinct windows, when given. With no part and nothing dropped it writes nothing and returns False. Over a standing single file this is the file the whole-file absorb wrote before the segment format, and whenever the parts repeat no window across parts its bytes are what the materialized form of the memo an absorb leaves must equal; parts that do repeat one merge in the absorb's segment, so the materialized form is sized from the distinct windows, the reference written with `distinct`."""
+    """The carry-and-append absorb `conform.absorb_settle_memo`'s bytes are proven against, kept here as that algorithm, over the same blocks: decode every part's blocks, load the standing memo unrestricted, mark the rows the sweep keeps, carry the kept rows into new columns (`_MemoStore.carry_into`), append each part's blocks with their ids shifted past the labels and records before them, lay it all out as `_write_settle_memo` does (`_settled_memo`), passing the standing index when the standing memo is one part, no row was dropped and none is dead, and `distinct`, the count of distinct windows, when given, and write it as `reference`'s generation 0 base under a head of its own, as the `first` route writes a base (`SettleMemoRoute.put`). With no part and nothing dropped it writes nothing and returns False. Whenever the parts repeat no window across parts, the bytes of that base (`_base_bytes`) are what the materialized form of the memo an absorb leaves must equal; parts that do repeat one merge in the absorb's segment, so the materialized form is sized from the distinct windows, the reference written with `distinct`."""
     read = [_fresh_blocks(part) for part in parts]
     introduced_labels = sum(len(block[0]) for blocks in read for block in blocks)
     introduced_outcomes = sum(len(block[1]) for blocks in read for block in blocks)
@@ -955,13 +955,13 @@ def _carry_and_append_absorb(
             for column, block in zip(columns, block_columns):
                 column.extend(map(base_labels.__add__, block))
             values.extend(map(base_outcomes.__add__, block_values))
-    return conform._write_settle_memo(
-        memo, labels, outcomes, columns, values, path=path, standing=standing, distinct=distinct
-    )
+    finished = conform._settled_memo(memo, labels, outcomes, columns, values, standing, distinct)
+    route = conform.SettleMemoRoute(reference.path.name, reference.path.parent, conform.BASE_ROUTE, "first")
+    return route.put(reference, finished) is not None
 
 
 def _memo_files(memo: conform.SettleMemoFile) -> dict[str, tuple[bytes, int]]:
-    """Every file of `memo`'s output in its directory, its head, its parts and a single file, by name, with its bytes and modification time."""
+    """Every file of `memo`'s output in its directory, its head and its parts, by name, with its bytes and modification time."""
     return {
         path.name: (path.read_bytes(), path.stat().st_mtime_ns)
         for path in sorted(memo.path.parent.glob(f"{memo.path.name}*"))
@@ -977,6 +977,26 @@ def _materialized(memo: conform.SettleMemoFile, spec, path: Path) -> bytes:
     return path.read_bytes()
 
 
+def _base_bytes(memo: conform.SettleMemoFile) -> bytes:
+    """The bytes of the base `memo`'s head lists, a head that lists no segment: the memo's whole file."""
+    head = row_delta.read_head(memo.path.parent, memo.path.name)
+    assert head is not None and not head.segments
+    return (memo.path.parent / head.base.name).read_bytes()
+
+
+def _rebased(memo: conform.SettleMemoFile, data: bytes) -> None:
+    """Put `data` in place of the base `memo`'s head lists, a head that lists no segment, and commit the head again with the base's new size and sha256, as if a writer had written `data` as that base: a base the plan's size and sha256 checks pass, whose damage only its header check, a load or a probe finds."""
+    directory = memo.path.parent
+    head = row_delta.read_head(directory, memo.path.name)
+    assert head is not None and not head.segments
+    base = directory / head.base.name
+    base.write_bytes(data)
+    row_delta.commit(
+        directory,
+        replace(head, base=replace(head.base, size=len(data), sha256=row_delta.file_sha256(base))),
+    )
+
+
 def _texts_to_depth(spec, max_length=3):
     """Every text of the fixture alphabet up to `max_length` characters, the text set the memo tests walk."""
     alphabet = conform.spec_alphabet(spec)
@@ -988,7 +1008,7 @@ def _texts_to_depth(spec, max_length=3):
 
 
 class TestCrateEmittedSettleMemo:
-    """The string replay writes a window memo in the crate's label format, and the build's streaming absorb (`read_replay_memo`, then the finished file staged and moved into place) converts it into a settle memo file. The byte proof holds that absorb to the in-memory one (`absorb_replay_memo`) over the same dump. The main test sweeps a walk over a file the crate wrote: a key converted wrongly misses instead of returning a wrong outcome, so the check on the label conversion is that the walk settles nothing (`fresh_windows`), and the check on outcomes is the settled stream against the unmemoized reference. The other tests hold the converted file to the same rules as one the conformance sweep writes (stamp, family keys, per-family retirement) and check the conversion's refusals."""
+    """The string replay writes a window memo in the crate's label format, and the build's streaming absorb (`read_replay_memo`, then the finished file written as a base) converts it into a settle memo file. The byte proof holds that absorb to the in-memory one (`absorb_replay_memo`) over the same dump. The main test sweeps a walk over a file the crate wrote: a key converted wrongly misses instead of returning a wrong outcome, so the check on the label conversion is that the walk settles nothing (`fresh_windows`), and the check on outcomes is the settled stream against the unmemoized reference. The other tests hold the converted file to the same rules as one the conformance sweep writes (stamp, family keys, per-family retirement) and check the conversion's refusals."""
 
     STAMP = "replay-stamp-a"
 
@@ -1029,15 +1049,16 @@ class TestCrateEmittedSettleMemo:
 
     @staticmethod
     def _absorb(dump, memo, spec, config):
-        """Absorb `dump` as a full replay does: `read_replay_memo` over its bytes, then the finished file staged beside `memo.path` and moved into place, returning the row count."""
+        """Absorb `dump` as a first full replay does: `read_replay_memo` over its bytes, then the finished file written as generation 0's base of `memo` under a head of its own (`conform.SettleMemoRoute.put` on the `first` route), returning the row count."""
         with dump.open("rb") as stream:
             rows = conform.read_replay_memo(stream, spec, config, dump)
-        os.replace(rows.finish(memo).stage(memo.path), memo.path)
+        route = conform.SettleMemoRoute(memo.path.name, memo.path.parent, conform.BASE_ROUTE, "first")
+        assert route.put(memo, rows.finish(memo)) is not None
         return rows.rows
 
     @staticmethod
     def _through_pipe(dump, memo, spec, config, name):
-        """Absorb `dump` as `_absorb` does, its bytes fed through a pipe by a thread of their own, as the crate writes a full replay's memo, with `name` naming the stream as the build's walk names it (`kernel_exec.replay_memo_dump`), and return the file's bytes."""
+        """Read `dump` as `_absorb` does, its bytes fed through a pipe by a thread of their own, as the crate writes a full replay's memo, with `name` naming the stream as the build's walk names it (`kernel_exec.replay_memo_dump`), and return the bytes of the file it finishes under `memo`'s stamp and keys (`conform.ReplayMemoRows.finish`)."""
         source, sink = os.pipe()
         data = dump.read_bytes()
 
@@ -1056,8 +1077,7 @@ class TestCrateEmittedSettleMemo:
                 rows = conform.read_replay_memo(stream, spec, config, name)
         finally:
             writer.join()
-        os.replace(rows.finish(memo).stage(memo.path), memo.path)
-        return memo.path.read_bytes()
+        return b"".join(rows.finish(memo).pieces())
 
     def test_a_dump_through_a_pipe_absorbs_to_the_bytes_the_in_memory_absorb_writes(
         self, spec, dumps_dir, tmp_path, monkeypatch
@@ -1075,11 +1095,12 @@ class TestCrateEmittedSettleMemo:
             in_memory = self._memo(tmp_path / "in-memory" / name, config)
             streamed = self._memo(tmp_path / "streamed" / name, config)
             conform.absorb_replay_memo(dump, in_memory, spec, config)
-            assert self._through_pipe(
+            data = self._through_pipe(
                 dump, streamed, spec, config, kernel_exec.replay_memo_dump(tmp_path, config)
-            ) == (in_memory.path.read_bytes()), name
-            header = conform._settle_memo_header(streamed)
-            assert header is not None, name
+            )
+            assert data == in_memory.path.read_bytes(), name
+            header, _offset = conform._memo_part_header(memoryview(data))
+            assert (header["format"], header["stamp"]) == (conform.SETTLE_MEMO_FORMAT, streamed.stamp), name
             return header
 
         for config in ("default", "ss03"):
@@ -1248,7 +1269,7 @@ class TestCrateEmittedSettleMemo:
         absent = self._memo(tmp_path / "absent")
         with pytest.raises(kernel_exec.KernelRunError):
             self._absorb(truncated, absent, spec, "default")
-        assert not absent.path.exists()
+        assert not absent.path.parent.exists()
 
     def test_the_absorbed_file_carries_its_stamp_and_keys_and_retires_by_family(
         self, spec, guard, dumps_dir, tmp_path
@@ -1296,30 +1317,55 @@ class TestCrateEmittedSettleMemo:
             store.close()
 
     def test_a_refill_that_settles_every_window_alike_writes_the_head_alone(self, spec, dumps_dir, tmp_path):
-        """The landing's transition: a tree holds today's single file, written under another stamp. The full replay's plan adopts it by hard link as generation 0's base, the refill compares equal column by column with it (`fast`), and the commit writes the head alone, every part recorded under the current stamp: the base is the single file's inode, modification time and sha256, the single file's own name is gone, the memo stands under the new stamp, and it serves what the single file served."""
+        """A memo whose base was written under another stamp: the full replay's plan takes the segment route over its head, the refill compares equal column by column with it (`fast`), and the commit writes the head alone, every part recorded under the current stamp: the base keeps its inode, modification time and sha256, the memo stands under the new stamp, and it serves what it served."""
         dump = kernel_exec.replay_memo_dump(dumps_dir, "default")
         before = self._memo(tmp_path, stamp="replay-stamp-before")
         self._absorb(dump, before, spec, "default")
-        single = before.path.stat()
-        digest = row_delta.file_sha256(before.path)
+        written = row_delta.read_head(tmp_path, before.path.name)
+        assert written is not None
+        base = tmp_path / written.base.name
+        status, digest = base.stat(), row_delta.file_sha256(base)
         expected = self._items(before, spec)
         memo = self._memo(tmp_path)
         assert not conform.settle_memo_standing(memo)
         plan = conform.plan_settle_memos({"default": memo})
         route = plan.routes["default"]
-        assert route.route == conform.SEGMENT_ROUTE and route.adopted
-        assert plan.tail() == "segment_routes=1 base_routes=0 first=0 unusable=0 fold=0 adopting=1"
+        assert route.route == conform.SEGMENT_ROUTE
+        assert plan.tail() == "segment_routes=1 base_routes=0 first=0 unusable=0 fold=0"
         compared = conform.compare_replay(memo, spec, self._refill(dump, spec), route)
         assert isinstance(compared, conform.ReplayCompare)
         assert compared.segment is None and compared.fast and compared.named == 0
         assert compared.entries == len(expected)
         head = route.commit(memo, None, restamp=True)
-        base = tmp_path / head.base.name
-        assert not head.segments and not memo.path.exists()
-        assert (base.stat().st_ino, base.stat().st_mtime_ns) == (single.st_ino, single.st_mtime_ns)
+        assert not head.segments and head.base.name == written.base.name
+        assert (base.stat().st_ino, base.stat().st_mtime_ns) == (status.st_ino, status.st_mtime_ns)
         assert row_delta.file_sha256(base) == digest
         assert cast(row_delta.PartStamp, head.base.settled).stamp == memo.stamp
         assert conform.settle_memo_standing(memo) and self._items(memo, spec) == expected
+
+    def test_a_single_file_with_no_head_reads_as_no_memo_and_the_refill_writes_a_first_base(
+        self, spec, dumps_dir, tmp_path
+    ):
+        """A single file at the memo's own name and no head, as a tree from before the segment format holds one, here under the current stamp: nothing reads it. The memo does not stand, a load maps nothing, and the full replay's plan takes the `first` route, so the refill is written afresh as generation 0's base under a head of its own, its bytes the single file's; the single file, which no head lists and which is not a part, is left as it was."""
+        dump = kernel_exec.replay_memo_dump(dumps_dir, "default")
+        memo = self._memo(tmp_path)
+        conform.absorb_replay_memo(dump, memo, spec, "default")
+        single = (memo.path.read_bytes(), memo.path.stat().st_ino, memo.path.stat().st_mtime_ns)
+        assert not conform.settle_memo_standing(memo)
+        store = conform._MemoStore()
+        store.load(memo, spec, None, lambda item: (item, "", ""))
+        assert store.source is None and not store.parts and not store.refused
+        store.close()
+        plan = conform.plan_settle_memos({"default": memo})
+        route = plan.routes["default"]
+        assert (route.route, route.reason, route.signature) == (conform.BASE_ROUTE, "first", ("none",))
+        assert plan.tail() == "segment_routes=0 base_routes=1 first=1 unusable=0 fold=0"
+        head = route.commit(memo, route.write(self._refill(dump, spec).finish(memo)), restamp=True)
+        assert (head.generation, head.segments) == (0, ())
+        base = tmp_path / head.base.name
+        assert base.read_bytes() == single[0] and base.stat().st_ino != single[1]
+        assert (memo.path.read_bytes(), memo.path.stat().st_ino, memo.path.stat().st_mtime_ns) == single
+        assert conform.settle_memo_standing(memo)
 
     def test_a_refill_over_a_memo_listing_an_outcome_the_spec_cannot_name_is_written_whole(
         self, spec, dumps_dir, reduced_dumps_dir, tmp_path, capsys
@@ -1357,7 +1403,7 @@ class TestCrateEmittedSettleMemo:
     def test_a_refill_that_changes_a_window_writes_a_segment_of_it_and_names_the_rows_it_replaces(
         self, spec, dumps_dir, tmp_path, dropped
     ):
-        """A refill that settles one window to another outcome, and, with `dropped`, no longer holds another, writes one segment holding the changed window's row, with dead bitmaps naming the standing rows of both, and leaves the base in place; the memo then serves exactly what today's whole file of that refill serves. With the same windows in the same order the compare reads the value column alone (`fast`), and otherwise probes the memo row by row. A later refill of the original dump compares by probe against the base and the segment, and the memo serves the original's windows again."""
+        """A refill that settles one window to another outcome, and, with `dropped`, no longer holds another, writes one segment holding the changed window's row, with dead bitmaps naming the standing rows of both, and leaves the base in place; the memo then serves exactly what a memo of that refill's whole file serves. With the same windows in the same order the compare reads the value column alone (`fast`), and otherwise probes the memo row by row. A later refill of the original dump compares by probe against the base and the segment, and the memo serves the original's windows again."""
         dump = kernel_exec.replay_memo_dump(dumps_dir, "default")
         head, labels, records, body = _dump_parts(dump)
         code = "<" + {2: "H", 4: "I"}[head["width"]] * 7
@@ -1379,7 +1425,9 @@ class TestCrateEmittedSettleMemo:
         memo.path.parent.mkdir()
         self._absorb(dump, memo, spec, "default")
         original = self._items(memo, spec)
-        inode = memo.path.stat().st_ino
+        written = row_delta.read_head(memo.path.parent, memo.path.name)
+        assert written is not None
+        inode = (memo.path.parent / written.base.name).stat().st_ino
         route = conform.plan_settle_memos({"default": memo}).routes["default"]
         compared = conform.compare_replay(memo, spec, self._refill(modified, spec), route)
         assert isinstance(compared, conform.ReplayCompare) and compared.segment is not None
@@ -1430,7 +1478,7 @@ class TestCrateEmittedSettleMemo:
         refused = self._memo(tmp_path / "refused")
         with pytest.raises(kernel_exec.KernelRunError, match="two ways"):
             self._absorb(dump, refused, spec, "default")
-        assert not refused.path.exists()
+        assert not refused.path.parent.exists()
 
 
 class TestSettleMemoFile:
@@ -1735,12 +1783,13 @@ class TestSettleMemoFile:
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         seed.walk_many(self._texts(spec, 2))
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             memo, *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], seed.windows).items())
         )
         kept = replace(memo, path=tmp_path / "kept" / memo.path.name)
         kept.path.parent.mkdir()
-        kept.path.write_bytes(memo.path.read_bytes())
+        for name in _memo_files(memo):
+            shutil.copy2(memo.path.parent / name, kept.path.parent / name)
         monkeypatch.setattr(row_delta, "fold_due", lambda head, cap=None: True)
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
@@ -1754,9 +1803,9 @@ class TestSettleMemoFile:
         assert walker.walk_many(texts) == reference.walk_many(texts)
         assert walker.fresh_windows and walker._cold.reached_count() == len(seed.windows)
         assert walker.save_memo()
-        carried = tmp_path / "carried.bin"
-        assert conform._write_settle_memo(
-            memo,
+        carried = replace(memo, path=tmp_path / "carried" / memo.path.name)
+        assert conform._write_settle_memo_base(
+            carried,
             *conform._memo_columns(
                 itertools.chain(
                     cast(dict[conform._Window, conform._Outcome], walker.windows).items(),
@@ -1767,10 +1816,9 @@ class TestSettleMemoFile:
                     ),
                 )
             ),
-            carried,
         )
         promoted_rows = self._ordered(memo, spec)
-        assert promoted_rows == self._ordered(replace(memo, path=carried), spec)
+        assert promoted_rows == self._ordered(carried, spec)
 
         keeping = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=kept, promote_pinned=False)
         assert keeping.walk_many(texts) == reference.walk_many(texts)
@@ -1785,7 +1833,7 @@ class TestSettleMemoFile:
         lacking = replace(memo, path=tmp_path / "lacking" / memo.path.name)
         lacking.path.parent.mkdir()
         every = cast(dict[conform._Window, conform._Outcome], walker.windows)
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             lacking, *conform._memo_columns(itertools.islice(every.items(), 1, None))
         )
         nearly = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=lacking, promote_pinned=False)
@@ -1851,7 +1899,7 @@ class TestSettleMemoFile:
         seeded = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         seed.walk_many(self._texts(spec, 2))
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             seeded,
             *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], seed.windows).items()),
         )
@@ -1861,7 +1909,8 @@ class TestSettleMemoFile:
         for promote in (True, False):
             memo = conform.SettleMemoFile(tmp_path / f"promote-{promote}" / seeded.path.name, self.STAMP)
             memo.path.parent.mkdir()
-            memo.path.write_bytes(seeded.path.read_bytes())
+            for name in _memo_files(seeded):
+                shutil.copy2(seeded.path.parent / name, memo.path.parent / name)
             walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=promote)
             walker.walk_many(texts)
             reached = {window for window, _ in walker._cold.items(reached=True)}
@@ -1929,21 +1978,23 @@ class TestSettleMemoFile:
 
     def test_a_walk_with_nothing_to_settle_never_opens_the_file(self, spec, guard, tmp_path):
         memo = self._memo(tmp_path)
-        memo.path.write_bytes(b"not a memo")
+        head = row_delta.head_path(memo.path.parent, memo.path.name)
+        head.write_bytes(b"not a head")
         splitter = sorted(conform.splitting_boundary_chars(spec))[0]
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         walker.walk_many([splitter, splitter * 2])
         assert walker.memo_windows == 0
         assert walker.memo_seconds == 0.0
         assert not walker.save_memo()
-        assert memo.path.read_bytes() == b"not a memo"
+        assert head.read_bytes() == b"not a head"
 
     def test_a_file_that_will_not_decode_costs_a_warning_and_nothing_else(
         self, spec, guard, tmp_path, capsys
     ):
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
-        memo.path.write_bytes(conform._MEMO_PREFIX.pack(24) + b"\x80\x05not a pickle stream at all")
+        assert conform._write_settle_memo_base(memo, *conform._memo_columns([]))
+        _rebased(memo, conform._MEMO_PREFIX.pack(24) + b"\x80\x05not a pickle stream at all")
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         assert walker.walk_many(texts) == reference.walk_many(texts)
@@ -1996,28 +2047,30 @@ class TestSettleMemoFile:
         assert third.memo_windows == len(first.windows)
         assert third._settle_calls == 0
 
-    def test_a_file_cut_to_its_header_still_stands_and_loads_nothing(self, spec, guard, tmp_path, capsys):
-        """`settle_memo_standing` reads only the header: a file cut off right after its header still stands under its own stamp and not under another, a walk over it loads nothing and settles everything, and a file cut inside the header stands under no stamp."""
+    def test_a_base_cut_to_its_header_still_stands_and_loads_nothing(self, spec, guard, tmp_path, capsys):
+        """`settle_memo_standing` reads only the head: a base cut off right after its header, under a head that records its size and sha256, still stands under its own stamp and not under another, and a walk over it loads nothing and settles everything, while a base that is not the size its head records stands under no stamp."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         first.walk_many(texts)
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             memo, *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], first.windows).items())
         )
         assert conform.settle_memo_standing(memo)
-        whole = memo.path.read_bytes()
+        whole = _base_bytes(memo)
         (length,) = conform._MEMO_PREFIX.unpack_from(whole)
         header_end = conform._MEMO_PREFIX.size + length
         assert header_end < len(whole) // 4
-        memo.path.write_bytes(whole[:header_end])
+        _rebased(memo, whole[:header_end])
         assert conform.settle_memo_standing(memo)
         assert not conform.settle_memo_standing(self._memo(tmp_path, "tables-stamp-b"))
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         walker.walk_many(texts)
         assert walker.memo_windows == 0 and walker.fresh_windows == len(first.windows)
         assert "[warn] settle memo:" in capsys.readouterr().err
-        memo.path.write_bytes(whole[: header_end - 1])
+        head = row_delta.read_head(memo.path.parent, memo.path.name)
+        assert head is not None
+        (memo.path.parent / head.base.name).write_bytes(whole[: header_end - 1])
         assert not conform.settle_memo_standing(memo)
 
     def test_a_store_closes_under_a_live_iterator_and_the_mapping_goes_with_it(self, spec, guard, tmp_path):
@@ -2047,19 +2100,25 @@ class TestSettleMemoFile:
         memo = self._memo(tmp_path)
         first = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         walked = first.walk_many(texts)
-        assert conform._write_settle_memo(
-            memo, *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], first.windows).items())
-        )
-        whole = memo.path.read_bytes()
+
+        def seeded() -> None:
+            for name in _memo_files(memo):
+                (memo.path.parent / name).unlink()
+            assert conform._write_settle_memo_base(
+                memo,
+                *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], first.windows).items()),
+            )
+
+        seeded()
+        whole = _base_bytes(memo)
         header = self._header(memo)
         index_bytes = header["slots"] * 4
         for filler, problem in (
             (1, "a probe chain past its rows"),
             (header["rows"] + 5, "an id past its tables"),
         ):
-            for name in _memo_files(memo):
-                (memo.path.parent / name).unlink()
-            memo.path.write_bytes(whole[:-index_bytes] + struct.pack("<I", filler) * header["slots"])
+            seeded()
+            _rebased(memo, whole[:-index_bytes] + struct.pack("<I", filler) * header["slots"])
             walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
             assert walker.walk_many(texts) == walked
             assert walker.memo_windows == header["rows"] and walker._cold.live == 0
@@ -2076,7 +2135,7 @@ class TestSettleMemoFile:
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         seed.walk_many(self._texts(spec, 2))
         row = next(iter(cast(dict[conform._Window, conform._Outcome], seed.windows).items()))
-        assert conform._write_settle_memo(memo, *conform._memo_columns([row]))
+        assert conform._write_settle_memo_base(memo, *conform._memo_columns([row]))
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo)
         walker._load_memo()
@@ -2092,12 +2151,12 @@ class TestSettleMemoFile:
         assert "[warn] settle memo:" not in capsys.readouterr().err
 
     def test_a_file_replaced_under_an_open_mapping_keeps_serving_the_mapped_rows(self, spec, guard, tmp_path):
-        """The guarantee `_write_settle_memo` gives, seen from the reader: a walk that mapped the file keeps the inode it mapped after a writer replaces the file and serves every window it loaded from it with no crate call, and the next walk maps the new file. The replacement holds fewer rows (only the depth-1 windows), so a walk that read the new file through its old mapping would have settled the rest."""
+        """The guarantee a base's writer gives (`row_delta.write_plain_part`, through `output_sink.replace_output`), seen from the reader: a walk that mapped the base keeps the inode it mapped after a writer replaces the base and its head and serves every window it loaded from it with no crate call, and the next walk maps the new base. The replacement holds fewer rows (only the depth-1 windows), so a walk that read the new base through its old mapping would have settled the rest."""
         texts = self._texts(spec, 2)
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         seed.walk_many(texts)
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             memo, *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], seed.windows).items())
         )
         mapped = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
@@ -2108,11 +2167,12 @@ class TestSettleMemoFile:
         smaller = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         smaller.walk_many(self._texts(spec, 1))
         assert 0 < len(smaller.windows) < len(seed.windows)
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             memo,
             *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], smaller.windows).items()),
         )
-        assert memo.path.stat().st_ino != inode
+        head = row_delta.read_head(memo.path.parent, memo.path.name)
+        assert head is not None and (memo.path.parent / head.base.name).stat().st_ino != inode
         reference = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         assert mapped.walk_many(texts) == reference.walk_many(texts)
         assert mapped._settle_calls == 0 and mapped.fresh_windows == 0
@@ -2319,7 +2379,7 @@ class TestSettleMemoFile:
         assert _memo_files(memo) == absorbed
 
     def _header(self, memo) -> dict:
-        """The header of `memo`'s whole file: its single file, or the base of a head that lists no segment."""
+        """The header of `memo`'s whole file: the base of a head that lists no segment, or, with no head, the single file at `memo.path` a writer of a reference wrote."""
         head = row_delta.read_head(memo.path.parent, memo.path.name)
         assert head is None or not head.segments
         with open(memo.path if head is None else memo.path.parent / head.base.name, "rb") as handle:
@@ -2418,7 +2478,7 @@ class TestSettleMemoFile:
     def test_the_absorb_writes_the_bytes_the_carry_and_append_absorb_writes(
         self, spec, guard, tmp_path, case
     ):
-        """Over a standing file, `absorb_settle_memo` writes one segment beside it, and the memo's materialized form is byte for byte the file the carry-and-append absorb writes from the same standing file and the same blocks in the same order (`_carry_and_append_absorb`, through `_write_settle_memo` with the standing index when no row dropped), which is the file the whole-file absorb wrote before the segment format, and `store.items()` reads the same windows and outcomes: with the standing index's room for new windows (`fast`, which the reference reuses), with every fresh row restating a standing window, its row in the segment winning by the probe's order and the materialized form patching the standing row's outcome in place (`duplicate`), with a moved family's rows named in the dead bitmaps (`stale`), with the sweep's prune and no fresh row (`prune`), with the sweep's discard after a retirement, every standing row named and the parts' rows alone kept (`discard`), over `I` standing columns (`typecode-I`), with `H` standing columns widened to `I` by labels the fresh rows bring (`widen`), and with labels repeated across the standing table and the parts merging through `canon` onto their first ids (`canon`). With two ranges restating each other's windows, the later outcome winning (`fresh-against-fresh`), the segment merges the repeats, so the materialized form is that reference sized from the distinct windows, which today's absorb, sized from every row passed, matches only while the repeats keep the slot count where it is. With no standing file (`fresh`) it takes the `first` route and writes that reference's file as generation 0's base."""
+        """Over a standing memo of one base, `absorb_settle_memo` writes one segment beside it, and the memo's materialized form is byte for byte the base the carry-and-append absorb writes from the same standing memo and the same blocks in the same order (`_carry_and_append_absorb`, laid out as `_write_settle_memo` lays a file out, with the standing index when no row dropped), and `store.items()` reads the same windows and outcomes: with the standing index's room for new windows (`fast`, which the reference reuses), with every fresh row restating a standing window, its row in the segment winning by the probe's order and the materialized form patching the standing row's outcome in place (`duplicate`), with a moved family's rows named in the dead bitmaps (`stale`), with the sweep's prune and no fresh row (`prune`), with the sweep's discard after a retirement, every standing row named and the parts' rows alone kept (`discard`), over `I` standing columns (`typecode-I`), with `H` standing columns widened to `I` by labels the fresh rows bring (`widen`), and with labels repeated across the standing table and the parts merging through `canon` onto their first ids (`canon`). With two ranges restating each other's windows, the later outcome winning (`fresh-against-fresh`), the segment merges the repeats, so the materialized form is that reference sized from the distinct windows, which the carry-and-append absorb sized from every row passed matches only while the repeats keep the slot count where it is. With no standing memo (`fresh`) it takes the `first` route and writes that reference's base as generation 0's base."""
         rows = self._windows(spec, guard)
         keys = {name: f"{name}@0" for name in spec.registry.families}
         memo = self._memo(tmp_path, keys=keys)
@@ -2452,7 +2512,7 @@ class TestSettleMemoFile:
         else:
             standing = rows + self._restated(rows, 1)
         if standing:
-            assert conform._write_settle_memo(memo, *conform._memo_columns(standing))
+            assert conform._write_settle_memo_base(memo, *conform._memo_columns(standing))
         if case == "stale":
             memo = replace(memo, family_keys={**keys, "qsTea": "qsTea@1"})
         if case in ("prune", "discard"):
@@ -2466,7 +2526,8 @@ class TestSettleMemoFile:
                 flags = bytes(count)
             sweep = conform.SweepPrune(identity, zlib.compress(flags, 1), True, case == "discard")
         fresh = [conform._fresh_memo(part) for part in parts]
-        reference, written = tmp_path / "reference.bin", tmp_path / "absorbed.bin"
+        reference = replace(memo, path=tmp_path / "reference" / memo.path.name)
+        written = tmp_path / "absorbed.bin"
         distinct = None
         if case == "fresh-against-fresh":
             distinct = len({window for window, _ in itertools.chain(standing, *parts)})
@@ -2476,13 +2537,12 @@ class TestSettleMemoFile:
         absorbed = conform.absorb_settle_memo(memo, spec, fresh, sweep)
         assert absorbed.written and absorbed.wrote == ("base" if case == "fresh" else "segment")
         assert absorbed.index == ("rebuilt" if case == "fresh" else "segment")
-        assert not memo.path.exists()
         head = row_delta.read_head(memo.path.parent, memo.path.name)
         assert head is not None and len(head.segments) == (0 if case == "fresh" else 1)
-        assert _materialized(memo, spec, written) == reference.read_bytes()
+        assert _materialized(memo, spec, written) == _base_bytes(reference)
         if case == "fresh":
-            assert (memo.path.parent / head.base.name).read_bytes() == reference.read_bytes()
-        assert set(self._decoded(memo, spec)) == set(self._decoded(replace(memo, path=reference), spec))
+            assert (memo.path.parent / head.base.name).read_bytes() == _base_bytes(reference)
+        assert set(self._decoded(memo, spec)) == set(self._decoded(reference, spec))
         typecode = self._header(replace(memo, path=written))["typecode"]
         assert typecode == ("I" if case in ("typecode-I", "widen") else "H")
         if case in ("fresh-against-fresh", "duplicate"):
@@ -2495,22 +2555,23 @@ class TestSettleMemoFile:
     def test_an_absorb_whose_head_cannot_be_committed_warns_and_writes_nothing(
         self, spec, guard, tmp_path, capsys, standing
     ):
-        """An absorb whose part is written and whose head the filesystem then refuses, here because a directory stands at the head's staging path, is a warning, as the replay's parent's is, on the segment route over an adopted single file and on the `first` route alike: it reports nothing written, the memo serves what it served, and the next plan deletes the part no head lists."""
+        """An absorb whose part is written and whose head the filesystem then refuses, here because a directory stands at the head's staging path, is a warning, as the replay's parent's is, on the segment route over a standing memo and on the `first` route alike: it reports nothing written, the head stands as it was, the memo serves what it served, and the next plan deletes the part no head lists."""
         rows = self._windows(spec, guard)
         memo = self._memo(tmp_path)
         if standing:
-            assert conform._write_settle_memo(memo, *conform._memo_columns(rows[:100]))
+            assert conform._write_settle_memo_base(memo, *conform._memo_columns(rows[:100]))
         served = self._decoded(memo, spec)
         route = conform.plan_settle_memos({"default": memo}).routes["default"]
         assert route.route == (conform.SEGMENT_ROUTE if standing else conform.BASE_ROUTE)
         head_path = row_delta.head_path(memo.path.parent, memo.path.name)
+        before = head_path.read_bytes() if standing else None
         blocked = head_path.with_name(head_path.name + ".partial")
         blocked.mkdir()
         capsys.readouterr()
         absorbed = conform.absorb_settle_memo(
             memo, spec, [conform._fresh_memo(self._restated(rows[:50], 1))], route=route
         )
-        assert not absorbed.written and not head_path.exists()
+        assert not absorbed.written and (head_path.read_bytes() if head_path.exists() else None) == before
         assert f"{memo.path} not written" in capsys.readouterr().err
         blocked.rmdir()
         assert self._decoded(memo, spec) == served
@@ -2592,7 +2653,7 @@ class TestSettleMemoFile:
             )
         for memo in (folded, segmented):
             memo.path.parent.mkdir()
-            assert conform._write_settle_memo(memo, *conform._memo_columns(rows[:1000]))
+            assert conform._write_settle_memo_base(memo, *conform._memo_columns(rows[:1000]))
         written = [conform.absorb_settle_memo(segmented, spec, [part]) for part in parts[:3]]
         assert [item.wrote for item in written] == ["segment"] * 3
         assert written[0].patched == (30 if shadowed else 0)
@@ -2623,7 +2684,7 @@ class TestSettleMemoFile:
         rows = self._windows(spec, guard)
         keys = {name: f"{name}@0" for name in spec.registry.families}
         memo = self._memo(tmp_path, keys=keys)
-        assert conform._write_settle_memo(memo, *conform._memo_columns(rows[:500]))
+        assert conform._write_settle_memo_base(memo, *conform._memo_columns(rows[:500]))
         moved = replace(memo, family_keys={**keys, "qsTea": "qsTea@1"})
         absorbed = conform.absorb_settle_memo(
             moved, spec, [conform._fresh_memo(self._restated(rows[:50], 1))]
@@ -2672,7 +2733,7 @@ class TestSettleMemoFile:
         ]
         first = self._memo(tmp_path / "stamps")
         first.path.parent.mkdir()
-        assert conform._write_settle_memo(first, *conform._memo_columns(rows[:300]))
+        assert conform._write_settle_memo_base(first, *conform._memo_columns(rows[:300]))
         second = replace(first, stamp="tables-stamp-b")
         assert conform.absorb_settle_memo(second, spec, [conform._fresh_memo(swapped)]).wrote == "segment"
         assert {window for window, _ in self._decoded(first, spec)} == {window for window, _ in rows[:300]}
@@ -2682,7 +2743,7 @@ class TestSettleMemoFile:
         assert not conform.settle_memo_standing(first) and not conform.settle_memo_standing(second)
         same = self._memo(tmp_path / "same")
         same.path.parent.mkdir()
-        assert conform._write_settle_memo(same, *conform._memo_columns(rows[:300]))
+        assert conform._write_settle_memo_base(same, *conform._memo_columns(rows[:300]))
         absorbed = conform.absorb_settle_memo(same, spec, [conform._fresh_memo(swapped)])
         assert absorbed.wrote == "segment" and absorbed.patched == len(swapped)
         store = conform._MemoStore()
@@ -2706,7 +2767,7 @@ class TestSettleMemoFile:
         """A block whose head or rows will not decode ends its part at that block with a warning: the part's blocks before it and the parts after it are absorbed, and the file is the one the part would give had it ended there, its tables merged without the labels the dropped blocks introduce."""
         rows = self._windows(spec, guard)
         memo = self._memo(tmp_path)
-        assert conform._write_settle_memo(memo, *conform._memo_columns(rows[:100]))
+        assert conform._write_settle_memo_base(memo, *conform._memo_columns(rows[:100]))
         many = [window for copy in range(50) for window in self._restated(rows, copy)]
         first = conform._fresh_memo(many[: 2 * conform.SETTLE_MEMO_BLOCK])
         last = conform._fresh_memo(rows[100:200])
@@ -2714,7 +2775,8 @@ class TestSettleMemoFile:
         blocks = list(first.blocks)
         blocks[2 if piece == "head" else 3] = b"not a zlib stream"
         torn = replace(first, blocks=blocks)
-        reference, written = tmp_path / "reference.bin", tmp_path / "absorbed.bin"
+        reference = replace(memo, path=tmp_path / "reference" / memo.path.name)
+        written = tmp_path / "absorbed.bin"
         assert _carry_and_append_absorb(
             memo, spec, [replace(first, blocks=first.blocks[:2]), last], reference
         )
@@ -2722,7 +2784,7 @@ class TestSettleMemoFile:
         absorbed = conform.absorb_settle_memo(memo, spec, [torn, last])
         assert f"stopped reading after {conform.SETTLE_MEMO_BLOCK} windows" in capsys.readouterr().err
         assert absorbed.parts == conform.SETTLE_MEMO_BLOCK + 100 and absorbed.wrote == "segment"
-        assert _materialized(memo, spec, written) == reference.read_bytes()
+        assert _materialized(memo, spec, written) == _base_bytes(reference)
 
     def test_a_window_listed_twice_is_written_as_one_row_with_the_later_outcome(self, spec, guard, tmp_path):
         """The writer's fold, on a memo that lists one window twice with two outcomes: the file holds one row at the first entry's position with the later entry's outcome, as a dict of the entries would. So `len`, `items` order and every probe match the dict, and a pruning save counts and writes only the distinct windows."""
@@ -2736,7 +2798,7 @@ class TestSettleMemoFile:
             (window, next(other for other in outcomes if other is not outcome))
             for window, outcome in rows[::3]
         ]
-        assert conform._write_settle_memo(memo, *conform._memo_columns(itertools.chain(rows, repeated)))
+        assert conform._write_settle_memo_base(memo, *conform._memo_columns(itertools.chain(rows, repeated)))
 
         walker = conform._SettledWindowWalk(spec, frozenset(), {}, guard, memo=memo, promote=False)
         expected = self._dict_of(walker, memo, spec)
@@ -2842,7 +2904,7 @@ class TestSettleMemoFile:
             seed.walk_many(self._texts(spec, 2 if start == "current" else 3))
             seeded_windows = list(cast(dict[conform._Window, conform._Outcome], seed.windows).items())
             cut = 3 * len(seeded_windows) // 4 if start == "segments" else len(seeded_windows)
-            assert conform._write_settle_memo(reference, *conform._memo_columns(seeded_windows[:cut]))
+            assert conform._write_settle_memo_base(reference, *conform._memo_columns(seeded_windows[:cut]))
             if start == "segments":
                 restated = self._restated(seeded_windows, 1)
                 part = conform._fresh_memo([*seeded_windows[cut:], *restated[: len(restated) // 10]])
@@ -2887,7 +2949,7 @@ class TestSettleMemoFile:
                 for line in capsys.readouterr().out.splitlines()
                 if line.startswith("[t] settle_memo_plan ")
             ]
-            assert len(lines) == 1 and lines[0].endswith("base_routes=1 first=1 unusable=0 fold=0 adopting=0")
+            assert len(lines) == 1 and lines[0].endswith("base_routes=1 first=1 unusable=0 fold=0")
 
     def test_a_unit_returns_only_its_fresh_windows_and_leaves_the_file_and_the_line_to_the_parent(
         self, spec, guard, tmp_path, capsys
@@ -2896,20 +2958,28 @@ class TestSettleMemoFile:
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         seed.walk_many(self._texts(spec, 1))
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             memo, *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], seed.windows).items())
         )
-        standing = memo.path.read_bytes()
-        stat = memo.path.stat()
+        standing = _memo_files(memo)
+        head = row_delta.read_head(memo.path.parent, memo.path.name)
+        assert head is not None
+        stat = row_delta.head_path(memo.path.parent, memo.path.name).stat()
         capsys.readouterr()
 
         reach = self._swept(
             spec, guard, replace(memo, returns_fresh=True), last=conform.spec_alphabet(spec)[-1]
         ).memo_reach
         assert reach is not None and reach.fresh is not None and not reach.retired
-        assert memo.path.read_bytes() == standing
+        assert _memo_files(memo) == standing
         assert _fresh_rows(reach.fresh) and reach.fresh.rows == len(_fresh_rows(reach.fresh))
-        assert reach.identity == ("file", stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        assert reach.identity == (
+            "head",
+            stat.st_dev,
+            stat.st_ino,
+            head.content,
+            tuple((part.name, part.size) for part in head.parts),
+        )
         assert reach.rows == reach.live == reach.loaded == len(seed.windows)
         assert "[t] settle_memo" not in capsys.readouterr().err
 
@@ -2930,7 +3000,7 @@ class TestSettleMemoFile:
 
         nothing = zlib.compress(bytes(reach.rows), 1)
         absorbed = conform.absorb_settle_memo(
-            memo, spec, [reach.fresh], conform.SweepPrune(("file", 0, 0, 0, 0), nothing, True, False)
+            memo, spec, [reach.fresh], conform.SweepPrune(("head", 0, 0, 0, ()), nothing, True, False)
         )
         fresh = _fresh_rows(reach.fresh)
         assert absorbed.written and absorbed.pruned == 0 and absorbed.fresh == len(fresh)
@@ -2944,11 +3014,11 @@ class TestSettleMemoFile:
         memo = self._memo(tmp_path)
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         seed.walk_many(self._texts(spec, 2))
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             memo, *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], seed.windows).items())
         )
         header = self._header(memo)
-        whole = bytearray(memo.path.read_bytes())
+        whole = bytearray(_base_bytes(memo))
         (length,) = conform._MEMO_PREFIX.unpack_from(whole)
         offset = conform._memo_aligned(conform._MEMO_PREFIX.size + length)
         offset = conform._memo_aligned(offset + header["tables"])
@@ -2956,7 +3026,7 @@ class TestSettleMemoFile:
             offset = conform._memo_aligned(offset + header["rows"] * array(header["typecode"]).itemsize)
         bad = array(header["value_typecode"], [(1 << (8 * array(header["value_typecode"]).itemsize)) - 1])
         whole[offset : offset + bad.itemsize] = bad.tobytes()
-        memo.path.write_bytes(bytes(whole))
+        _rebased(memo, bytes(whole))
         capsys.readouterr()
 
         absorbed, parts = self._unit_fold(spec, guard, memo)
@@ -2976,11 +3046,11 @@ class TestSettleMemoFile:
         seed = conform._SettledWindowWalk(spec, frozenset(), {}, guard)
         texts = self._texts(spec, 2)
         seed.walk_many(texts[:-3])
-        assert conform._write_settle_memo(
+        assert conform._write_settle_memo_base(
             memo, *conform._memo_columns(cast(dict[conform._Window, conform._Outcome], seed.windows).items())
         )
         header = self._header(memo)
-        whole = bytearray(memo.path.read_bytes())
+        whole = bytearray(_base_bytes(memo))
         (length,) = conform._MEMO_PREFIX.unpack_from(whole)
         offset = conform._memo_aligned(conform._MEMO_PREFIX.size + length)
         offset = conform._memo_aligned(offset + header["tables"])
@@ -2988,7 +3058,7 @@ class TestSettleMemoFile:
             offset = conform._memo_aligned(offset + header["rows"] * array(header["typecode"]).itemsize)
         bad = array(header["value_typecode"], [(1 << (8 * array(header["value_typecode"]).itemsize)) - 1])
         whole[offset : offset + bad.itemsize] = bad.tobytes()
-        memo.path.write_bytes(bytes(whole))
+        _rebased(memo, bytes(whole))
         ranged = conform._SettledWindowWalk(
             spec, frozenset(), {}, guard, memo=replace(memo, returns_fresh=True)
         )

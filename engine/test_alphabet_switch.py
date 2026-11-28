@@ -82,7 +82,7 @@ def test_the_alphabet_is_the_narrowed_spec_s_alphabet_when_imported_under_the_sw
         "from engine.review import build\n"
         "print(json.dumps({\n"
         "    'alphabet': sorted(alphabet.ALPHABET),\n"
-        "    'migrated': sorted(manual_pins.migrated_alphabet(spec_load.load_default_spec())),\n"
+        "    'spec_codepoints': sorted(manual_pins.spec_codepoints(spec_load.load_default_spec())),\n"
         "    'imported': build.ALPHABET is alphabet.ALPHABET,\n"
         "}))\n"
     )
@@ -97,7 +97,7 @@ def test_the_alphabet_is_the_narrowed_spec_s_alphabet_when_imported_under_the_sw
     )
     seen = json.loads(result.stdout)
     assert seen["alphabet"] == [0x0020, 0x00B7, 0x200C, 0xE652, 0xE653, 0xE67A]
-    assert seen["migrated"] == seen["alphabet"]
+    assert seen["spec_codepoints"] == seen["alphabet"]
     assert seen["imported"]
     assert alphabet.ALPHABET > frozenset(seen["alphabet"])
 

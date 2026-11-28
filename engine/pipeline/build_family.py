@@ -67,7 +67,7 @@ def load_family_spec(root: Path = REPO_ROOT) -> ResolvedSpec:
 
 @dataclass(frozen=True)
 class FamilyGlyphs:
-    """What `family_glyphs` makes of the runes for Mono and Junior: the legacy glyph records (`records`, keyed as the module docstring says), the letter each Junior Quikscript glyph draws (`letters`, where a bare letter names itself), each cosmetic set's substitutions from letter to copy (`cosmetic`), and each font's variation sequences from selector to base code point to glyph (`sequences`)."""
+    """What `family_glyphs` makes of the runes for Mono and Junior: the glyph records (`records`, keyed as the module docstring says), the letter each Junior Quikscript glyph draws (`letters`, where a bare letter names itself), each cosmetic set's substitutions from letter to copy (`cosmetic`), and each font's variation sequences from selector to base code point to glyph (`sequences`)."""
 
     records: Mapping[str, Mapping[str, Any]]
     letters: Mapping[str, str]
@@ -75,7 +75,7 @@ class FamilyGlyphs:
     sequences: Mapping[str, Mapping[int, Mapping[int, str]]]
 
 
-def _legacy_record(rows: Iterable[str], y_offset: int) -> dict[str, Any]:
+def _glyph_record(rows: Iterable[str], y_offset: int) -> dict[str, Any]:
     record: dict[str, Any] = {"bitmap": list(rows)}
     if y_offset:
         record["y_offset"] = y_offset
@@ -83,8 +83,8 @@ def _legacy_record(rows: Iterable[str], y_offset: int) -> dict[str, Any]:
 
 
 def _drawn(record: GlyphRecord) -> dict[str, Any]:
-    """A realized cell's legacy record: its bitmap and `y_offset`, without the anchors, which neither Mono nor Junior carries."""
-    return _legacy_record(record.bitmap, record.y_offset)
+    """A realized cell's glyph record (`glyph_records.GlyphDef`): its bitmap and `y_offset`, without the anchors, which neither Mono nor Junior carries."""
+    return _glyph_record(record.bitmap, record.y_offset)
 
 
 def _isolated(spec: ResolvedSpec, name: str) -> dict[str, Any]:
@@ -103,14 +103,14 @@ def family_glyphs(spec: ResolvedSpec) -> FamilyGlyphs:
             continue
         if rune.mono is None:
             raise FamilyBuildError(f"{name} has no `mono:` drawing for Mono")
-        records[name] = _legacy_record(rune.mono.rows, rune.mono.y_offset)
+        records[name] = _glyph_record(rune.mono.rows, rune.mono.y_offset)
         records[f"{name}.prop"] = _isolated(spec, name)
         letters[name] = name
         unjoined = CellId(name, rune.default_stance, None, None, ())
         redrawn = cosmetic_record(spec, unjoined, every_cosmetic)
         if redrawn is not None:
             copy = cosmetic_copy_name(cell_label(spec, unjoined), redrawn.feature)
-            records[f"{copy}.prop"] = _legacy_record(redrawn.bitmap.rows, redrawn.bitmap.y_offset)
+            records[f"{copy}.prop"] = _glyph_record(redrawn.bitmap.rows, redrawn.bitmap.y_offset)
             cosmetic.setdefault(redrawn.feature, {})[name] = copy
             letters[copy] = name
 
@@ -135,7 +135,7 @@ def family_glyphs(spec: ResolvedSpec) -> FamilyGlyphs:
                     raise FamilyBuildError(
                         f"U+{selector:04X} selects {rune_name}'s {stance!r} in Mono, which draws it from the stance's base bitmap, but its rows are {', '.join(map(str, widths))} columns wide, not {MONO_COLUMNS}"
                     )
-                records[glyph] = _legacy_record(bitmap.rows, bitmap.y_offset)
+                records[glyph] = _glyph_record(bitmap.rows, bitmap.y_offset)
             plan, _drawing = surface.variation_plan(spec, cell)
             records[f"{glyph}.prop"] = _drawn(geometry.realize(spec, plan, name=glyph))
             letters[glyph] = rune_name

@@ -52,7 +52,6 @@ from engine.tools import memory_budget
 
 SPEC = fixtures.mini_spec()
 STAMP = "kernel-pinned-stamp"
-CONFIGS = {"default": frozenset(), "ss03": frozenset({"ss03"}), "ss04": frozenset({"ss04"})}
 CONFIG_COUNT = len(conform.SETTLEMENT_CONFIGS)
 
 
@@ -145,11 +144,6 @@ class Reached(Exception):
     """Raised from a stubbed stage to end a run the moment the arguments under test have arrived."""
 
 
-@pytest.fixture(scope="module")
-def products():
-    return {name: kernel_exec.enumerate_transitions(SPEC, features) for name, features in CONFIGS.items()}
-
-
 class TestTheInvocationInterface:
     def test_the_mode_flags_reflect_the_python_side_defaults(self, monkeypatch):
         for _flag, module, attribute in kernel_exec.MODE_FLAGS:
@@ -228,7 +222,7 @@ class TestTheInvocationInterface:
                 )
 
     def test_each_verb_waits_with_its_own_limit(self, monkeypatch, tmp_path):
-        """Each verb hands the call its own limit: `TIMEOUT` for `enumerate-configs`, `settle-cases` and `guard-sweep`; for `build-tables`, `build_tables_timeout` over the alphabet size its caller states; for `replay-strings`, `replay_timeout` over the spec's alphabet, the maximum length, the configurations, the width, and whether one last symbol narrows the walk. A call past its limit fails naming the limit and the verb."""
+        """Each verb hands the call its own limit: `TIMEOUT` for `settle-cases` and `guard-sweep`; for `build-tables`, `build_tables_timeout` over the alphabet size its caller states; for `replay-strings`, `replay_timeout` over the spec's alphabet, the maximum length, the configurations, the width, and whether one last symbol narrows the walk. A call past its limit fails naming the limit and the verb."""
         waited = []
 
         def run(arguments, verb, stdin=None, *, timeout):
@@ -246,7 +240,6 @@ class TestTheInvocationInterface:
         configs = conform.SETTLEMENT_CONFIGS
         case = kernel_exec.case_line(LeftContext("edge"), RightToken("letter", "qsMay"), (EDGE,) * 4)
         calls = [
-            lambda: kernel_exec.enumerate_configs(spec_path, tmp_path / "streams", ["default"], threads=1),
             lambda: kernel_exec.build_table_files(
                 kernel_io.spec_bytes(SPEC), tmp_path / "tables", configs, inputs=STAMP, threads=2, symbols=47
             ),
@@ -263,7 +256,6 @@ class TestTheInvocationInterface:
             with pytest.raises(kernel_exec.KernelRunError, match="gave no answer within"):
                 call()
         assert waited == [
-            ("enumerate-configs", kernel_exec.TIMEOUT),
             ("build-tables", kernel_exec.build_tables_timeout(47)),
             ("settle-cases", kernel_exec.TIMEOUT),
             ("guard-sweep", kernel_exec.TIMEOUT),
@@ -494,9 +486,7 @@ class TestTheInvocationInterface:
     def test_a_missing_binary_names_the_recipe_that_builds_one(self, monkeypatch, tmp_path):
         monkeypatch.setattr(kernel_exec, "BINARY", tmp_path / "ams-kernel")
         with pytest.raises(kernel_exec.KernelRunError) as raised:
-            kernel_exec.enumerate_configs(
-                tmp_path / "spec.json", tmp_path / "streams", ["default"], threads=1
-            )
+            kernel_exec._guard_verdicts(SPEC, tmp_path / "spec.json")
         assert "make kernel-build" in str(raised.value)
 
     def test_a_machine_without_cargo_names_the_remedy(self, monkeypatch):
@@ -932,27 +922,11 @@ def test_the_tables_stamp_appends_exactly_the_enumeration_tokens(monkeypatch):
     assert run_build.tables_inputs() == "+".join(["sources", *kernel_exec.enumeration_tokens()])
 
 
-@pytest.mark.parametrize("config", sorted(CONFIGS))
-class TestTheProductStandsAlone:
-    """Nothing folds a stream on this side, so each product is checked by itself: rows come in the key order `fold::assert_key_sorted` requires, with no duplicates, and every cell a row names is in the product. The rows' joint flags are the trace's `joint_tiebreak` before the prospect-divergence pass; the crate test `fold::tests::the_prospect_pass_raises_joints_and_clears_none` covers that pass."""
-
-    def test_the_stream_is_key_sorted_without_duplicates(self, products, config):
-        keys = [row.key for row in products[config].transitions]
-        assert keys == sorted(keys)
-        assert len(set(keys)) == len(keys)
-
-    def test_every_settled_cell_the_rows_name_is_in_the_product(self, products, config):
-        product = products[config]
-        for row in product.transitions:
-            assert row.settled.cell in product.cells
-            if row.left_settled is not None:
-                assert row.left_settled.cell in product.cells
-
-
-def test_the_default_configuration_enumerates_at_class_grain(products):
-    product = products["default"]
-    assert product.deep_classes
-    for token, members in product.deep_classes.items():
+def test_the_default_configuration_enumerates_at_class_grain():
+    """The mini fixture's `default` table, built as `build-tables` builds it, carries deep classes, each a content-addressed `#C` id standing for more than one letter."""
+    decision, _joins = kernel_exec.build_tables(SPEC, frozenset())
+    assert decision.deep_classes
+    for token, members in decision.deep_classes.items():
         assert token.startswith(table_module.DEEP_CLASS_PREFIX)
         assert len(members) > 1
 
@@ -1521,7 +1495,7 @@ class TestTheTableReuse:
         ]
         moved = [
             edited(
-                '    table_module.windows_path(tables_dir, config).unlink(missing_ok=True)\n    console.timing(f"pack_windows[{config}]"',
+                '    row_delta.commit(tables_dir, committed)\n    console.timing(f"pack_windows[{config}]"',
                 '    console.timing(f"pack_windows[{config}]"',
             ),
             edited(
@@ -1561,7 +1535,7 @@ def _open_descriptors() -> int:
 
 
 class TestThePayloadPath:
-    """Tests for where the crate writes a window payload: at the path a caller that names no other place leaves for it (`kernel_exec.windows_payload`), which the crate opens with `File::create`, or into the anonymous pipes `kernel_exec.stream_payloads` reads payloads through (`kernel_exec.PayloadPipes`), which stand at no path. `engine/test_run_build_tail.py` tests the build's packing through them, and `engine/test_scaling_sweep.py` the sweep's count."""
+    """Tests for where the crate writes a window payload: at the path a caller that names no other place leaves for it (`kernel_exec.windows_payload`), which the crate opens with `File::create`, or into the anonymous pipes `kernel_exec.stream_payloads` reads payloads through (`kernel_exec.PayloadPipes`), which stand at no path. `engine/test_run_build_tail.py` tests the build's packing through them, and `engine/test_memory_series.py` the memory series' count."""
 
     def test_the_crate_writes_its_payload_through_what_the_caller_put_at_the_path(self, tmp_path):
         """With nothing at the path, as a test leaves it, the crate writes the payload as a file whose head reads back under the build's stamp. With a symbolic link to the null device there, as a caller that wants no file there puts, the link is left as it was and nothing is written through it, and the build answers with the same digest and settlement table. The build is `default` over the mini fixture narrowed to ·Tea, ·May and ·It."""
@@ -2433,7 +2407,7 @@ class TestTheReplayStage:
         assert run_build.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)["pass"]
         first = capsys.readouterr().out
         assert (
-            f"[t] settle_memo_plan 0.0s segment_routes=0 base_routes={len(memos)} first={len(memos)} unusable=0 fold=0 adopting=0"
+            f"[t] settle_memo_plan 0.0s segment_routes=0 base_routes={len(memos)} first={len(memos)} unusable=0 fold=0"
             in first
         )
         bases = {}
@@ -2446,7 +2420,7 @@ class TestTheReplayStage:
         assert first.count("wrote=base reason=first") == len(memos)
         assert run_build.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)["pass"]
         second = capsys.readouterr().out
-        assert f"segment_routes={len(memos)} base_routes=0 first=0 unusable=0 fold=0 adopting=0" in second
+        assert f"segment_routes={len(memos)} base_routes=0 first=0 unusable=0 fold=0" in second
         assert second.count("wrote=head") == len(memos)
         for config, memo in memos.items():
             head = row_delta.read_head(tmp_path, memo.path.name)
@@ -2636,7 +2610,7 @@ class TestTheReplayStage:
         assert first["pass"] and first["families"] is None
         assert asked == [("absorbed", tuple(conform.SETTLEMENT_CONFIGS))]
         for memo in memos.values():
-            assert conform._write_settle_memo(memo, *conform._memo_columns([]))
+            assert conform._write_settle_memo_base(memo, *conform._memo_columns([]))
         again = run_build.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
         assert again["families"] == [] and not again["walked"] and len(asked) == 1
 
@@ -2646,7 +2620,7 @@ class TestTheReplayStage:
         assert asked[-1] == (edited["families"], None)
 
         restamped = replace(memos["ss03"], stamp="another")
-        assert conform._write_settle_memo(restamped, *conform._memo_columns([]))
+        assert conform._write_settle_memo_base(restamped, *conform._memo_columns([]))
         assert not conform.settle_memo_standing(memos["ss03"])
         widened = run_build.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
         assert widened["families"] is None and asked[-1] == ("absorbed", tuple(conform.SETTLEMENT_CONFIGS))
@@ -2735,15 +2709,23 @@ class TestTheReplayStage:
         table.write_text("\n".join(lines) + "\n")
         inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         standing = conform.settle_memo_files(out_dir, SPEC, inputs)["default"]
-        assert conform._write_settle_memo(standing, *conform._memo_columns([]))
-        before = (standing.path.read_bytes(), standing.path.stat().st_ino)
+        assert conform._write_settle_memo_base(standing, *conform._memo_columns([]))
+
+        def memo_files() -> dict[str, tuple[bytes, int]]:
+            return {
+                path.name: (path.read_bytes(), path.stat().st_ino) for path in out_dir.glob("settle-memo-*")
+            }
+
+        before = memo_files()
+        assert sorted(before) == sorted(
+            [row_delta.head_name(standing.path.name), row_delta.base_name(standing.path.name, 0)]
+        )
         summary = run_build.run_replay_strings(
             SPEC, out_dir, None, replay_threads=len(conform.SETTLEMENT_CONFIGS), memo_inputs=inputs
         )
         assert not summary["pass"] and summary["configs"] == {}
         assert "ss04" in summary["error"] and ".perturbed" in summary["error"]
-        assert (standing.path.read_bytes(), standing.path.stat().st_ino) == before
-        assert [path.name for path in out_dir.glob("settle-memo-*")] == [standing.path.name]
+        assert memo_files() == before
         assert not list(out_dir.glob("replay-windows-*")) and not list(out_dir.glob("*.tmp"))
 
     def test_a_settle_memo_file_that_cannot_be_moved_into_place_is_a_warning_and_the_others_move(
@@ -2767,7 +2749,7 @@ class TestTheReplayStage:
     def test_a_settle_memo_whose_tables_do_not_read_is_rewritten_whole_from_the_refill(
         self, tables_dir, tmp_path, capsys
     ):
-        """A single file whose header reads and whose tables do not, which a code change that renames a pickled class leaves, passes the plan's checks and is adopted onto the segment route. The compare's load refuses it, so the worker lays its refill out whole as an `unusable` base and the parent commits it through that route as the next generation's base: the single file and its link are gone, the memo stands, and its base is the file a replay into an empty tree writes, byte for byte."""
+        """A base whose header reads and whose tables do not, which a code change that renames a pickled class leaves, under a head that records its size and sha256, passes the plan's checks onto the segment route. The compare's load refuses it, so the worker lays its refill out whole as an `unusable` base and the parent commits it through that route as the next generation's base: the old base is gone, the memo stands, and its base is the file a replay into an empty tree writes, byte for byte."""
         inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         clean = self._tables(tables_dir, tmp_path / "clean")
         assert run_build.run_replay_strings(SPEC, clean, None, memo_inputs=inputs, configs=["default"])[
@@ -2775,24 +2757,27 @@ class TestTheReplayStage:
         ]
         out_dir = self._tables(tables_dir, tmp_path / "damaged")
         memo = conform.settle_memo_files(out_dir, SPEC, inputs)["default"]
-        assert conform._write_settle_memo(memo, *conform._memo_columns([]))
-        whole = memo.path.read_bytes()
-        header = conform._single_file_header(memo.path)
-        assert header is not None
-        (length,) = conform._MEMO_PREFIX.unpack_from(whole)
-        start = conform._memo_aligned(conform._MEMO_PREFIX.size + length)
-        memo.path.write_bytes(whole[:start] + bytes(header["tables"]) + whole[start + header["tables"] :])
+        assert conform._write_settle_memo_base(memo, *conform._memo_columns([]))
+        written = row_delta.read_head(out_dir, memo.path.name)
+        assert written is not None
+        base = out_dir / written.base.name
+        whole = base.read_bytes()
+        header, start = conform._memo_part_header(memoryview(whole))
+        base.write_bytes(whole[:start] + bytes(header["tables"]) + whole[start + header["tables"] :])
+        row_delta.commit(
+            out_dir, replace(written, base=replace(written.base, sha256=row_delta.file_sha256(base)))
+        )
         capsys.readouterr()
         summary = run_build.run_replay_strings(SPEC, out_dir, None, memo_inputs=inputs, configs=["default"])
         assert summary["pass"]
         printed = "".join(capsys.readouterr())
-        assert "settle_memo_plan" in printed and "segment_routes=1" in printed and "adopting=1" in printed
-        assert "wrote=base reason=unusable adopted=true" in printed
+        assert "settle_memo_plan" in printed and "segment_routes=1" in printed
+        assert "wrote=base reason=unusable" in printed
         head = row_delta.read_head(out_dir, memo.path.name)
         clean_head = row_delta.read_head(clean, memo.path.name)
         assert head is not None and clean_head is not None
         assert (head.generation, head.segments) == (1, ())
-        assert not memo.path.exists() and not (out_dir / row_delta.base_name(memo.path.name, 0)).exists()
+        assert not base.exists()
         assert conform.settle_memo_standing(memo)
         assert (out_dir / head.base.name).read_bytes() == (clean / clean_head.base.name).read_bytes()
 

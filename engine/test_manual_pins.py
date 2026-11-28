@@ -61,13 +61,13 @@ class TestGate:
 
 class TestScope:
     def test_the_missing_letters_are_the_quikscript_letters_the_alphabet_lacks(self, spec):
-        alphabet = manual_pins.migrated_alphabet(spec)
+        alphabet = manual_pins.spec_codepoints(spec)
         assert manual_pins.missing_letters(_pin("·May \\- ·Tea", "\ue665-\ue652"), alphabet) == set()
         narrowed = alphabet - {0xE665}
         assert manual_pins.missing_letters(_pin("·May | ·Tea", "\ue665\ue652"), narrowed) == {0xE665}
 
-    def test_migrated_alphabet_tracks_spec(self, spec):
-        alphabet = manual_pins.migrated_alphabet(spec)
+    def test_spec_codepoints_track_the_spec(self, spec):
+        alphabet = manual_pins.spec_codepoints(spec)
         assert {0x0020, 0x00B7, 0x200C} < alphabet
         for rune in spec.runes.values():
             if rune.codepoint is not None:

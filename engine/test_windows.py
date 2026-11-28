@@ -1,4 +1,4 @@
-"""Tests for the window rows the build writes, which later steps load instead of recomputing the fixpoint: each configuration's head file (`windows-<config>.head.json.gz`) and its rows, held as a base and segments under a windows head (`windows-<config>.tsv.gz.head`, `table`'s module docstring). `run_build.build_tables` reads each payload's head line with `read_windows(windows=False)`, which gives the witness stage its certificates. `run_build.serialized_tables` reads the head files through the one reader, `table.read_windows_head`, to give the conformance sweep and `--gates-only` their glyph inventory. The shipped-order walk (`kernel_exec.replay_emitted`) reads the full rows. The tests cover what the readers read back, the fingerprint guard that decides whether the files on disk can be loaded, keeping the rows out of the build's parent process, the rows that differ written as segments and their materialized form against a from-scratch build's (#618's decision 48), the routes decisions 74 and 75 settle, the adoption of a tree from before the segment format, and the contract that every reader of a table's head goes through the one reader.
+"""Tests for the window rows the build writes, which later steps load instead of recomputing the fixpoint: each configuration's head file (`windows-<config>.head.json.gz`) and its rows, held as a base and segments under a windows head (`windows-<config>.tsv.gz.head`, `table`'s module docstring). `run_build.build_tables` reads each payload's head line with `read_windows(windows=False)`, which gives the witness stage its certificates. `run_build.serialized_tables` reads the head files through the one reader, `table.read_windows_head`, to give the conformance sweep and `--gates-only` their glyph inventory. The shipped-order walk (`kernel_exec.replay_emitted`) reads the full rows. The tests cover what the readers read back, the fingerprint guard that decides whether the files on disk can be loaded, keeping the rows out of the build's parent process, the rows that differ written as segments and their materialized form against a from-scratch build's (#618's decision 48), the routes decisions 74 and 75 settle, among them the `first` route a configuration with no head takes whatever single file stands at its output's name, and the contract that every reader of a table's head goes through the one reader.
 
 Every fixture is a real build's artifact, because the crate writes the payload (`artifacts::write_windows`) and `run_build` packs it. A fixture that needs a different stamp rewrites the build's head file and commits its head over it through `restamp`.
 """
@@ -314,7 +314,7 @@ class TestBuildStageHandoff:
         assert sorted(path.name for path in tmp_path.glob("settlement-*"))
 
     def test_the_overlay_configuration_gets_no_table_and_a_stale_one_is_swept(self, build_a, tmp_path):
-        """Nothing settles under an overlay configuration, so the build writes no table for it and removes every file an earlier build left under its name: its tables, its windows head and head file, its parts, the staging files a killed build left of its head file and its parts, and the single file of a tree from before the segment format."""
+        """Nothing settles under an overlay configuration, so the build writes no table for it and removes every file an earlier build left under its name: its tables, its windows head and head file, its parts, and the staging files a killed build left of its head file and its parts."""
         out_dir, _tables, _digests = build_a
         for config in conform.OVERLAY_CONFIGS:
             assert not [path.name for path in out_dir.glob(f"*-{config}.*")]
@@ -350,11 +350,7 @@ class TestBuildStageHandoff:
             row_delta.base_name(table_module.windows_output(unsettled), 0),
         }
         assert "ss03" in conform.SETTLEMENT_CONFIGS
-        kept = [
-            tmp_path / "settlement-ss03.tsv",
-            tmp_path / "joins-ss03.tsv",
-            table_module.windows_path(tmp_path, "ss03"),
-        ]
+        kept = [tmp_path / "settlement-ss03.tsv", tmp_path / "joins-ss03.tsv"]
         for path in kept:
             path.write_bytes(f"{path.name} from another build\n".encode())
         run_build.build_tables(SPEC, tmp_path, inputs="fp-sources", configs=["default"])
@@ -452,43 +448,35 @@ class TestTheSegments:
         for config in conform.SETTLEMENT_CONFIGS:
             assert _materialized(out_dir, config) == before[config], config
 
-    def test_a_tree_from_before_the_segment_format_is_adopted_by_link_and_a_build_that_moves_no_row_writes_its_heads_alone(
+    def test_a_single_file_with_no_head_is_left_unread_and_the_build_writes_a_first_base(
         self, build_a, tmp_path, capsys
     ):
-        """A tree holding today's single file for each configuration and no head is adopted: the first build links each file as generation 0's base, which keeps its inode and modification time, merges against it, finds no row that differs, and writes only each configuration's head file and head, with no segment. The single file is gone once the head is in place, and the rows materialize as before."""
+        """A single file at each configuration's output name and no head, as a tree from before the segment format holds one: nothing reads it. Every configuration takes the `first` route and writes its whole payload afresh as generation 0's base, as a build into an empty directory does, and the single file, which no head lists and which is not a part, is left as it was."""
         whole, _tables, _digests = build_a
         out_dir = tmp_path / "tables"
         out_dir.mkdir()
-        before = {}
+        singles = {}
         for config in conform.SETTLEMENT_CONFIGS:
-            for name in (f"settlement-{config}.tsv", f"joins-{config}.tsv"):
-                shutil.copyfile(whole / name, out_dir / name)
-            before[config] = _materialized(whole, config)
-            single = table_module.windows_path(out_dir, config)
-            single.write_bytes(_packed(before[config], tmp_path, f"single-{config}"))
-        stats = {
-            config: table_module.windows_path(out_dir, config).stat() for config in conform.SETTLEMENT_CONFIGS
-        }
+            single = out_dir / table_module.windows_output(config)
+            single.write_bytes(_packed(_materialized(whole, config), tmp_path, f"single-{config}"))
+            singles[config] = (single.read_bytes(), single.stat().st_ino, single.stat().st_mtime_ns)
         capsys.readouterr()
         run_build.build_tables(SPEC, out_dir, inputs="fp-sources")
         output = capsys.readouterr().out
-        assert f"adopting={len(conform.SETTLEMENT_CONFIGS)}" in output
-        assert output.count("wrote=head adopted=true") == len(conform.SETTLEMENT_CONFIGS)
-        assert not list(out_dir.glob("*.delta"))
+        configs = len(conform.SETTLEMENT_CONFIGS)
+        assert f"segment_routes=0 base_routes={configs}" in output
+        assert output.count("wrote=base reason=first") == configs
         for config in conform.SETTLEMENT_CONFIGS:
-            assert not table_module.windows_path(out_dir, config).exists()
+            single = out_dir / table_module.windows_output(config)
+            assert (single.read_bytes(), single.stat().st_ino, single.stat().st_mtime_ns) == singles[config]
             head = _head(out_dir, config)
             assert (head.generation, head.segments) == (0, ())
-            base = (out_dir / head.base.name).stat()
-            assert (base.st_ino, base.st_mtime_ns) == (
-                stats[config].st_ino,
-                stats[config].st_mtime_ns,
-            ), config
-            assert _materialized(out_dir, config) == before[config]
+            assert (out_dir / head.base.name).stat().st_ino != singles[config][1]
+            assert _materialized(out_dir, config) == _materialized(whole, config), config
         assert run_build.serialized_tables(out_dir, "fp-sources") is not None
 
 
-# The functions outside engine/pipeline/table.py, the one reader of a configuration's table head (`table.read_windows_head`), allowed to name `read_windows`, `windows_path`, `windows_head_file` or `_head_file_bytes`, each with what it reads or names them for. None reads a configuration's table head from the disk: that is `read_windows_head`'s, which checks the head file against the windows head.
+# The functions outside engine/pipeline/table.py, the one reader of a configuration's table head (`table.read_windows_head`), allowed to name `read_windows`, `windows_head_file` or `_head_file_bytes`, each with what it reads or names them for. None reads a configuration's table head from the disk: that is `read_windows_head`'s, which checks the head file against the windows head.
 HEAD_NAME_READERS = {
     (
         "engine/pipeline/run_build.py",
@@ -497,27 +485,21 @@ HEAD_NAME_READERS = {
     (
         "engine/pipeline/run_build.py",
         "_pack_config",
-    ): "the head file it renames into place and the single file it deletes",
+    ): "the head file it renames into place",
     ("engine/pipeline/run_build.py", "_head_file_staging"): "the name the head file is staged under",
-    ("engine/pipeline/run_build.py", "_adopted_base"): "the single file it adopts",
-    ("engine/pipeline/run_build.py", "_route_of"): "whether a single file is there to adopt",
     ("engine/pipeline/run_build.py", "config_table_files"): "the files it names for a configuration",
     (
         "engine/pipeline/kernel_exec.py",
         "build_tables",
     ): "the plain payload of a build into its own scratch directory",
     ("engine/tools/artifact_cycle.py", "table_head_names"): "the head file whose existence it checks",
-    (
-        "engine/tools/perf_fingerprint.py",
-        "table_digests",
-    ): "the single file of a tree from before the segment format",
-    ("engine/tools/scaling_sweep.py", "counts"): "the head line of a payload read through its pipe",
+    ("engine/tools/memory_series.py", "counts"): "the head line of a payload read through its pipe",
 }
 
 
 def _head_reader_uses(path: Path) -> set[str]:
-    """Return the qualified names of the functions in `path` that name `read_windows`, `windows_path`, `windows_head_file` or `_head_file_bytes`, other than by defining them, as a name, an attribute or an import, aliased or not."""
-    names = {"read_windows", "windows_path", "windows_head_file", "_head_file_bytes"}
+    """Return the qualified names of the functions in `path` that name `read_windows`, `windows_head_file` or `_head_file_bytes`, other than by defining them, as a name, an attribute or an import, aliased or not."""
+    names = {"read_windows", "windows_head_file", "_head_file_bytes"}
     found: set[str] = set()
 
     def visit(node: ast.AST, scope: tuple[str, ...]) -> None:
@@ -543,7 +525,7 @@ def _head_reader_uses(path: Path) -> set[str]:
 
 
 def test_every_reader_of_a_tables_head_goes_through_the_one_reader():
-    """The contract the head file stands on: outside engine/pipeline/table.py, no engine/ module but the tests names `read_windows`, `windows_path`, `windows_head_file` or `_head_file_bytes`, by a use or an import under any alias, except the readers `HEAD_NAME_READERS` lists with their reasons, and each of those still does, so the list cannot go stale. Every other reader of a configuration's table head reads it through `table.read_windows_head`."""
+    """The contract the head file stands on: outside engine/pipeline/table.py, no engine/ module but the tests names `read_windows`, `windows_head_file` or `_head_file_bytes`, by a use or an import under any alias, except the readers `HEAD_NAME_READERS` lists with their reasons, and each of those still does, so the list cannot go stale. Every other reader of a configuration's table head reads it through `table.read_windows_head`."""
     from engine.tools import artifact_cycle
 
     closure = artifact_cycle.engine_gate_closure_files(REPO_ROOT)
