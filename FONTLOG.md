@@ -122,11 +122,6 @@ How variation selectors and ZWNJ changed:
   - ·Out+Tea: a pixel closer to ·Vie
 - Stop ·Thaw touching a ·May, ·Utter, or ·Out that goes on to join the next letter
 
-#### Website
-
-- Add a “Type by letter name” box to the demo page: type `·Day·Utter ·No·It` or `day.utter`, tick stylistic sets, and share the result by URL
-- Remove the Kerning page
-
 #### Not really user-facing, but…
 
 - Rename nearly every compiled glyph in Senior, and the alternates in all three fonts (`qsNo.flipped`, `qsUtter.alternate`, `qsOwe.sole.ss06`). This changes the names inside the font files but not how anything renders.
