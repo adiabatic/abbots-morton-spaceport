@@ -1,10 +1,10 @@
 # Speed and output readings for a change
 
-A change meant to shorten edit-to-READY (tracking issue #584) answers three questions: whether it is faster, whether its outputs are the same, and whether the gates still catch what they caught. Each is read here without paired timing, and nothing is written for it but a fingerprint and the fault kit's small-alphabet builds.
+A change meant to shorten edit-to-READY or to hold less memory answers three questions: whether it is faster, whether its outputs are the same, and whether the gates still catch what they caught. Each is read here without paired timing, and nothing is written for it but a fingerprint and the fault kit's small-alphabet builds.
 
 ## Speed: the live journal
 
-Every cycle pass appends its run line and step lines to `engine/out/cycle-timings.ndjson`. Read `make cycle-timings ARGS='--by-step'` and the phase lines on matched pass shapes before and after the change's commit, on the machine it lands on, and name each side's n. The passes are not paired and their edits differ, so a difference inside the spread of that shape's passes is reported as not separated, never as a speed-up or a slowdown. A change need not be faster; it reports what the journal shows and any trade by name.
+Every cycle pass appends its run line and step lines to `engine/out/cycle-timings.ndjson`. Read `make cycle-timings ARGS='--by-step'` and the phase lines on matched pass shapes before and after the change's commit, on the machine it lands on and within one power mode, and name each side's n. Low Power Mode slows every step, so `--by-step` keeps each mode's rows apart in its `power` column, and the default view's run header, above a pass's phase lines, names any mode but normal. The passes are not paired and their edits differ, so a difference inside the spread of that shape's passes is reported as not separated, never as a speed-up or a slowdown. A change need not be faster; it reports what the journal shows and any trade by name.
 
 ## Same output: the fingerprint
 

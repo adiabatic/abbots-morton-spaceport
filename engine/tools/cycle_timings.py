@@ -2,17 +2,17 @@
 
 The journal is engine/out/cycle-timings.ndjson. It is gitignored with the rest of engine/out and the retention pass does not prune it, so each machine keeps its own history. It holds four kinds of line.
 
-A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (engine.tools.engine_gate, engine.tools.make_test_gate, engine.tools.deep_replay, engine.tools.deep_sweep, and run_build's CLI) record their checks with no run. Each invocation is recorded by one process: run_build's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead, taking run_build's red from the `[check]` line the child prints (`console.CHECK`) when the summaries it left do not say why it stopped. A check line carries its own host, cpu count, and total memory, because most check lines have no run line to take them from. `make conform-deep`'s check line also carries each configuration's highest unit peak footprint beside the per-unit need its width was derived from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart. run_build's CLI also records an invocation that refused before any gate ran, such as a `--gates-only` refusal over the build on disk, as red with the status `REFUSED_STATUS`, so a refusal stays apart from both. run_build's own check line, from an invocation that built tables, also carries those phase lines as `inner`, in a step line's form: the crate's lines, the `kernel_build_tables` line with its record, and the `readback` line with the settlement lookup's figures, both described below.
+A "check" line records one evaluated check invocation: the check's name, the outcome (green, red, or skipped), the status string the evaluator printed, the failure messages the cycle adds to its summary, and the ids of the tests that failed. The artifact cycle tags each check it evaluates with its run id. The interactive entry points (engine.tools.engine_gate, engine.tools.make_test_gate, engine.tools.deep_replay, engine.tools.deep_sweep, and run_build's CLI) record their checks with no run. Each invocation is recorded by one process: run_build's CLI and make_test_gate, which a cycle spawns, record nothing when AMS_CYCLE_RUN (`CYCLE_RUN_ENV`) is set, and the cycle records their line instead, taking run_build's red from the `[check]` line the child prints (`console.CHECK`) when the summaries it left do not say why it stopped. A check line carries its own host, cpu count, total memory, and power mode (`power_mode`, as a run line records it), because most check lines have no run line to take them from. `make conform-deep`'s check line also carries each configuration's highest unit peak footprint beside the per-unit need its width was derived from. The outcome is what the evaluator decided, never the process's return code, so a run that died before its evaluator and a run the evaluator failed can be told apart. run_build's CLI also records an invocation that refused before any gate ran, such as a `--gates-only` refusal over the build on disk, as red with the status `REFUSED_STATUS`, so a refusal stays apart from both. run_build's own check line, from an invocation that built tables, also carries those phase lines as `inner`, in a step line's form: the crate's lines, the `kernel_build_tables` line with its record, and the `readback` line with the settlement lookup's figures, both described below.
 
 A "step" line records one subprocess the cycle spawned: the driver's step name (run_build, gate:conform, land, ...), the argv, the return code, the wall seconds, and the step's peak RSS in bytes. The driver measures the peak as it reaps the child (`peak_rss.reap_peak_rss_bytes`), and it is the largest of the child and its descendants. A step line from a metered pass also carries `written_bytes`, what the pass wrote from the step's spawn to its reap by the write meter (`write_meter`, read without the device at both ends), and `written_overlap`, the names of the steps whose windows overlapped it, empty for a window of its own. The build lane's steps run one after another, so a build step with no overlap reads its own writes, while a gate step, and a build step beside one, the corpus build among them, read the whole window's. A window that lost a reading, or whose figure fell to the device basis, carries neither field. The line also carries every `[t] <label> <secs>s` phase line parsed from the child's captured output, so the per-configuration conform sweeps and run_build's phases are kept even for steps whose output is not shown on the console. A phase line may end with a peak-RSS token `rss_gb=<n>` (`peak_rss.rss_token`), a current-RSS token `rss_now_gb=<n>` (`peak_rss.rss_now_token`) and a peak-footprint token `footprint_gb=<n>` (`peak_rss.footprint_token`), all in decimal GB, which are stored as `rss_gb`, `rss_now_gb` and `footprint_gb`. run_build's `[t] kernel_build_tables` line ends with the table build's record (`run_build.TableBuildRecord`) as `key=value` tokens, each stored under its key with the reader `TABLE_BUILD_TOKENS` names: the structure stamp (`structure`, `run_build.memo_structure_stamp`, which hashes the code `code` covers beside what else the crate reads apart from the runes' content and the classes' membership, so two builds with one `code` and different `structure`s differ in their spec, their mode set, or the stamp's own code in run_build.py or `spec_load.capability_features`), the digest of the code the table build runs (`code`, over `run_build.table_build_code_paths`, which an `ALPHABET` edit does not touch), the build's width (`width`), and the alphabet's rune count (`runes`), then with the `build-tables` process's own resident peak and peak footprint as `rss_gb` and `footprint_gb`, which the kernel-build row of `make job-costs` reads beside the step's peak. A run_build that reused the tables on disk instead of running the crate (`run_build.build_tables`) ends the line with `reused=true` alone, stored as a boolean under `reused`, and carries no record and no peaks. The journal is per machine, so two builds in one machine's journal with the same code digest and width, one on each side of an alphabet change, measure that change's growth in the table build. run_build's `[t] readback` line ends with the settlement lookup's size figures, each stored under its key with the reader `READBACK_TOKENS` names: HEAD's short commit id when the build ran (`commit`), the format-2 and format-3 subtable counts whose sum N the subtable-offset headroom is spent on (`settle_format2`, `settle_format3`), that headroom (`subtable_offset_headroom`), the GSUB lookup count (`gsub_lookups`), the merged rule count (`settle_rules`), and the largest packed group's rule bytes (`largest_group_rule_bytes`). The figures are the ones `readback_summary.json` holds, and they do not depend on the machine. run_build's `[t] replay_strings` line names the string replay's scope, `scope=full` when it walked every text and `scope=narrowed` when it walked only the texts of the changed runes, or none (`REPLAY_TOKENS`); older lines carry no such token, and their phase entries lack the key. gate:conform's `[t] conform_fan_in` line ends with the most the conformance sweep's units' settle memo segments held in shared memory at once while they waited for their absorbs, in decimal GB, stored as `memo_held_gb` (`FAN_IN_TOKENS`); those bytes count in no process's footprint while they wait, so no footprint token carries them. A step line has a return code and no outcome, and no reader here derives an outcome from it. A skipped stage spawns nothing and so writes no step line; the run line's plan and gates blocks say which stages were skipped.
 
-A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv. The plan block names the width of each pooled step (`make_test_workers`, `contracts_workers` and `conform_jobs`), null for a step the pass skipped; its `kernel_threads` and `replay_threads` are null only on a gates-only rerun. The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it.
+A "run" line is written when a cycle finishes, including an interrupted one. It carries the host, cpu count, total memory, power mode, start and finish stamps, total wall seconds, the cycle summary's exit, failures, gates, plan, and argv. The plan block names the width of each pooled step (`make_test_workers`, `contracts_workers` and `conform_jobs`), null for a step the pass skipped; its `kernel_threads` and `replay_threads` are null only on a gates-only rerun. The total memory is recorded because a step's peak read months later needs the size of the machine it ran on beside it. The field `power_mode` holds the Mac's power mode as `pmset -g` states it: 0 for the normal mode, 1 for Low Power Mode, 2 for High Power Mode on a machine that has it, and null when it cannot be read, as on a machine without `pmset` or in a sandbox that blocks it. The function of the same name reads it once per process, when the process writes its first run or check line, so a pass's run line and its check lines record one reading. It is recorded because Low Power Mode slows every step, so timings taken in two modes do not compare; a step line takes its run line's. Older run and check lines lack the field.
 
 A metered pass's run line also carries a `written` block, from the write meter's readings as the pass started and after every step had joined (`write_meter.delta`): `basis` (`own`, `shared` or `device`; the meter's docstring says what each means), `bytes` (the pass's writes, an upper bound in the shared basis and the device's in the device one), `diskio_bytes` (the coalition's `byteswritten`, which misses what the kernel flushes on its own), `outsiders_bytes` and `outsiders_unread` in the shared basis only, `review_server_bytes` (the review server's own writes over the pass, which `bytes` leaves out), `device_bytes` and `swap_bytes`, which `machine_wide` names as the whole machine's and neither of which is netted, `outputs`, what the writes that went through `output_sink`'s helper did over the pass, `class`, the pass's write class (`write_class`), and in the device basis the `warning` that says why. The `outputs` block sums the lines every process of the pass appended to the pass's counts file (`OUTPUT_COUNTS_ENV`, `sum_output_counts`): `files` and `bytes` written, `changed_bytes`, those written to outputs whose content changed, `kept_bytes`, those not written because an output came out the same, and `rewritten`, present only when there is one, the sorted names of the outputs held as a base and segments that a writer rewrote whole outside a fold, the share rule or an alphabet change (`output_sink.note_rewritten`); every other write shows only in the step lines' `written_bytes`. A pass with no helper call has no `outputs` block. The counts file is removed when the run line is written, by the cycle when a pass ends without one, and by the next pass when the driver was killed outright (`artifact_cycle.sweep_run_dirs`). The block is null on a pass whose first or last reading failed, and older run lines lack it. Beside the block, the cycle's run line carries `alphabet`, the build's alphabet (`alphabet.ALPHABET`): `sha256`, a digest of its code points, and `codepoints`, how many it holds (`alphabet_record`). Older run lines lack it, and some carry a null one. It sits beside the block so that a pass whose first or last reading failed still records it, since `write_class` compares it with the one the latest pass on this host that finished ok records (`previous_pass_alphabet`) to find a letter batch. Each write class has a ceiling on each host (`PASS_WRITE_CEILING_BYTES`, `write_ceiling`), and a pass over its class's ceiling prints a `[warn]` line and a summary line and never fails.
 
 A "pool" line records one finished worker pool: its unit name, width, and the controller's and every worker's peak, under `controller_peak_rss_bytes` and `worker_peak_rss_bytes` whichever line the writer reads, and `worker_reading`, which names the line its worker readings are (`resident` or `footprint`); an older line carries no `worker_reading`. A pytest controller writes one when AMS_POOL_UNIT (`POOL_UNIT_ENV`) is set, which the two gate wrappers and the cycle's pytest spawns do. run_build writes them for the string replay's walk and absorbs, the conformance sweep and its own process, and the deep replay for its walks. The worker readings of the replay's absorbs, the conformance sweep and run_build's own process are peak footprints (`peak_rss.peak_footprint_self_bytes`); every other reading is a resident peak. `load_pool_records` reads them, and `make job-costs` compares the peaks with the checked-in per-worker constants.
 
-The reporter is `make cycle-timings` (`uv run python -m engine.tools.cycle_timings`). By default it shows recent runs with steps slowest first, a run's header with its `written=` bytes (and `basis=` when it is not `own`) and a step's row with its window's `written=`, marked `+` when another step overlapped it. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step and host, beside the largest peak RSS and the median and largest window. `--writes` groups the metered run lines by host and write class, with each class's ceiling and how many runs went over it (`render_writes`). `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--by-commit` lists the settlement lookup's figures from every build that recorded them, by commit (`readback_readings`, `render_by_commit`). `--critical-path` reports, per host, pool policy and pass shape, which step ended each finished pass and how long its lane ran past the other lane, computed from the step lines (`critical_path`). `--journal` reads another journal, such as journals from two machines concatenated.
+The reporter is `make cycle-timings` (`uv run python -m engine.tools.cycle_timings`). By default it shows recent runs with steps slowest first, a run's header with its power mode when it is not normal (`low power`, `high power`, or `power mode unread` for a null; `power_label`) and its `written=` bytes (and `basis=` when it is not `own`), and a step's row with its window's `written=`, marked `+` when another step overlapped it. `--inner` expands the phase lines. `--by-step` reports count, median, max, and latest seconds per step, host and power mode, beside the largest peak RSS and the median and largest window; its `power` column names the mode, `unread` for a null and `unrecorded` for lines that lack the field. `--writes` groups the metered run lines by host and write class, with each class's ceiling and how many runs went over it (`render_writes`). `--by-outcome` reports, per check, how many times it ran, how it came out, and which test ids it failed on. `--by-commit` lists the settlement lookup's figures from every build that recorded them, by commit (`readback_readings`, `render_by_commit`). `--critical-path` reports, per host, power mode, pool policy and pass shape, which step ended each finished pass and how long its lane ran past the other lane, computed from the step lines (`critical_path`). `--journal` reads another journal, such as journals from two machines concatenated.
 
 The file, the module, and the `make cycle-timings` target keep the "cycle-timings" name although the cycle is not the only writer. The journal is per-machine and gitignored, so renaming the file would leave each machine's existing history behind.
 """
@@ -27,6 +27,7 @@ import os
 import re
 import socket
 import statistics
+import subprocess
 import sys
 import threading
 import time
@@ -70,6 +71,12 @@ PASS_WRITE_CEILING_BYTES: dict[str, int | None] = {
 }
 CEILING_PASSES = 3
 UNCLASSIFIED = "unclassified"
+# The command that prints this Mac's power settings, its `powermode` line among them (`power_mode`), and how long `_pmset_text` waits for it.
+PMSET = ("/usr/bin/pmset", "-g")
+PMSET_TIMEOUT_S = 10.0
+# The name the reports give each power mode `pmset -g` states (`power_label`); a mode not named here prints as `powermode <n>`.
+POWER_MODES = {0: "normal", 1: "low power", 2: "high power"}
+_POWER_MODE_LINE = re.compile(r"^[ \t]*powermode[ \t]+(\d+)\b", re.MULTILINE)
 
 _RSS_TOKEN = re.compile(r"\brss_gb=(\d+(?:\.\d+)?)")
 _RSS_NOW_TOKEN = re.compile(r"\brss_now_gb=(\d+(?:\.\d+)?)")
@@ -147,10 +154,47 @@ READBACK_FIGURES = tuple(name for name in READBACK_TOKENS if name != "commit")
 _JOURNAL_LOCK = threading.Lock()
 _pool_warn_state: list[bool] = [False]
 _check_warn_state: list[bool] = [False]
+# This process's power mode once `power_mode` has read it: empty until the first call, then the one reading every later call returns. engine/conftest.py pins it to null for every engine test, because reading it spawns `pmset`.
+_power_mode_read: list[int | None] = []
+_POWER_MODE_LOCK = threading.Lock()
 
 
 def _utc_stamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _pmset_text() -> str | None:
+    """Return what `pmset -g` (`PMSET`) prints, or None when the command is missing, fails, or does not finish within `PMSET_TIMEOUT_S`, as on a machine without it or in a sandbox that blocks it."""
+    try:
+        return subprocess.run(
+            list(PMSET), capture_output=True, text=True, check=True, timeout=PMSET_TIMEOUT_S
+        ).stdout
+    except OSError, subprocess.SubprocessError:
+        return None
+
+
+def parse_power_mode(text: str | None) -> int | None:
+    """Return the power mode a `pmset -g` text states on its `powermode` line: 0 for the normal mode, 1 for Low Power Mode, and 2 for High Power Mode on a machine that has it. The result is None when the text has no such line or the line's value is not a whole number. Only a line whose first word is `powermode` is read, so a `lowpowermode` line is not."""
+    found = _POWER_MODE_LINE.search(text or "")
+    return int(found.group(1)) if found else None
+
+
+def power_mode() -> int | None:
+    """Return this Mac's power mode (`parse_power_mode` over `_pmset_text`), or None when it cannot be read. The command runs once per process, at the first call, and every later call returns that reading, so a cycle pass's run line and its check lines record one mode and no line spawns a command of its own. Run lines and check lines record it as `power_mode`, because Low Power Mode slows every step and timings taken in two modes do not compare."""
+    with _POWER_MODE_LOCK:
+        if not _power_mode_read:
+            _power_mode_read.append(parse_power_mode(_pmset_text()))
+        return _power_mode_read[0]
+
+
+def power_label(entry: Mapping) -> str:
+    """Return the name a run or check line's power mode goes by in the reports: the mode's name in `POWER_MODES`, `powermode <n>` for a mode it does not name, `unread` for a line that records null, and `unrecorded` for a line without the field, which predates it. `--by-step` and `--critical-path` group by it, and the default view's run header prints it when it is not normal."""
+    if "power_mode" not in entry:
+        return "unrecorded"
+    value = entry["power_mode"]
+    if not isinstance(value, int) or isinstance(value, bool):
+        return "unread"
+    return POWER_MODES.get(value, f"powermode {value}")
 
 
 def _append_entry(path: Path, entry: dict) -> str | None:
@@ -240,7 +284,7 @@ def record_check(
 ) -> None:
     """Append one kind:"check" line for an evaluated check invocation. `run` is the optional parent run id: the artifact cycle passes it through `CycleTimings.record_check`, and an interactive entry point passes nothing. A check that runs its own pool can also record each worker's peak footprint (`peak_rss.peak_footprint_bytes`) and the need it was sized for, keyed by worker, as `make conform-deep` does per configuration, so a real run can be held against its estimate. `inner` is phase lines as `parse_inner_timings` returns them, which run_build's CLI passes for its table build.
 
-    The host, cpu count, and total memory are read here because most check lines have no run line to take them from, and so parented and unparented lines can be compared directly. `recordable` is not written. `elapsed_s` is rounded to a tenth, as step lines are. Nothing here raises, because the callers are gate wrappers and the cycle's reporting path, where an unwritable journal should warn once and never fail a check that already has a result. `path` is resolved at call time, not bound as a default, so a test that patches `JOURNAL` redirects this write too.
+    The host, cpu count, total memory, and power mode (`power_mode`) are read here because most check lines have no run line to take them from, and so parented and unparented lines can be compared directly. `recordable` is not written. `elapsed_s` is rounded to a tenth, as step lines are. Nothing here raises, because the callers are gate wrappers and the cycle's reporting path, where an unwritable journal should warn once and never fail a check that already has a result. `path` is resolved at call time, not bound as a default, so a test that patches `JOURNAL` redirects this write too.
     """
     journal = JOURNAL if path is None else path
     entry: dict = {
@@ -254,6 +298,7 @@ def record_check(
         "host": socket.gethostname(),
         "cpu_count": os.cpu_count(),
         "mem_total_bytes": memory_budget.total_memory_bytes(),
+        "power_mode": power_mode(),
         "finished_at": _utc_stamp(),
     }
     if run is not None:
@@ -562,6 +607,7 @@ class CycleTimings:
                 "host": self.host,
                 "cpu_count": os.cpu_count(),
                 "mem_total_bytes": memory_budget.total_memory_bytes(),
+                "power_mode": power_mode(),
                 "started_at": self.started_at,
                 "finished_at": _utc_stamp(),
                 "wall_s": round(time.perf_counter() - self._t0, 1),
@@ -792,6 +838,14 @@ def _written_bits(run: dict) -> list[str]:
     return bits
 
 
+def _power_bits(run: dict) -> list[str]:
+    """Return a run header's power-mode token (`power_label`): the mode's name when the pass ran in a mode other than normal, `power mode unread` when the line records null, and nothing for a normal pass or a run line that predates the field."""
+    label = power_label(run)
+    if label in ("normal", "unrecorded"):
+        return []
+    return ["power mode unread" if label == "unread" else label]
+
+
 def render_runs(
     runs: dict[str, dict],
     steps: dict[str, list[dict]],
@@ -817,6 +871,7 @@ def render_runs(
             mem = run.get("mem_total_bytes")
             if isinstance(mem, int | float):
                 bits.append(f"ram={format_gb(mem)}GB")
+            bits += _power_bits(run)
             bits += [
                 f"wall={_seconds(run.get('wall_s')):.1f}s",
                 f"exit={run.get('exit', '?')}",
@@ -848,17 +903,22 @@ def render_runs(
     return lines
 
 
-def render_by_step(steps: dict[str, list[dict]], order: list[str], checks: list[dict]) -> list[str]:
-    """Return the count, median, max, and latest seconds per step and host, over the cycle's step lines plus every check line recorded outside a cycle, with the largest peak RSS and the median and largest write-meter window (`written`, `maxwritten`) of the step lines that recorded them. A window is the pass's writes from the step's spawn to its reap, so one that another step overlapped holds that step's writes too. A check line with a run is left out, because the same run's step line already counts its seconds. A skipped check has no seconds and is left out too, so it does not pull a median toward zero, and so is a refused one (`REFUSED_STATUS`), whose seconds measure no check.
+def render_by_step(
+    runs: dict[str, dict], steps: dict[str, list[dict]], order: list[str], checks: list[dict]
+) -> list[str]:
+    """Return the count, median, max, and latest seconds per step, host, and power mode, over the cycle's step lines plus every check line recorded outside a cycle, with the largest peak RSS and the median and largest write-meter window (`written`, `maxwritten`) of the step lines that recorded them. A window is the pass's writes from the step's spawn to its reap, so one that another step overlapped holds that step's writes too. A check line with a run is left out, because the same run's step line already counts its seconds. A skipped check has no seconds and is left out too, so it does not pull a median toward zero, and so is a refused one (`REFUSED_STATUS`), whose seconds measure no check.
 
     A check line gets its own row, named `check:<name>`, because a check run alone on the machine and the same work run beside a whole cycle pass are different measurements. The prefix also keeps the check `run_build` apart from the step `run_build`. That check is recorded both for an interactive full build and for a seconds-long `run_build --gates-only`, and in the step's row it would make `latest` report the gates-only rerun as the most recent cost of a full build.
+
+    The `power` column beside the host keeps each power mode's timings in rows of their own (`power_label`), because Low Power Mode slows every step and a median over two modes measures neither. A step line takes its run line's mode, so the steps of a pass that left no run line group as `unrecorded` with the lines that predate the field, and a check line carries its own.
     """
-    buckets: dict[tuple[str, str], list[float]] = {}
-    rss_peaks: dict[tuple[str, str], list[float]] = {}
-    windows: dict[tuple[str, str], list[int]] = {}
+    buckets: dict[tuple[str, str, str], list[float]] = {}
+    rss_peaks: dict[tuple[str, str, str], list[float]] = {}
+    windows: dict[tuple[str, str, str], list[int]] = {}
     for run_id in order:
+        power = power_label(runs.get(run_id, {}))
         for step in steps.get(run_id, []):
-            key = (str(step.get("name", "?")), str(step.get("host", "?")))
+            key = (str(step.get("name", "?")), str(step.get("host", "?")), power)
             buckets.setdefault(key, []).append(_seconds(step.get("elapsed_s")))
             peak = step.get("peak_rss_bytes")
             if isinstance(peak, int | float):
@@ -874,29 +934,30 @@ def render_by_step(steps: dict[str, list[dict]], order: list[str], checks: list[
             or check.get("status") == REFUSED_STATUS
         ):
             continue
-        key = (f"check:{check.get('check', '?')}", str(check.get("host", "?")))
+        key = (f"check:{check.get('check', '?')}", str(check.get("host", "?")), power_label(check))
         buckets.setdefault(key, []).append(float(elapsed))
         peak = check.get("peak_rss_bytes")
         if isinstance(peak, int | float):
             rss_peaks.setdefault(key, []).append(float(peak))
     rows = [
-        (name, host, len(values), statistics.median(values), max(values), values[-1])
-        for (name, host), values in buckets.items()
+        (name, host, power, len(values), statistics.median(values), max(values), values[-1])
+        for (name, host, power), values in buckets.items()
     ]
-    rows.sort(key=lambda row: (-row[3], row[0], row[1]))
+    rows.sort(key=lambda row: (-row[4], row[0], row[1], row[2]))
     name_width = max([len(row[0]) for row in rows] + [len("step")])
     host_width = max([len(row[1]) for row in rows] + [len("host")])
+    power_width = max([len(row[2]) for row in rows] + [len("power")])
     lines = [
-        f"\n{'step':<{name_width}}  {'host':<{host_width}}  {'runs':>4}  {'median':>8}  {'max':>8}  {'latest':>8}  {'maxrss':>8}  {'written':>9}  {'maxwritten':>10}"
+        f"\n{'step':<{name_width}}  {'host':<{host_width}}  {'power':<{power_width}}  {'runs':>4}  {'median':>8}  {'max':>8}  {'latest':>8}  {'maxrss':>8}  {'written':>9}  {'maxwritten':>10}"
     ]
-    for name, host, count, median, peak, latest in rows:
-        recorded = rss_peaks.get((name, host))
+    for name, host, power, count, median, peak, latest in rows:
+        recorded = rss_peaks.get((name, host, power))
         maxrss = f"{format_gb(max(recorded))}GB" if recorded else ""
-        window = windows.get((name, host))
+        window = windows.get((name, host, power))
         written = _bytes_token(int(statistics.median(window))) if window else ""
         maxwritten = _bytes_token(max(window)) if window else ""
         lines.append(
-            f"{name:<{name_width}}  {host:<{host_width}}  {count:>4}  {median:>7.1f}s  {peak:>7.1f}s  {latest:>7.1f}s  {maxrss:>8}  {written:>9}  {maxwritten:>10}".rstrip()
+            f"{name:<{name_width}}  {host:<{host_width}}  {power:<{power_width}}  {count:>4}  {median:>7.1f}s  {peak:>7.1f}s  {latest:>7.1f}s  {maxrss:>8}  {written:>9}  {maxwritten:>10}".rstrip()
         )
     return lines
 
@@ -985,8 +1046,8 @@ def _median_make_test_workers(plans: list[dict]) -> str:
 
 
 def render_critical_path(runs: dict[str, dict], steps: dict[str, list[dict]]) -> list[str]:
-    """Return one row per host, pool policy and pass shape (`critical_path`) over every run line: the run count, the median margin by which the lane that ended the pass outlasted the other lane, the median wall, the median gate:make-test width (`unrecorded` for runs whose plan block predates the field), and how often each step ended last, most often first. A run line whose plan block lacks a pool policy is grouped under `unrecorded`, and a pass `critical_path` cannot rank is left out."""
-    groups: dict[tuple[str, str, str], list[tuple[dict, dict, dict]]] = {}
+    """Return one row per host, power mode (`power_label`), pool policy and pass shape (`critical_path`) over every run line: the run count, the median margin by which the lane that ended the pass outlasted the other lane, the median wall, the median gate:make-test width (`unrecorded` for runs whose plan block predates the field), and how often each step ended last, most often first. The power mode is a column of its own beside the host because Low Power Mode slows every step, so a median wall over two modes measures neither. A run line without a power mode is grouped under `unrecorded` in the power column, one whose plan block lacks a pool policy under `unrecorded` in the policy column, and a pass `critical_path` cannot rank is left out."""
+    groups: dict[tuple[str, str, str, str], list[tuple[dict, dict, dict]]] = {}
     for run_id, run in runs.items():
         path = critical_path(run, steps.get(run_id, []))
         if path is None:
@@ -995,12 +1056,13 @@ def render_critical_path(runs: dict[str, dict], steps: dict[str, list[dict]]) ->
         plan = plan if isinstance(plan, dict) else {}
         key = (
             str(run.get("host", "?")),
+            power_label(run),
             str(plan.get("pool_policy", "unrecorded")),
             "+".join(path["shape"]) or "none",
         )
         groups.setdefault(key, []).append((run, plan, path))
-    rows: list[tuple[str, str, str, str, str, str, str, str]] = []
-    for (host, policy, shape), members in sorted(groups.items()):
+    rows: list[tuple[str, str, str, str, str, str, str, str, str]] = []
+    for (host, power, policy, shape), members in sorted(groups.items()):
         margins = [path["margin_s"] for _, _, path in members if path["margin_s"] is not None]
         walls = [float(run["wall_s"]) for run, _, _ in members if isinstance(run.get("wall_s"), int | float)]
         tally: dict[str, int] = {}
@@ -1012,6 +1074,7 @@ def render_critical_path(runs: dict[str, dict], steps: dict[str, list[dict]]) ->
         rows.append(
             (
                 host,
+                power,
                 policy,
                 shape,
                 str(len(members)),
@@ -1021,12 +1084,12 @@ def render_critical_path(runs: dict[str, dict], steps: dict[str, list[dict]]) ->
                 ended,
             )
         )
-    header = ("host", "policy", "shape", "runs", "margin", "wall", "make-test workers", "ended last")
+    header = ("host", "power", "policy", "shape", "runs", "margin", "wall", "make-test workers", "ended last")
     widths = [max(len(row[column]) for row in [header, *rows]) for column in range(len(header) - 1)]
     lines: list[str] = []
     for index, row in enumerate([header, *rows]):
         cells = [
-            cell.rjust(width) if column in (3, 4, 5, 6) else cell.ljust(width)
+            cell.rjust(width) if column in (4, 5, 6, 7) else cell.ljust(width)
             for column, (cell, width) in enumerate(zip(row, widths))
         ]
         lines.append(("\n" if index == 0 else "") + "  ".join([*cells, row[-1]]))
@@ -1213,12 +1276,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--by-step",
         action="store_true",
-        help="aggregate across all recorded runs: count, median, max, and latest seconds per step and host, the largest peak RSS, and the median and largest bytes written over the step's window, with an interactive check's own timings in rows of their own named check:<name>",
+        help="aggregate across all recorded runs: count, median, max, and latest seconds per step, host and power mode (normal, low power, high power, unread when the mode could not be read, unrecorded for lines that predate it), the largest peak RSS, and the median and largest bytes written over the step's window, with an interactive check's own timings in rows of their own named check:<name>",
     )
     parser.add_argument(
         "--critical-path",
         action="store_true",
-        help="aggregate across every finished run whose run line carries its start stamp, from their step lines; an interrupted run is left out. Per host, pool policy and pass shape (which of run_build, corpus-build and gate:make-test ran): how often each step ended last, the median margin by which the lane that ended the pass outlasted the other lane, the median wall, and the median gate:make-test width",
+        help="aggregate across every finished run whose run line carries its start stamp, from their step lines; an interrupted run is left out. Per host, power mode, pool policy and pass shape (which of run_build, corpus-build and gate:make-test ran): how often each step ended last, the median margin by which the lane that ended the pass outlasted the other lane, the median wall, and the median gate:make-test width",
     )
     parser.add_argument(
         "--by-commit",
@@ -1247,7 +1310,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.by_commit:
         body = render_by_commit(readback_readings(args.journal))
     elif args.by_step:
-        body = render_by_step(steps, order, checks)
+        body = render_by_step(runs, steps, order, checks)
     elif args.critical_path:
         body = render_critical_path(runs, steps)
     elif args.writes:

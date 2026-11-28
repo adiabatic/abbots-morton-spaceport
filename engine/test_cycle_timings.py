@@ -319,6 +319,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
     assert entry["host"] == timings.host
     assert entry["cpu_count"] == os.cpu_count()
     assert entry["mem_total_bytes"] == memory_budget.total_memory_bytes()
+    assert entry["power_mode"] == ct.power_mode()
     assert entry["started_at"] == timings.started_at
     assert entry["wall_s"] >= 0.0
     for key in ("exit", "interrupted", "failures", "gates", "plan", "argv"):
@@ -343,6 +344,113 @@ def test_finish_defaults_missing_summary_keys_to_null(tmp_path):
             "alphabet",
         )
     )
+
+
+# What `pmset -g` prints on the M5 Pro MacBook Pro (`doc/fleet.md`) in Low Power Mode. The other shapes swap its `powermode` line (`_POWERMODE_LINE`) for another.
+PMSET_TEXT = """System-wide power settings:
+Currently in use:
+ standby              1
+ Sleep On Power Button 1
+ hibernatefile        /var/vm/sleepimage
+ powernap             1
+ networkoversleep     0
+ disksleep            10
+ sleep                0 (sleep prevented by caffeinate, powerd)
+ hibernatemode        3
+ ttyskeepawake        1
+ displaysleep         10
+ tcpkeepalive         1
+ powermode            1
+ womp                 1
+"""
+_POWERMODE_LINE = " powermode            1\n"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param(PMSET_TEXT, 1, id="low-power"),
+        pytest.param(PMSET_TEXT.replace(_POWERMODE_LINE, " powermode            0\n"), 0, id="normal"),
+        pytest.param(PMSET_TEXT.replace(_POWERMODE_LINE, " powermode            2\n"), 2, id="high-power"),
+        pytest.param(PMSET_TEXT.replace(_POWERMODE_LINE, ""), None, id="no-powermode-line"),
+        pytest.param(
+            PMSET_TEXT.replace(_POWERMODE_LINE, " lowpowermode         1\n"), None, id="lowpowermode"
+        ),
+        pytest.param(
+            PMSET_TEXT.replace(_POWERMODE_LINE, " powermode            high\n"), None, id="not-a-number"
+        ),
+        pytest.param(PMSET_TEXT.replace(_POWERMODE_LINE, " powermode\n"), None, id="no-value"),
+        pytest.param("pmset: command not found\n", None, id="garbage"),
+        pytest.param("", None, id="empty"),
+        pytest.param(None, None, id="no-text"),
+    ],
+)
+def test_parse_power_mode_reads_the_powermode_line(text, expected):
+    """The mode is the whole number on the line whose first word is `powermode`, whatever the settings around it: 0 normal, 1 Low Power Mode, 2 High Power Mode. A text without that line, or with a value that is not a whole number, has no mode, and a `lowpowermode` line is not read as one."""
+    assert ct.parse_power_mode(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("argv", "timeout_s"),
+    [
+        pytest.param(("{tmp}/missing-pmset", "-g"), ct.PMSET_TIMEOUT_S, id="missing"),
+        pytest.param((sys.executable, "-c", "raise SystemExit(1)"), ct.PMSET_TIMEOUT_S, id="fails"),
+        pytest.param((sys.executable, "-c", "import time; time.sleep(30)"), 0.5, id="times-out"),
+    ],
+)
+def test_the_pmset_shim_reads_nothing_from_a_command_that_is_missing_fails_or_hangs(
+    tmp_path, monkeypatch, argv, timeout_s
+):
+    """A machine without `pmset`, or a sandbox that blocks it, gives no text, and neither does a run that fails or does not finish in time, so the line records the mode as null and the writer never raises."""
+    monkeypatch.setattr(ct, "PMSET", tuple(part.format(tmp=tmp_path) for part in argv))
+    monkeypatch.setattr(ct, "PMSET_TIMEOUT_S", timeout_s)
+    assert ct._pmset_text() is None
+
+
+def test_power_mode_reads_what_pmset_prints(monkeypatch):
+    monkeypatch.setattr(ct, "_power_mode_read", [])
+    monkeypatch.setattr(ct, "PMSET", (sys.executable, "-c", "print(' powermode            2')"))
+    assert ct._pmset_text() == " powermode            2\n"
+    assert ct.power_mode() == 2
+
+
+def test_power_mode_runs_pmset_once_per_process_and_only_run_and_check_lines_carry_it(tmp_path, monkeypatch):
+    """The first call reads the mode and every later call returns that reading, so a pass's run line and its check lines record one mode and no line spawns a command of its own. A step line takes its run line's mode and a pool line has no use for it, so neither carries the field. engine/conftest.py pins the reading for every other test, because a spawn marks a test's inputs untraced."""
+    calls: list[None] = []
+
+    def pmset_text():
+        calls.append(None)
+        return PMSET_TEXT
+
+    monkeypatch.setattr(ct, "_power_mode_read", [])
+    monkeypatch.setattr(ct, "_pmset_text", pmset_text)
+    path = tmp_path / "j.ndjson"
+    timings = ct.CycleTimings(path)
+    timings.record_step(_result(), ["prog"])
+    timings.record_check(_check_result())
+    ct.record_check(_check_result(check="engine-contracts"), path=path)
+    ct.record_pool("make-test", width=1, worker_peaks={}, controller_peak_bytes=0, path=path)
+    timings.finish({})
+    assert ct.power_mode() == 1
+    assert len(calls) == 1
+    assert [(entry["kind"], entry.get("power_mode", "absent")) for entry in _lines(path)] == [
+        ("step", "absent"),
+        ("check", 1),
+        ("check", 1),
+        ("pool", "absent"),
+        ("run", 1),
+    ]
+
+
+def test_a_power_mode_that_cannot_be_read_is_recorded_as_null(tmp_path, monkeypatch):
+    """A run or check line whose mode could not be read records the field as null, which the reports keep apart from a line that predates the field."""
+    monkeypatch.setattr(ct, "_power_mode_read", [])
+    monkeypatch.setattr(ct, "_pmset_text", lambda: None)
+    path = tmp_path / "j.ndjson"
+    ct.record_check(_check_result(), path=path)
+    ct.CycleTimings(path).finish({})
+    recorded = [(entry["kind"], entry["power_mode"]) for entry in _lines(path)]
+    assert recorded == [("check", None), ("run", None)]
 
 
 def test_wrap_spawn_records_each_steps_written_window_and_the_steps_that_overlapped_it(tmp_path):
@@ -614,19 +722,21 @@ def test_record_check_writes_one_parentless_check_line(tmp_path):
         "host": socket.gethostname(),
         "cpu_count": os.cpu_count(),
         "mem_total_bytes": memory_budget.total_memory_bytes(),
+        "power_mode": ct.power_mode(),
         "finished_at": entry["finished_at"],
     }
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", entry["finished_at"])
 
 
 def test_a_check_line_carries_its_own_machine_context(tmp_path):
-    """A check line records its own host, cores, and memory, because an interactive check has no run line to say which machine it ran on."""
+    """A check line records its own host, cores, memory, and power mode, because an interactive check has no run line to say which machine it ran on or in which mode."""
     path = tmp_path / "j.ndjson"
     ct.record_check(_check_result(), path=path)
     (entry,) = _lines(path)
     assert entry["host"] == socket.gethostname()
     assert entry["cpu_count"] == os.cpu_count()
     assert entry["mem_total_bytes"] == memory_budget.total_memory_bytes()
+    assert entry["power_mode"] == ct.power_mode()
 
 
 def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
@@ -1044,6 +1154,37 @@ def test_main_default_view_prints_what_each_run_and_step_wrote(tmp_path, capsys)
     assert out.count("written=") == 3
 
 
+def test_main_default_view_names_a_power_mode_other_than_normal(tmp_path, capsys):
+    """A run header names Low Power Mode and High Power Mode plainly and says when the mode could not be read. A normal pass and a run line that predates the field show nothing."""
+
+    def run(index, **power):
+        return {
+            "kind": "run",
+            "run": f"r{index}",
+            "host": "h1",
+            "cpu_count": 8,
+            "started_at": f"2026-01-0{index}T00:00:00Z",
+            "wall_s": 1.0,
+            "exit": "ok",
+            **power,
+        }
+
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [run(1, power_mode=1), run(2, power_mode=2), run(3, power_mode=0), run(4, power_mode=None), run(5)],
+    )
+    assert ct.main(["--journal", str(path)]) == 0
+    headers = [line for line in capsys.readouterr().out.splitlines() if "host=h1" in line]
+    assert headers == [
+        "2026-01-01T00:00:00Z  host=h1  cpus=8  low power  wall=1.0s  exit=ok",
+        "2026-01-02T00:00:00Z  host=h1  cpus=8  high power  wall=1.0s  exit=ok",
+        "2026-01-03T00:00:00Z  host=h1  cpus=8  wall=1.0s  exit=ok",
+        "2026-01-04T00:00:00Z  host=h1  cpus=8  power mode unread  wall=1.0s  exit=ok",
+        "2026-01-05T00:00:00Z  host=h1  cpus=8  wall=1.0s  exit=ok",
+    ]
+
+
 def test_main_inner_flag_expands_phase_lines(tmp_path, capsys):
     path = _view_journal(tmp_path)
     assert ct.main(["--journal", str(path), "--inner"]) == 0
@@ -1198,8 +1339,8 @@ def test_main_by_step_aggregates_median_max_latest(tmp_path, capsys):
     )
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"step\s+host\s+runs\s+median\s+max\s+latest\s+maxrss", out)
-    assert re.search(r"gate:conform\s+h1\s+4\s+2\.5s\s+8\.0s\s+3\.0s", out)
+    assert re.search(r"step\s+host\s+power\s+runs\s+median\s+max\s+latest\s+maxrss", out)
+    assert re.search(r"gate:conform\s+h1\s+unrecorded\s+4\s+2\.5s\s+8\.0s\s+3\.0s", out)
 
 
 def test_main_by_step_reports_the_max_recorded_rss_per_step(tmp_path, capsys):
@@ -1231,8 +1372,8 @@ def test_main_by_step_reports_the_max_recorded_rss_per_step(tmp_path, capsys):
     )
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"build\s+h1\s+3\s+2\.0s\s+3\.0s\s+3\.0s\s+8\.94GB", out)
-    assert re.search(r"merge\s+h1\s+1\s+0\.5s\s+0\.5s\s+0\.5s\s*$", out, re.MULTILINE)
+    assert re.search(r"build\s+h1\s+unrecorded\s+3\s+2\.0s\s+3\.0s\s+3\.0s\s+8\.94GB", out)
+    assert re.search(r"merge\s+h1\s+unrecorded\s+1\s+0\.5s\s+0\.5s\s+0\.5s\s*$", out, re.MULTILINE)
 
 
 def test_main_by_step_reports_each_steps_median_and_largest_written_window(tmp_path, capsys):
@@ -1248,7 +1389,9 @@ def test_main_by_step_reports_each_steps_median_and_largest_written_window(tmp_p
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
     assert re.search(r"maxrss\s+written\s+maxwritten$", out, re.MULTILINE)
-    assert re.search(r"^land\s+h1\s+4\s+1\.0s\s+1\.0s\s+1\.0s\s+3\.0MB\s+50\.0MB$", out, re.MULTILINE)
+    assert re.search(
+        r"^land\s+h1\s+unrecorded\s+4\s+1\.0s\s+1\.0s\s+1\.0s\s+3\.0MB\s+50\.0MB$", out, re.MULTILINE
+    )
 
 
 def test_main_writes_groups_metered_runs_by_host_and_class_against_each_ceiling(tmp_path, capsys):
@@ -1324,8 +1467,12 @@ def test_main_by_step_gives_an_interactive_check_a_row_of_its_own(tmp_path, caps
     path = _check_timing_journal(tmp_path)
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"^gate:make-test\s+h1\s+1\s+200\.0s\s+200\.0s\s+200\.0s", out, re.MULTILINE)
-    assert re.search(r"^check:make-test\s+h1\s+2\s+110\.0s\s+120\.0s\s+120\.0s", out, re.MULTILINE)
+    assert re.search(
+        r"^gate:make-test\s+h1\s+unrecorded\s+1\s+200\.0s\s+200\.0s\s+200\.0s", out, re.MULTILINE
+    )
+    assert re.search(
+        r"^check:make-test\s+h1\s+unrecorded\s+2\s+110\.0s\s+120\.0s\s+120\.0s", out, re.MULTILINE
+    )
 
 
 def test_main_by_step_counts_neither_a_parented_check_nor_a_skipped_one(tmp_path, capsys):
@@ -1333,7 +1480,7 @@ def test_main_by_step_counts_neither_a_parented_check_nor_a_skipped_one(tmp_path
     path = _check_timing_journal(tmp_path)
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
-    row = re.search(r"^check:make-test\s+h1\s+(\d+)\s", out, re.MULTILINE)
+    row = re.search(r"^check:make-test\s+h1\s+unrecorded\s+(\d+)\s", out, re.MULTILINE)
     assert row is not None and row.group(1) == "2"
 
 
@@ -1350,8 +1497,61 @@ def test_main_by_step_keeps_the_run_build_check_out_of_the_run_build_build_row(t
     )
     assert ct.main(["--journal", str(path), "--by-step"]) == 0
     out = capsys.readouterr().out
-    assert re.search(r"^build\s+h1\s+2\s+610\.0s\s+620\.0s\s+620\.0s", out, re.MULTILINE)
-    assert re.search(r"^check:build\s+h1\s+1\s+9\.0s\s+9\.0s\s+9\.0s", out, re.MULTILINE)
+    assert re.search(r"^build\s+h1\s+unrecorded\s+2\s+610\.0s\s+620\.0s\s+620\.0s", out, re.MULTILINE)
+    assert re.search(r"^check:build\s+h1\s+unrecorded\s+1\s+9\.0s\s+9\.0s\s+9\.0s", out, re.MULTILINE)
+
+
+def test_main_by_step_keeps_each_power_mode_apart(tmp_path, capsys):
+    """Low Power Mode slows every step, so each mode gets rows of its own beside the host. A step takes its run line's mode and an interactive check carries its own. A null mode groups as unread, and lines that predate the field, with the steps of a pass that left no run line, group as unrecorded."""
+
+    def step(run_id, elapsed):
+        return {"kind": "step", "run": run_id, "host": "h1", "name": "build", "rc": 0, "elapsed_s": elapsed}
+
+    def check(elapsed, **power):
+        return {
+            "kind": "check",
+            "host": "h1",
+            "check": "make-test",
+            "outcome": "green",
+            "elapsed_s": elapsed,
+            **power,
+        }
+
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            step("r1", 100.0),
+            {"kind": "run", "run": "r1", "host": "h1", "power_mode": 0},
+            step("r2", 300.0),
+            {"kind": "run", "run": "r2", "host": "h1", "power_mode": 1},
+            step("r3", 120.0),
+            {"kind": "run", "run": "r3", "host": "h1", "power_mode": 0},
+            step("r4", 200.0),
+            {"kind": "run", "run": "r4", "host": "h1"},
+            step("r5", 210.0),
+            step("r6", 150.0),
+            {"kind": "run", "run": "r6", "host": "h1", "power_mode": None},
+            check(90.0, power_mode=1),
+            check(60.0, power_mode=0),
+            check(70.0),
+        ],
+    )
+    assert ct.main(["--journal", str(path), "--by-step"]) == 0
+    rows = [
+        re.split(r"\s{2,}", line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith(("build", "check:"))
+    ]
+    assert rows == [
+        ["build", "h1", "low power", "1", "300.0s", "300.0s", "300.0s"],
+        ["build", "h1", "unrecorded", "2", "205.0s", "210.0s", "210.0s"],
+        ["build", "h1", "unread", "1", "150.0s", "150.0s", "150.0s"],
+        ["build", "h1", "normal", "2", "110.0s", "120.0s", "120.0s"],
+        ["check:make-test", "h1", "low power", "1", "90.0s", "90.0s", "90.0s"],
+        ["check:make-test", "h1", "unrecorded", "1", "70.0s", "70.0s", "70.0s"],
+        ["check:make-test", "h1", "normal", "1", "60.0s", "60.0s", "60.0s"],
+    ]
 
 
 def _outcome_journal(tmp_path):
@@ -1413,7 +1613,7 @@ def test_main_by_outcome_reads_check_lines_only(tmp_path, capsys):
 def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_policy_and_shape(
     tmp_path, capsys
 ):
-    """The last step and its margin come from the step lines alone, leaving out the job-costs step that runs once every lane has joined. The margin runs to the other lane's last step, so a queued gate is measured against the build lane rather than against gate:make-test before it, and a build-lane step against the gates rather than against the build step before it. Passes group by host, pool policy and pass shape, and a run whose plan block predates `make_test_workers` reads as unrecorded."""
+    """The last step and its margin come from the step lines alone, leaving out the job-costs step that runs once every lane has joined. The margin runs to the other lane's last step, so a queued gate is measured against the build lane rather than against gate:make-test before it, and a build-lane step against the gates rather than against the build step before it. Passes group by host, power mode, pool policy and pass shape, and a run whose plan block predates `make_test_workers` reads as unrecorded. These run lines carry no power mode, so every row's power column reads unrecorded too."""
 
     def stamp(seconds):
         return (datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)).strftime(
@@ -1478,6 +1678,7 @@ def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_
     assert rows == [
         [
             "h1",
+            "unrecorded",
             "overlap",
             "build+corpus-build+gate:make-test",
             "1",
@@ -1489,6 +1690,7 @@ def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_
         ],
         [
             "h1",
+            "unrecorded",
             "queue",
             "build+corpus-build+gate:make-test",
             "2",
@@ -1500,7 +1702,7 @@ def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_
             "gate:make-test",
             "1",
         ],
-        ["h1", "queue", "corpus-build", "1", "110.0s", "151.0s", "unrecorded", "land", "1"],
+        ["h1", "unrecorded", "queue", "corpus-build", "1", "110.0s", "151.0s", "unrecorded", "land", "1"],
     ]
 
 
@@ -1554,6 +1756,64 @@ def test_critical_path_ranks_overlapping_build_lane_steps_by_their_ends(tmp_path
         "gate:engine-contracts",
         53.0,
     )
+
+
+def test_critical_path_keeps_each_power_mode_apart(tmp_path, capsys):
+    """Passes of one host, pool policy and shape group by power mode too, in a column beside the host, because a median wall over two modes measures neither. A run line that predates the field groups as unrecorded."""
+
+    def stamp(seconds):
+        return (datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+
+    def run(run_id, wall, **power):
+        return [
+            {
+                "kind": "step",
+                "run": run_id,
+                "host": "h1",
+                "name": "build",
+                "elapsed_s": wall - 1,
+                "finished_at": stamp(wall - 1),
+            },
+            {
+                "kind": "step",
+                "run": run_id,
+                "host": "h1",
+                "name": "gate:js",
+                "elapsed_s": 10,
+                "finished_at": stamp(10),
+            },
+            {
+                "kind": "run",
+                "run": run_id,
+                "host": "h1",
+                "started_at": stamp(0),
+                "wall_s": wall,
+                "plan": {"pool_policy": "queue"},
+                **power,
+            },
+        ]
+
+    path = tmp_path / "j.ndjson"
+    _write_journal(
+        path,
+        [
+            *run("a", 100, power_mode=0),
+            *run("b", 300, power_mode=1),
+            *run("c", 120, power_mode=0),
+            *run("d", 200),
+        ],
+    )
+    assert ct.main(["--journal", str(path), "--critical-path"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert re.match(r"host\s+power\s+policy\s+shape\s+runs", lines[lines.index("") + 1])
+    rows = [re.split(r"\s{2,}", line) for line in lines if line.startswith("h1")]
+    assert rows == [
+        ["h1", "low power", "queue", "build", "1", "289.0s", "300.0s", "unrecorded", "build 1"],
+        ["h1", "normal", "queue", "build", "2", "99.0s", "110.0s", "unrecorded", "build 2"],
+        ["h1", "unrecorded", "queue", "build", "1", "189.0s", "200.0s", "unrecorded", "build 1"],
+    ]
 
 
 def test_parse_inner_timings_finds_every_label_when_two_branches_interleave():

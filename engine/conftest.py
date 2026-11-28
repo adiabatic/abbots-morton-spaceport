@@ -464,6 +464,8 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     `cycle_timings.OUTPUT_COUNTS_ENV` (AMS_OUTPUT_COUNTS) is removed the same way, and `pytest_configure` removes it before any fixture runs, the session fixtures among them. An engine suite a cycle runs inherits the pass's counts file, which is under var/cycle/, so a test's write through `output_sink`'s helper would count toward the pass and trip the guard; `artifact_cycle.main` sets it on this process too.
 
+    The power mode that run and check lines record (`cycle_timings.power_mode`) is pinned to null, because reading it spawns `pmset` and a spawn marks the item's inputs untraced (`_audit`). The mode is read once per process, so without the pin the item marked would be whichever one first wrote a run or check line in its worker, and which items the contracts lane can skip would depend on the order the tests ran in. A test that reads the mode patches `cycle_timings._power_mode_read` back to an empty list.
+
     Three steps delete stale artifacts before rebuilding them: the unlink of run_build's three summaries and of gate:conform's summary, each just before its subprocess spawns, and the retention pass. Redirecting the constants covers the unlinks. Retention prunes the build logs under `cycle_paths.BUILD_LOGS_ROOT`, which the redirect covers, and it is switched off as well (`cycle_paths.RETENTION_ENABLED`), so `_finish` records a retention result with no lines and a test reaching a green finish with `record_greens` set prunes nothing. A test that wants the real retention calls `artifact_cycle.run_retention` with a plan whose `artifact_cycle.ROOT` points somewhere disposable, and a test asserting that `_finish` reaches retention sets the switch back on and patches `run_retention`. The readiness checklist is switched off the same way (`cycle_paths.READINESS_ENABLED`), because it reads the served corpus and the root autosave; a test asserting that `_finish` prints it sets the switch and patches `readiness_block`. The reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus is switched off too (`cycle_paths.REVIEW_RELOAD_ENABLED`), because it goes to the live port and would reload the reviewer's open tabs.
 
     Every constant is patched on `cycle_paths` and not on the cycle driver, because this file must not import the driver (the module docstring says why). The driver reads each of these through `cycle_paths.<NAME>` at call time, so the patch reaches it.
@@ -483,6 +485,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
     monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", False)
     monkeypatch.setattr(cycle_paths, "REVIEW_RELOAD_ENABLED", False)
     monkeypatch.setattr(cycle_timings, "JOURNAL", tmp_path / "cycle-timings.ndjson")
+    monkeypatch.setattr(cycle_timings, "_power_mode_read", [None])
     for name in (cycle_timings.CYCLE_RUN_ENV, cycle_timings.OUTPUT_COUNTS_ENV):
         monkeypatch.setenv(name, "")
         monkeypatch.delenv(name)

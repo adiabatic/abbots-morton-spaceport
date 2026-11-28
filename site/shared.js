@@ -164,11 +164,9 @@ export function initToggles(opts = {}) {
 
 export function initHighlights(opts = {}) {
   const storageKey = opts.storageKey || 'ams-highlights';
-  const clearButton = opts.clearButtonId && document.getElementById(opts.clearButtonId);
   const tables = document.querySelectorAll(opts.tableSelector || '.pairings');
   const wordLists = opts.wordListSelector ? document.querySelectorAll(opts.wordListSelector) : [];
   const passages = opts.passageSelector ? document.querySelectorAll(opts.passageSelector) : [];
-  const cellPathFn = opts.cellPathFn || null;
 
   function loadHighlights() {
     try {
@@ -193,11 +191,9 @@ export function initHighlights(opts = {}) {
     return `${tableIndex}-${rowIndex}-${cellIndex}`;
   }
 
-  const getCellPath = cellPathFn || defaultCellPath;
 
   for (const path of highlighted) {
     if (path.startsWith('dt-')) continue;
-    if (cellPathFn) continue;
     const [ti, ri, ci] = path.split('-').map(Number);
     const td = tables[ti]?.rows[ri]?.cells[ci];
     if (td) td.classList.add('highlighted');
@@ -208,7 +204,7 @@ export function initHighlights(opts = {}) {
       const td = e.target.closest('td');
       if (!td || td.isContentEditable) return;
       td.classList.toggle('highlighted');
-      const path = getCellPath(td);
+      const path = defaultCellPath(td);
       if (td.classList.contains('highlighted')) {
         highlighted.add(path);
       } else {
@@ -288,9 +284,6 @@ export function initHighlights(opts = {}) {
     saveHighlights(highlighted);
   }
 
-  if (clearButton) {
-    clearButton.addEventListener('click', clearAllHighlights);
-  }
 
   return { clearAllHighlights, highlighted, loadHighlights, saveHighlights };
 }
