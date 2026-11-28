@@ -22,7 +22,7 @@ from engine.pipeline import (
     spec_load,
 )
 from engine.review import build, landing
-from engine.tools import artifact_cycle, cycle_timings, fault_kit, scaling_series
+from engine.tools import artifact_cycle, cycle_timings, fault_kit
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SMALL = "qsTea, qsUtter,qsDay_qsUtter,qsDay"
@@ -39,26 +39,21 @@ def whole_spec():
 
 
 def test_the_switch_narrows_the_default_spec_to_the_named_runes(monkeypatch, whole_spec):
-    """The whole store loads and resolves before the narrowing, so the registry, its predicate classes and every kept rune's resolved records are the whole store's, and the runes kept are the ones `scaling_series.sub_spec` keeps for the same names: ·Tea·Oy, whose ·Oy is not named, is left out."""
+    """The whole store loads and resolves before the narrowing, so the registry, its predicate classes and every kept rune's resolved records are the whole store's, and the runes kept are exactly the ones named: ·Tea·Oy, whose ·Tea is named, is left out."""
     monkeypatch.setenv(spec_load.RUNES_ENV, SMALL)
     small = spec_load.load_default_spec()
     assert tuple(sorted(small.runes)) == SMALL_RUNES
     assert list(small.runes) == [name for name in whole_spec.runes if name in SMALL_RUNES]
     assert small.registry == whole_spec.registry
     assert all(small.runes[name] == whole_spec.runes[name] for name in SMALL_RUNES)
-    cut = scaling_series.sub_spec(whole_spec, list(SMALL_RUNES), len(SMALL_RUNES))
-    assert small.runes == cut.runes
-    assert small.narrowed and cut.narrowed and not whole_spec.narrowed
+    assert small.narrowed and not whole_spec.narrowed
 
 
 def test_a_spec_holding_every_rune_of_the_store_is_not_narrowed(whole_spec):
-    """A cut is marked narrowed (`model.ResolvedSpec.narrowed`), the mark the kern stage reads to leave stale records to the whole alphabet's build, when it holds fewer runes than its input or its input is already narrowed: naming every rune of the store, or cutting the series at its whole size, gives a spec the kern stage treats as the whole alphabet, and narrowing a narrowed spec again keeps the mark."""
+    """A spec is marked narrowed (`model.ResolvedSpec.narrowed`), the mark the kern stage reads to leave stale records to the whole alphabet's build, when it holds fewer runes than its input or its input is already narrowed: naming every rune of the store gives a spec the kern stage treats as the whole alphabet, and narrowing a narrowed spec again keeps the mark."""
     assert not spec_load.narrowed(whole_spec, whole_spec.runes).narrowed
-    order = scaling_series.series_order(whole_spec)
-    assert not scaling_series.sub_spec(whole_spec, order, len(order)).narrowed
     small = spec_load.narrowed(whole_spec, SMALL_RUNES)
     assert spec_load.narrowed(small, SMALL_RUNES).narrowed
-    assert scaling_series.sub_spec(small, list(SMALL_RUNES), len(SMALL_RUNES)).narrowed
 
 
 @pytest.mark.parametrize(

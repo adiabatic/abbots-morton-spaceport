@@ -1,36 +1,34 @@
-"""The memory series: measure what the table build and the string replay hold and write at each of several alphabet cuts, one heavy process at a time, so a change that claims a term is flat shows it across the cuts instead of at the whole alphabet alone. It measures one holder a run, which `--holder` picks: the table build (`tables`, the default), whose step the paragraphs up to "The replay step" describe, or the string replay (`replay`), whose step "The replay step" describes.
+"""The memory series: measure what the table build or the string replay holds in memory, takes in CPU time and writes to disk on the whole alphabet, the spec `spec_load.load_default_spec` loads. A run measures one holder once, which `--holder` picks: the table build (`tables`, the default), whose step the paragraphs up to "The replay step" describe, or the string replay (`replay`), whose step "The replay step" describes.
 
-Each table step is one `build-tables` over the configurations named (every settlement configuration unless `--configs` narrows them) on one alphabet cut, at the flags a bare run_build derives on this machine (`bare_flags`, as `run_build.build_tables` derives them with nothing beside the build: the width and how many deltas start from scratch beside `default`), unless `--kernel-threads` or `--scratch-beside-default` states one. Every step runs the same flags, so the cuts differ only in their alphabet. The cut is `scaling_series.sub_spec`'s, over `scaling_series.series_order`, the rule the alphabet switch (`spec_load.RUNES_ENV`) narrows by too, so a line's `alphabet` is what that switch takes to build the same cut in a tree of the fault kit's kind. The sizes default to `SIZES` below the whole alphabet and the whole alphabet itself, so the largest line is the live build's; positional arguments name other rune counts, and a count named twice is measured twice.
+The table step is one `build-tables` over the configurations named (every settlement configuration unless `--configs` narrows them) on the whole alphabet, at the flags a bare run_build derives on this machine (`bare_flags`, as `run_build.build_tables` derives them with nothing beside the build: the width and how many deltas start from scratch beside `default`), unless `--kernel-threads` or `--scratch-beside-default` states one.
 
-A step's build writes no file. Each configuration's windows payload goes through a pipe the crate inherits, named to it as `--windows=<config>=/dev/fd/<number>`, and is counted as it arrives (`scan`, through `kernel_exec.stream_payloads`, in `run_piped`), so it stands at no path; the bytes counted must be the bytes the crate answers it wrote (`counts`). The settlement and joins paths are symbolic links to the null device, which the crate opens with `File::create`, which does not truncate it. The crate's stdout and stderr come back through pipes. The `--inputs` stamp is `STAMP_PREFIX` and the rune count, so one cut hashes the same from run to run.
+The step's build writes no file. Each configuration's windows payload goes through a pipe the crate inherits, named to it as `--windows=<config>=/dev/fd/<number>`, and is counted as it arrives (`scan`, through `kernel_exec.stream_payloads`, in `run_piped`), so it stands at no path; the bytes counted must be the bytes the crate answers it wrote (`counts`). The settlement and joins paths are symbolic links to the null device, which the crate opens with `File::create`, which does not truncate it. The crate's stdout and stderr come back through pipes. The `--inputs` stamp is `STAMP_PREFIX` and the rune count, so the same alphabet hashes the same from run to run.
 
-A table line holds, beside `step` (`tables`) and the cut (`runes`, `letters`, `ligs`, `configs`, the two flags and `modes`, the settlement modes `kernel_exec.mode_flags` passes):
+A table line holds, beside `step` (`tables`), the alphabet's size (`runes`, and of them `letters` and `ligs`), `configs`, the two flags and `modes`, the settlement modes `kernel_exec.mode_flags` passes:
 
 - `wall_s` and `cpu_s`: the child's wall time and its own user and system time, from the rusage `os.wait4` reaps it with.
 - `peak_resident` and `peak_footprint`: the child's resident peak from that rusage and its lifetime peak footprint, read between its exit and its reap as `peak_rss.reap_peaks_bytes` reads it. This module reaps the child itself, because that function discards the rusage the CPU figure comes from.
 - `start`, `peak` and `end`: a sampler thread reads the child's resident set and footprint (`peak_rss.resident_bytes`, `peak_rss.footprint_bytes`) and the machine (`read_machine`: swap in use, `peak_rss.swap_used_bytes`; the compressor's occupancy, `peak_rss.parse_compressor_bytes`, and the swapout count, `peak_rss.parse_swapouts`, both over `vm_stat`; and the internal SSD's write counter, as the write meter reads it) every `--interval` seconds. `start` is the machine just before the spawn, `peak` the sample whose footprint was highest, and `end` the machine once the child is reaped beside the last sample's child figures, whose footprint reads None when that sample caught the child exiting (`peak_rss.footprint_bytes`). `compressor_max` and `swap_used_max` are the highest of every reading, and `samples` how many the sampler took.
 - `windows`: each configuration's `[windows, rules, cells]`, counted from its payload as `counts` counts them. `digests`: each configuration's table digest from the child's stdout.
 - `phases`: the child's `[t]` lines, label to seconds. `tables`: the `[c]` lines that give a collection's length and capacity, as `[len, cap, load]` by configuration and collection, the load being length over capacity. `resident`: the `[c]` lines that give a resident size, in bytes. `stats`: every other `[c]` line's fields (`cache_lines` says how a line is keyed).
-- `written`: the write meter's fields (`engine/tools/write_meter.py`). The meter is read with the device `--idle-seconds` before the step and again just before the child's spawn, which gives the device's idle rate (`idle_rate`); then once the child is reaped and every payload's pipe drained (`end`), and again `--after-seconds` after that (`after`), since a write the kernel defers and the swap the pressure leaves reach the device late. Each of the two blocks reads from the reading just before the spawn: `basis`, `written` (the coalition's logical writes, `WriteDelta.bytes`), `diskio`, `device`, `device_net` (the device's delta less the idle rate over the same seconds), `swap` (the VM volume's writes), `swapouts` (the `vm_stat` swapout delta from `start`), `seconds`, and the meter's `warning` when it has one. `vm.swapusage` lags and does not fall back once the pressure ends, so the swapout delta is the swap reading a step owns. The window from that reading to `end` holds the build and the machine reading before its spawn, and nothing on the disk for the payloads, whose pipes have no path; it holds neither the step directory's making, with its links, nor its removal. Before the first step's idle reading the run flushes its own setup's writes (the crate's build, the binary's copy, the spec dumps, the index refresh `git describe` makes and the record's truncation) with `os.sync` and waits `SETTLE_S` for them to reach the device, so the first step's idle rate holds none of them. A basis other than `own` or a warning also prints a `[warn]` line.
-- `alphabet` (the cut's rune names), `cpus` and `ram` (`memory_budget.usable_cores` and `total_memory_bytes`, which `doc/fleet.md` matches to a machine; no hostname is recorded), `head` (the commit, with `-dirty` after it when tracked files have changed) and `finished_at`.
+- `written`: the write meter's fields (`engine/tools/write_meter.py`). The meter is read with the device `--idle-seconds` before the step and again just before the child's spawn, which gives the device's idle rate (`idle_rate`); then once the child is reaped and every payload's pipe drained (`end`), and again `--after-seconds` after that (`after`), since a write the kernel defers and the swap the pressure leaves reach the device late. Each of the two blocks reads from the reading just before the spawn: `basis`, `written` (the coalition's logical writes, `WriteDelta.bytes`), `diskio`, `device`, `device_net` (the device's delta less the idle rate over the same seconds), `swap` (the VM volume's writes), `swapouts` (the `vm_stat` swapout delta from `start`), `seconds`, and the meter's `warning` when it has one. `vm.swapusage` lags and does not fall back once the pressure ends, so the swapout delta is the swap reading a step owns. The window from that reading to `end` holds the build and the machine reading before its spawn, and nothing on the disk for the payloads, whose pipes have no path; it holds neither the step directory's making, with its links, nor its removal. Before the step's idle reading the run flushes its own setup's writes (the crate's build, the binary's copy, the spec dump, the index refresh `git describe` makes and the record's rewrite) with `os.sync` and waits `SETTLE_S` for them to reach the device, so the idle rate holds none of them. A basis other than `own` or a warning also prints a `[warn]` line.
+- `alphabet` (the rune names measured), `cpus` and `ram` (`memory_budget.usable_cores` and `total_memory_bytes`, which `doc/fleet.md` matches to a machine; no hostname is recorded), `head` (the commit, with `-dirty` after it when tracked files have changed) and `finished_at`.
 
-The lines' writes read in the own basis only when nothing outside the series shares its resource coalition, which is what `make memory-series` gives it: it runs the series as a one-shot launchd job's own process (`engine/tools/job_launch.py`), as `make fault-kit` runs the kit, and follows its log in `tmp/memory-series.log`. Run another way, the series still runs, and each line's basis says what its figure is.
+A line's writes read in the own basis only when nothing outside the run shares its resource coalition, which is what `make memory-series` gives it: it runs the series as a one-shot launchd job's own process (`engine/tools/job_launch.py`), as `make fault-kit` runs the kit, and follows its log in `tmp/memory-series.log`. Run another way, the series still runs, and the line's basis says what its figure is.
 
-The series works in its own tree, `TREE_PATH` under this checkout's `var/perf/`, never in the live tree, and empties it as a run starts (`empty_tree`). For the table holder `prepare_tree` then copies the crate's release binary into it once `kernel_exec.cargo_build` has built it, so a crate rebuilt elsewhere during the series changes nothing it measures, and every cut's spec dump (`spec-r<runes>.json`) is written there before the first step, so a rune edited during the series changes nothing either. Each table step's directory, `r<runes>`, holds only its links to the null device and is removed when the step ends. A run holds `<tree>.lock` beside the tree (`store_lock.hold_flock`) and refuses when another run holds it, since two series would share the tree and each other's memory. It refuses too while the alphabet switch is set, because the series cuts its alphabets from the whole store itself; it never sets the switch. SIGINT, SIGTERM and SIGHUP stop a run as they stop a cycle pass (`artifact_cycle.stop_signals`), which matters because `job_launch` forwards each to the series alone: the running step's child is killed, the step's directory is removed, the lock is released, and the run exits with 128 plus the signal's number.
+The series works in its own tree, `TREE_PATH` under this checkout's `var/perf/`, never in the live tree, and empties it as a run starts (`empty_tree`). For the table holder `prepare_tree` then copies the crate's release binary into it once `kernel_exec.cargo_build` has built it, so a crate rebuilt elsewhere during the run changes nothing it measures, and the spec dump (`SPEC_DUMP`) is written there before the step, so a rune edited during the run changes nothing either. The table step's directory, `tables`, holds only its links to the null device and is removed when the step ends. A run holds `<tree>.lock` beside the tree (`store_lock.hold_flock`) and refuses when another run holds it, since two runs would share the tree and each other's memory. It refuses too while the alphabet switch (`spec_load.RUNES_ENV`) is set, because the switch narrows the spec `load_default_spec` loads, so the line would measure the switch's small alphabet and take the place of the whole alphabet's line in the record; it never sets the switch. SIGINT, SIGTERM and SIGHUP stop a run as they stop a cycle pass (`artifact_cycle.stop_signals`), which matters because `job_launch` forwards each to the series alone: the running step's child is killed, the step's directory is removed, the lock is released, and the run exits with 128 plus the signal's number.
 
-Each line prints to stdout as its step finishes and goes to `--out`, `OUT_PATH` by default, the record of each holder's last run, a file in the working tree that git does not track. The readings a constant's comment argues from are kept under `var/keep/`, where the comment cites them. A run replaces only its own holder's lines and fit there and keeps the other holder's as the file held them, holders in `HOLDERS` order (`Record`), rewriting the file as each line finishes. After a table run's last step both get the whole-series fit against runes of the windows, the peak footprint and resident, the CPU time and the first configuration's table lengths (`report`), the lengths rather than the table bytes, because a hash table's bytes move in doublings.
+The line prints to stdout once measured and goes to `--out`, `OUT_PATH` by default, under `var/keep/`, which git does not track and which holds what outlives a run; the run makes the record's directory when it is missing. The record holds each holder's last line. A run drops its own holder's earlier line there before it measures and writes its own once measured, and keeps the other holder's line as the file held it, holders in `HOLDERS` order (`Record`). The readings a constant's comment argues from are kept under `var/keep/` too, in the files the comment cites.
 
-The replay step measures a full string replay as run_build runs one (`run_build.replay_and_absorb`): every configuration named (every settlement configuration unless `--configs` narrows them) walked over every text to `run_build.REPLAY_MAX_LENGTH`, one `replay-strings` process a configuration at most `--replay-threads` at once (the width a bare run_build derives, `run_build._replay_threads`, by default), each beside the spawn worker that absorbs its window memo from a pipe the crate inherits into the settle memo's columns, builds its index and holds the finished part until every walk has passed, or below the configuration count drops it at once while a walk still waits for a slot. The series' tree holds no settle memo, so every absorb takes the `first` route and lays its refill out as a whole base, today's file byte for byte (`conform.SettleMemoRoute`). The cuts default to `REPLAY_SIZES` below the whole alphabet and the whole alphabet; positional arguments name others, and a count named twice is measured twice. For each distinct cut the run first builds the tables once, unmeasured (`build_replay_tables`): one `build-tables` at the table holder's flags whose settlement and joins tables are written plain under `<tree>/replay/r<runes>/`, since the walks read them, about 0.05 GB a cut, and whose windows payloads are drained from pipes (`run_piped`); it writes the cut's spec dump and a pickle of the cut beside the tree's other spec dumps, and removes the tables as the run ends, however it ends. Each line then runs the replay in a child, `engine/tools/memory_series_child.py`'s `replay` entry, so the absorb workers import run_build's modules and the child's and not this module's. The child runs in `child_environment`, without the allocator setting, and takes this process's built kernel as its own (`--built`), so no `cargo build` runs inside a line. KERNEL_ALLOCATOR_ENVIRONMENT reaches the walks alone, as in run_build, since `kernel_exec.replay_memo_walk` adds it to each crate's environment and the absorb workers are Python processes: each crate runs with `--cache-stats`, and each absorb hashes its finished part's bytes in order and then discards it, as a red replay does, so a line writes no settle memo and commits no head. The walks and absorbs run the checkout's crate binary and code, as run_build's do.
+The replay step measures a full string replay as run_build runs one (`run_build.replay_and_absorb`): every configuration named (every settlement configuration unless `--configs` narrows them) walked over every text to `run_build.REPLAY_MAX_LENGTH`, one `replay-strings` process a configuration at most `--replay-threads` at once (the width a bare run_build derives, `run_build._replay_threads`, by default), each beside the spawn worker that absorbs its window memo from a pipe the crate inherits into the settle memo's columns, builds its index and holds the finished part until every walk has passed, or below the configuration count drops it at once while a walk still waits for a slot. The series' tree holds no settle memo, so every absorb takes the `first` route and lays its refill out as a whole base, today's file byte for byte (`conform.SettleMemoRoute`). The run first writes the spec dump and a pickle of the spec into the tree (`SPEC_DUMP`, `SPEC_PICKLE`) and builds the tables once, unmeasured (`build_replay_tables`): one `build-tables` at the table holder's flags whose settlement and joins tables are written plain under `<tree>/replay/`, since the walks read them, about 0.07 GB, and whose windows payloads are drained from pipes (`run_piped`); it removes the tables as the run ends, however it ends. The line then runs the replay in a child, `engine/tools/memory_series_child.py`'s `replay` entry, so the absorb workers import run_build's modules and the child's and not this module's. The child runs in `child_environment`, without the allocator setting, and takes this process's built kernel as its own (`--built`), so no `cargo build` runs inside the line. KERNEL_ALLOCATOR_ENVIRONMENT reaches the walks alone, as in run_build, since `kernel_exec.replay_memo_walk` adds it to each crate's environment and the absorb workers are Python processes: each crate runs with `--cache-stats`, and each absorb hashes its finished part's bytes in order and then discards it, as a red replay does, so a line writes no settle memo and commits no head. The walks and absorbs run the checkout's crate binary and code, as run_build's do.
 
-A replay line holds, beside `step` (`replay`), the cut (`runes`, `letters`, `ligs`, `alphabet`), `configs`, `width`, `max_length` and `modes` (the settlement flags the walks take):
+A replay line holds, beside `step` (`replay`), the alphabet (`runes`, `letters`, `ligs`, `alphabet`), `configs`, `width`, `max_length` and `modes` (the settlement flags the walks take):
 
 - `walks`: for each configuration, the walk's `counts`; its crate process's `peak_resident`, `peak_footprint` and `cpu_s` under `walk`, from the rusage `os.wait4` reaps it with and its footprint read before the reap (`peak_rss.ReapedPeaks`); its absorb worker's own `peak_resident`, `peak_footprint` and `cpu_s` under `absorb`, which the worker reads of itself as it ends, beside the absorbed file's `rows`, `bytes` and `sha256`, the seconds its read and index took and any warning; `pair`, the walk's crate and its absorb worker summed at each sample, the highest resident sum and the highest footprint sum; `phases`, the walk's `[t]` lines; and `cache`, from its `[c]` lines (`replay_cache`): the unit count, the largest unit's tables and its resident size after its release, the side memo, the row store and `resident_after_walk`.
 - `combined`: every walk's crate and every absorb worker summed at each sample, the highest resident sum and the highest footprint sum, and `start`, `peak` and `end` as a table line holds them, the peak being the sample of the highest combined footprint, with `compressor_max`, `swap_used_max`, `samples`, `interval_s` and `wall_s`. The sampler reads the machine and every process below the child every `--interval` seconds (`_ReplayTree`), and tells each walk's crate by the configuration its command line names and each absorb worker by the pid its walk reports.
 - `written`, as a table line holds it, and `cpus`, `ram`, `head` and `finished_at`.
 
-After a replay run's last line the record and stdout get the fit against runes of the windows, the walk, absorb, pair and combined peaks, the walks' CPU time, the row store and the largest unit's walk memo (`replay_report`).
-
-Run as: make memory-series ARGS='[--holder tables] [k ...] [--configs a,b] [--kernel-threads N] [--scratch-beside-default N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]' or ARGS='--holder replay [k ...] [--configs a,b] [--replay-threads W] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]'.
+Run as: make memory-series ARGS='[--holder tables] [--configs a,b] [--kernel-threads N] [--scratch-beside-default N] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]' or ARGS='--holder replay [--configs a,b] [--replay-threads W] [--idle-seconds S] [--after-seconds S] [--interval S] [--out FILE]'.
 """
 
 from __future__ import annotations
@@ -39,7 +37,6 @@ import argparse
 import ctypes
 import functools
 import json
-import math
 import os
 import pickle
 import re
@@ -59,21 +56,16 @@ from typing import IO, Any, NamedTuple
 from engine.pipeline import conform, kernel_exec, kernel_io, run_build, spec_load, table
 from engine.pipeline.model import ResolvedSpec
 from engine.review import store_lock
-from engine.tools import (
-    artifact_cycle,
-    memory_budget,
-    peak_rss,
-    scaling_series,
-    write_meter,
-)
+from engine.tools import artifact_cycle, memory_budget, peak_rss, write_meter
 from engine.tools.console import INNER_LINE
 from engine.tools.scratch_build import configs_from
 
 ROOT = Path(__file__).resolve().parents[2]
 TREE_PATH = "var/perf/series"
-OUT_PATH = "engine/memory-series.txt"
+OUT_PATH = "var/keep/memory-series.txt"
 BINARY_NAME = "ams-kernel"
-SIZES = (34, 38, 41, 43, 44, 45)
+SPEC_DUMP = "spec.json"
+SPEC_PICKLE = "spec.pickle"
 IDLE_S = 60.0
 AFTER_S = 300.0
 SETTLE_S = 10.0
@@ -93,7 +85,6 @@ HOLDER_OF_STEP = {
     TABLES: TABLES,
     REPLAY_STEP: REPLAY,
 }
-REPLAY_SIZES = (34, 38, 41)
 CHILD_PIDS_MAX = 4096
 
 
@@ -142,11 +133,6 @@ class ChildRun:
     begin: Machine
     samples: tuple[Sample, ...]
     end: Machine
-
-
-def default_sizes(count: int, sizes: Sequence[int] = SIZES) -> list[int]:
-    """The rune counts a run cuts at when none is named: `count`, the whole alphabet's size, and each of `sizes` below it, `SIZES` for the table holder and `REPLAY_SIZES` for the replay holder."""
-    return sorted({*(size for size in sizes if size < count), count})
 
 
 def bare_flags(
@@ -350,7 +336,7 @@ class Scan(NamedTuple):
 
 
 def scan(source: IO[bytes]) -> Scan:
-    """Read one payload to its end and return its head line, its column line, how many lines follow them and how many bytes it read in all (`Scan`). The body is counted a chunk at a time instead of loaded, so this process never holds a cut's millions of rows. Nothing is parsed here, so a read of a stream a failing child cut short ends as the child does; `counts` checks the bytes received and parses what this kept."""
+    """Read one payload to its end and return its head line, its column line, how many lines follow them and how many bytes it read in all (`Scan`). The body is counted a chunk at a time instead of loaded, so this process never holds a payload's millions of rows. Nothing is parsed here, so a read of a stream a failing child cut short ends as the child does; `counts` checks the bytes received and parses what this kept."""
     head = source.readline()
     columns = source.readline()
     received = len(head) + len(columns)
@@ -373,24 +359,6 @@ def counts(scanned: Scan, payload: Path, written: int) -> tuple[int, int, int]:
     if tuple(scanned.columns.decode().rstrip("\n").split("\t")) != table.WINDOWS_COLUMNS:
         raise SystemExit(f"{payload}: window columns are not {table.WINDOWS_COLUMNS}")
     return scanned.rows, len(decision.rules), len(decision.reachable_cells())
-
-
-def fit(xs: list[int], ys: list[float | None]) -> float | None:
-    """Return the least-squares slope of ln y on ln x, the whole-series exponent to quote instead of any one consecutive pair. A point whose y is None is left out. Returns None when fewer than two points have positive x and y, or when every point has the same x."""
-    points = [(math.log(x), math.log(y)) for x, y in zip(xs, ys) if x > 0 and y is not None and y > 0]
-    if len(points) < 2:
-        return None
-    mean_x = sum(x for x, _ in points) / len(points)
-    mean_y = sum(y for _, y in points) / len(points)
-    variance = sum((x - mean_x) ** 2 for x, _ in points)
-    if not variance:
-        return None
-    return sum((x - mean_x) * (y - mean_y) for x, y in points) / variance
-
-
-def exponent(slope: float | None) -> str:
-    """Return a fitted slope at two decimals, or `n/a` for no fit."""
-    return "n/a" if slope is None else f"{slope:.2f}"
 
 
 def check_child(
@@ -481,7 +449,7 @@ def moments(child: ChildRun) -> dict[str, object]:
 
 
 def idle_rate(earlier: write_meter.WriteReading, later: write_meter.WriteReading) -> float | None:
-    """The device's write rate between two readings taken while the series ran nothing, in bytes a second, or None when either lacks the device or no time passed."""
+    """The device's write rate between two readings taken while the run ran nothing, in bytes a second, or None when either lacks the device or no time passed."""
     seconds = later.at - earlier.at
     if earlier.device is None or later.device is None or seconds <= 0:
         return None
@@ -534,7 +502,7 @@ def measure_step(
     machine: Callable[[], Machine] = read_machine,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    """Run one step in `step_dir`, which must not exist and is removed once the meter has read the step's end, so the window from the meter's reading just before the child's spawn to its reading at the end holds the machine reading before the spawn and the build, whose payloads go through pipes with no path (`run_piped`), and neither the directory's making, with its links (`route`), nor its removal, and return its measured fields, everything a line holds but the cut, the flags and the provenance (the module docstring lists them). A payload whose bytes received differ from the bytes the crate answers it wrote stops the run (`counts`). `meter`, `machine` and `sleep` are the write meter, the machine reading and the wait, which a test replaces."""
+    """Run one step in `step_dir`, which must not exist and is removed once the meter has read the step's end, so the window from the meter's reading just before the child's spawn to its reading at the end holds the machine reading before the spawn and the build, whose payloads go through pipes with no path (`run_piped`), and neither the directory's making, with its links (`route`), nor its removal, and return its measured fields, everything a line holds but the alphabet, the flags and the provenance (the module docstring lists them). A payload whose bytes received differ from the bytes the crate answers it wrote stops the run (`counts`). `meter`, `machine` and `sleep` are the write meter, the machine reading and the wait, which a test replaces."""
     arguments = step_arguments(binary, spec_path, step_dir, configs, stamp, flags)
     try:
         route(step_dir, configs)
@@ -599,36 +567,12 @@ def empty_tree(tree: Path) -> None:
 
 
 def prepare_tree(tree: Path, binary: Path) -> Path:
-    """Empty the series' tree (`empty_tree`), copy `binary` into it, and return the copy, run once with no arguments so its first-exec scan is over before any step's clock starts."""
+    """Empty the series' tree (`empty_tree`), copy `binary` into it, and return the copy, run once with no arguments so its first-exec scan is over before the step's clock starts."""
     empty_tree(tree)
     copy = tree / BINARY_NAME
     shutil.copy2(binary, copy)
     subprocess.run([str(copy)], capture_output=True, check=False)
     return copy
-
-
-def report(lines: Sequence[Mapping]) -> list[str]:
-    """Return the whole-series fit against runes (`fit`) of the windows over every configuration, the peak footprint and resident, the CPU time, and the length of each collection the first configuration's `tables` name, one figure a line. A figure a line lacks is left out of its fit."""
-    if len(lines) < 2:
-        return [f"the whole-series fit needs two sizes; this run has {len(lines)}"]
-    runes = [line["runes"] for line in lines]
-    figures: dict[str, list[float | None]] = {
-        "windows": [sum(counts[0] for counts in line["windows"].values()) for line in lines],
-        "peak footprint": [line["peak_footprint"] for line in lines],
-        "peak resident": [line["peak_resident"] for line in lines],
-        "cpu": [line["cpu_s"] for line in lines],
-    }
-    config = lines[0]["configs"][0]
-    names = sorted({name for line in lines for name in line["tables"].get(config, {})})
-    for name in names:
-        figures[f"{config} {name} len"] = [
-            line["tables"].get(config, {}).get(name, [None])[0] for line in lines
-        ]
-    width = max(len(label) for label in figures)
-    return [
-        f"whole-series fit over {len(lines)} sizes (runes {min(runes)}..{max(runes)})",
-        *(f"  {label:<{width}} ~ runes^{exponent(fit(runes, values))}" for label, values in figures.items()),
-    ]
 
 
 def child_environment(environ: Mapping[str, str] = os.environ) -> dict[str, str]:
@@ -682,20 +626,20 @@ def _command(pid: int) -> str:
 
 def build_replay_tables(
     spec_path: Path,
-    cut_dir: Path,
+    out_dir: Path,
     configs: Sequence[str],
     flags: Flags,
     stamp: str,
     *,
     env: Mapping[str, str] | None,
 ) -> None:
-    """Build one cut's tables, unmeasured, for the replay holder's lines to walk: one `build-tables` at the flags the table holder's step takes, its settlement and joins tables written plain into `cut_dir`, which must not exist, and each windows payload drained from a pipe the crate inherits (`run_piped`), so no payload reaches the disk. A build that fails stops the run (`check_child`)."""
-    cut_dir.mkdir(parents=True)
+    """Build the tables, unmeasured, for the replay holder's line to walk: one `build-tables` at the flags the table holder's step takes, its settlement and joins tables written plain into `out_dir`, which must not exist, and each windows payload drained from a pipe the crate inherits (`run_piped`), so no payload reaches the disk. A build that fails stops the run (`check_child`)."""
+    out_dir.mkdir(parents=True)
     arguments = [
         str(kernel_exec.BINARY),
         "build-tables",
         str(spec_path),
-        str(cut_dir),
+        str(out_dir),
         f"--configs={','.join(configs)}",
         f"--inputs={stamp}",
         f"--threads={flags.threads}",
@@ -1016,58 +960,17 @@ def measure_replay_line(
     }
 
 
-def replay_report(lines: Sequence[Mapping]) -> list[str]:
-    """Return the replay series' fit against runes (`fit`), one figure a line: the windows over every configuration, the highest walk peak, absorb peak and pair peak over the configurations (each the higher of its resident and footprint), the step's combined peak, the walks' CPU time over every configuration, the largest row store, and the first configuration's largest unit's walk memo length. A figure a line lacks is left out of its fit."""
-    if len({line["runes"] for line in lines}) < 2:
-        return [f"the replay fit needs two cuts; this run has {len({line['runes'] for line in lines})}"]
-    runes = [line["runes"] for line in lines]
-
-    def most(line: Mapping, part: str) -> int | None:
-        values = [
-            max(value or 0 for value in (entry[part]["peak_resident"], entry[part]["peak_footprint"]))
-            for entry in line["walks"].values()
-        ]
-        return max(values, default=None) or None
-
-    def pair(line: Mapping) -> int | None:
-        return max(
-            (max(entry["pair"].values()) for entry in line["walks"].values() if entry["pair"]), default=None
-        )
-
-    def unit_memo(line: Mapping) -> int | None:
-        unit = next(iter(line["walks"].values()))["cache"]["largest_unit"]
-        return None if unit is None else unit["tables"].get("walk_memo", [None])[0]
-
-    figures: dict[str, list[float | None]] = {
-        "windows": [sum(entry["counts"]["windows"] for entry in line["walks"].values()) for line in lines],
-        "walk peak": [most(line, "walk") for line in lines],
-        "absorb peak": [most(line, "absorb") for line in lines],
-        "pair peak": [pair(line) for line in lines],
-        "combined peak": [max(line["combined"].values()) or None for line in lines],
-        "walk cpu": [sum(entry["walk"]["cpu_s"] or 0 for entry in line["walks"].values()) for line in lines],
-        "row store bytes": [
-            max(
-                ((entry["cache"]["row_store"] or {}).get("bytes") or 0 for entry in line["walks"].values()),
-                default=0,
-            )
-            or None
-            for line in lines
-        ],
-        "largest unit walk_memo len": [unit_memo(line) for line in lines],
-    }
-    width = max(len(label) for label in figures)
-    return [
-        f"replay fit over {len(lines)} lines (runes {min(runes)}..{max(runes)})",
-        *(f"  {label:<{width}} ~ runes^{exponent(fit(runes, values))}" for label, values in figures.items()),
-    ]
+def _alphabet_size(spec: ResolvedSpec) -> dict[str, int]:
+    """The line's `runes`, `letters` and `ligs`: how many runes `spec` holds, and how many of them are letters and how many ligatures."""
+    letters = sum(1 for rune in spec.runes.values() if not rune.sequence)
+    return {"runes": len(spec.runes), "letters": letters, "ligs": len(spec.runes) - letters}
 
 
 def run_replay(args: argparse.Namespace, tree: Path) -> int:
-    """Run the replay holder's lines (the module docstring's "The replay step") under the held lock: build the kernel, empty the tree, write each distinct cut's spec dump and pickle and build its tables once, unmeasured (`build_replay_tables`), then measure each named line in turn, recording each as it finishes, then the replay fit (`replay_report`). The cuts' tables, about 0.05 GB a cut, are removed as the run ends, however it ends."""
+    """Run the replay holder's line (the module docstring's "The replay step") under the held lock: build the kernel, empty the tree, write the spec dump and pickle and build the tables once, unmeasured (`build_replay_tables`), then measure the replay and record its line. The tables, about 0.07 GB, are removed as the run ends, however it ends."""
     configs = configs_from(args.configs) if args.configs else list(conform.SETTLEMENT_CONFIGS)
     spec = spec_load.load_default_spec()
-    order = scaling_series.series_order(spec)
-    sizes = args.sizes or default_sizes(len(order), REPLAY_SIZES)
+    size = _alphabet_size(spec)
     width = run_build._replay_threads(args.replay_threads)
     kernel_exec.ensure_built()
     empty_tree(tree)
@@ -1075,86 +978,67 @@ def run_replay(args: argparse.Namespace, tree: Path) -> int:
         {**os.environ, **kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT} if sys.platform == "darwin" else None
     )
     env = child_environment()
+    tables = tree / REPLAY
     try:
-        cuts: dict[int, tuple[ResolvedSpec, list[str]]] = {}
-        flags = bare_flags(configs)
-        for size in dict.fromkeys(sizes):
-            cut = scaling_series.sub_spec(spec, order, size)
-            runes = len(cut.runes)
-            dump = tree / f"spec-r{runes}.json"
-            pickled = tree / f"spec-r{runes}.pickle"
-            kernel_io.write_spec(cut, dump)
-            with pickled.open("wb") as handle:
-                pickle.dump(cut, handle, protocol=pickle.HIGHEST_PROTOCOL)
-            cut_dir = tree / REPLAY / f"r{runes}"
-            _progress(f"r{runes}: building the tables its lines walk, unmeasured")
-            build_replay_tables(dump, cut_dir, configs, flags, f"{STAMP_PREFIX}{runes}", env=tables_env)
-            cuts[size] = (cut, replay_child_arguments(pickled, dump, cut_dir, configs, width, built=True))
+        dump = tree / SPEC_DUMP
+        pickled = tree / SPEC_PICKLE
+        kernel_io.write_spec(spec, dump)
+        with pickled.open("wb") as handle:
+            pickle.dump(spec, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        _progress(f"{size['runes']} runes: building the tables the replay walks, unmeasured")
+        stamp = f"{STAMP_PREFIX}{size['runes']}"
+        build_replay_tables(dump, tables, configs, bare_flags(configs), stamp, env=tables_env)
+        arguments = replay_child_arguments(pickled, dump, tables, configs, width, built=True)
         head = _head()
-        lines: list[dict[str, Any]] = []
         record = Record(args.out, REPLAY)
         os.sync()
         time.sleep(SETTLE_S)
-        for size in sizes:
-            cut, arguments = cuts[size]
-            runes = len(cut.runes)
-            letters = sum(1 for rune in cut.runes.values() if not rune.sequence)
-            _progress(
-                f"r{runes}: {args.idle_seconds:g} s idle, the replay, then {args.after_seconds:g} s before the meter's last reading"
-            )
-            measured = measure_replay_line(
-                arguments,
-                configs,
-                idle_s=args.idle_seconds,
-                after_s=args.after_seconds,
-                interval_s=args.interval,
-                env=env,
-            )
-            _warn_meter(f"r{runes}", measured["written"])
-            walks = measured.pop("configs_measured")
-            line: dict[str, Any] = {
-                "step": REPLAY_STEP,
-                "runes": runes,
-                "letters": letters,
-                "ligs": runes - letters,
-                "configs": list(configs),
-                "width": width,
-                "max_length": run_build.REPLAY_MAX_LENGTH,
-                "modes": " ".join(kernel_exec.settlement_flags()) or "default modes",
-                **measured,
-                "walks": walks,
-                "alphabet": sorted(cut.runes),
-                "cpus": memory_budget.usable_cores(),
-                "ram": memory_budget.total_memory_bytes(),
-                "head": head,
-                "finished_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            }
-            lines.append(line)
-            text = json.dumps(line)
-            print(text, flush=True)
-            record.add(text)
-        for text in ("", *replay_report(lines)):
-            print(text, flush=True)
-            record.add(text)
+        _progress(
+            f"{size['runes']} runes: {args.idle_seconds:g} s idle, the replay, then {args.after_seconds:g} s before the meter's last reading"
+        )
+        measured = measure_replay_line(
+            arguments,
+            configs,
+            idle_s=args.idle_seconds,
+            after_s=args.after_seconds,
+            interval_s=args.interval,
+            env=env,
+        )
+        _warn_meter(REPLAY, measured["written"])
+        walks = measured.pop("configs_measured")
+        line: dict[str, Any] = {
+            "step": REPLAY_STEP,
+            **size,
+            "configs": list(configs),
+            "width": width,
+            "max_length": run_build.REPLAY_MAX_LENGTH,
+            "modes": " ".join(kernel_exec.settlement_flags()) or "default modes",
+            **measured,
+            "walks": walks,
+            "alphabet": sorted(spec.runes),
+            "cpus": memory_budget.usable_cores(),
+            "ram": memory_budget.total_memory_bytes(),
+            "head": head,
+            "finished_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        text = json.dumps(line)
+        print(text, flush=True)
+        record.add(text)
         return 0
     finally:
-        shutil.rmtree(tree / REPLAY, ignore_errors=True)
+        shutil.rmtree(tables, ignore_errors=True)
 
 
 def holder_sections(text: str) -> dict[str, list[str]]:
-    """Split a record's lines by the holder each belongs to: a JSON line by its `step` (`HOLDER_OF_STEP`), and every other line, the fit, by the JSON line before it."""
+    """Split a record's lines, each a JSON line, by the holder each belongs to, which its `step` names (`HOLDER_OF_STEP`)."""
     sections: dict[str, list[str]] = {holder: [] for holder in HOLDERS}
-    holder = None
     for line in text.splitlines():
-        if line.startswith("{"):
-            holder = HOLDER_OF_STEP[json.loads(line)["step"]]
-        if holder is not None:
-            sections[holder].append(line)
+        sections[HOLDER_OF_STEP[json.loads(line)["step"]]].append(line)
     return sections
 
 
 class Record:
-    """The record at `path` as one holder's run rewrites it: the other holder's lines and fit as the file held them, and this run's lines and fit in place of the holder's earlier ones, holders in `HOLDERS` order. Making one drops the holder's earlier lines, and each `add` rewrites the whole file, so a run stopped partway keeps the lines it finished."""
+    """The record at `path` as one holder's run rewrites it: the other holder's lines as the file held them, and this run's line in place of the holder's earlier ones, holders in `HOLDERS` order. Making one drops the holder's earlier lines and rewrites the file, and `add` rewrites it with the run's line. Each write makes the file's directory when it is missing."""
 
     def __init__(self, path: Path, holder: str) -> None:
         self._path = path
@@ -1163,8 +1047,8 @@ class Record:
         self._sections[holder] = []
         self._write()
 
-    def add(self, *lines: str) -> None:
-        self._sections[self._holder].extend(lines)
+    def add(self, line: str) -> None:
+        self._sections[self._holder].append(line)
         self._write()
 
     def _write(self) -> None:
@@ -1195,19 +1079,13 @@ def _progress(text: str) -> None:
 def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="python -m engine.tools.memory_series",
-        description="Measure what the table build or the string replay holds and writes at each of several alphabet cuts, one build at a time, writing nothing but its record.",
+        description="Measure what the table build or the string replay holds in memory, takes in CPU time and writes to disk on the whole alphabet, once a run, writing nothing but its record.",
     )
     parser.add_argument(
         "--holder",
         choices=HOLDERS,
         default=TABLES,
         help="the build to measure: the table build (the default) or the string replay with its settle-memo absorbs",
-    )
-    parser.add_argument(
-        "lines",
-        nargs="*",
-        metavar="k",
-        help=f"the rune counts to cut alphabets at; by default {', '.join(map(str, SIZES))} below the whole alphabet and the whole alphabet for the table holder, and {', '.join(map(str, REPLAY_SIZES))} below it and the whole alphabet for the replay holder",
     )
     parser.add_argument(
         "--configs",
@@ -1232,13 +1110,13 @@ def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
         "--idle-seconds",
         type=float,
         default=IDLE_S,
-        help=f"how long the device is read idle before each step, for device_net (default {IDLE_S:g}; 0 reads none)",
+        help=f"how long the device is read idle before the measured build or replay, for device_net (default {IDLE_S:g}; 0 reads none)",
     )
     parser.add_argument(
         "--after-seconds",
         type=float,
         default=AFTER_S,
-        help=f"how long after each step the meter is read again (default {AFTER_S:g}; 0 reads it only at the end)",
+        help=f"how long after the measured build or replay the meter is read again (default {AFTER_S:g}; 0 reads it only at the end)",
     )
     parser.add_argument(
         "--interval",
@@ -1247,14 +1125,12 @@ def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
         help=f"seconds between the sampler's readings of the machine and, for the replay holder, of each walk's crate and absorb worker, whose sums give the pair and combined peaks (default {INTERVAL_S:g})",
     )
     parser.add_argument(
-        "--out", type=Path, default=ROOT / OUT_PATH, help=f"the record to write (default {OUT_PATH})"
+        "--out",
+        type=Path,
+        default=ROOT / OUT_PATH,
+        help=f"the record to write, its directory made when missing (default {OUT_PATH})",
     )
     args = parser.parse_args(argv)
-    if any(not text.isdecimal() for text in args.lines):
-        parser.error("a line is a rune count")
-    args.sizes = [int(text) for text in args.lines]
-    if any(size < 1 for size in args.sizes):
-        parser.error("a size is a rune count of at least 1")
     other = {
         TABLES: (("--replay-threads", args.replay_threads),),
         REPLAY: (
@@ -1296,7 +1172,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if spec_load.RUNES_ENV in os.environ:
         raise SystemExit(
             f"the memory series refuses: {spec_load.RUNES_ENV} is set ({os.environ[spec_load.RUNES_ENV]!r}), "
-            f"and the series cuts its own alphabets from the whole store; unset it"
+            f"which narrows the alphabet, and the series measures the whole alphabet; unset it"
         )
     with artifact_cycle.stop_signals():
         try:
@@ -1306,7 +1182,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def run_series(args: argparse.Namespace) -> int:
-    """Hold the series' lock (`store_lock.hold_flock` on `<tree>.lock`), refusing when another run holds it, and run the holder `args` names: the replay holder's lines (`run_replay`), or the table holder's steps and then the whole-series fit (`report`)."""
+    """Hold the series' lock (`store_lock.hold_flock` on `<tree>.lock`), refusing when another run holds it, and run the holder `args` names: the replay holder's line (`run_replay`), or the table holder's step."""
     configs = configs_from(args.configs) if args.configs else list(conform.SETTLEMENT_CONFIGS)
     tree = ROOT / TREE_PATH
     lock = store_lock.lock_path_for(tree)
@@ -1318,16 +1194,11 @@ def run_series(args: argparse.Namespace) -> int:
         if args.holder == REPLAY:
             return run_replay(args, tree)
         spec = spec_load.load_default_spec()
-        order = scaling_series.series_order(spec)
-        sizes = args.sizes or default_sizes(len(order))
+        size = _alphabet_size(spec)
         kernel_exec.cargo_build()
         binary = prepare_tree(tree, kernel_exec.BINARY)
-        cuts = []
-        for size in sizes:
-            cut = scaling_series.sub_spec(spec, order, size)
-            spec_path = tree / f"spec-r{len(cut.runes)}.json"
-            kernel_io.write_spec(cut, spec_path)
-            cuts.append((cut, spec_path))
+        spec_path = tree / SPEC_DUMP
+        kernel_io.write_spec(spec, spec_path)
         flags = bare_flags(
             configs,
             threads=args.kernel_threads,
@@ -1335,51 +1206,41 @@ def run_series(args: argparse.Namespace) -> int:
         )
         env = {**os.environ, **kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT} if sys.platform == "darwin" else None
         head = _head()
-        lines: list[dict[str, object]] = []
         record = Record(args.out, TABLES)
         os.sync()
         time.sleep(SETTLE_S)
-        for cut, spec_path in cuts:
-            runes = len(cut.runes)
-            letters = sum(1 for rune in cut.runes.values() if not rune.sequence)
-            _progress(
-                f"r{runes}: {args.idle_seconds:g} s idle, the build, then {args.after_seconds:g} s before the meter's last reading"
-            )
-            measured = measure_step(
-                binary,
-                spec_path,
-                tree / f"r{runes}",
-                configs,
-                flags,
-                f"{STAMP_PREFIX}{runes}",
-                idle_s=args.idle_seconds,
-                after_s=args.after_seconds,
-                interval_s=args.interval,
-                env=env,
-            )
-            _warn_meter(f"r{runes}", measured["written"])
-            line: dict[str, object] = {
-                "step": TABLES,
-                "runes": runes,
-                "letters": letters,
-                "ligs": runes - letters,
-                "configs": list(configs),
-                **asdict(flags),
-                "modes": " ".join(kernel_exec.mode_flags()) or "default modes",
-                **measured,
-                "alphabet": sorted(cut.runes),
-                "cpus": memory_budget.usable_cores(),
-                "ram": memory_budget.total_memory_bytes(),
-                "head": head,
-                "finished_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            }
-            lines.append(line)
-            text = json.dumps(line)
-            print(text, flush=True)
-            record.add(text)
-        for text in ("", *report(lines)):
-            print(text, flush=True)
-            record.add(text)
+        _progress(
+            f"{size['runes']} runes: {args.idle_seconds:g} s idle, the build, then {args.after_seconds:g} s before the meter's last reading"
+        )
+        measured = measure_step(
+            binary,
+            spec_path,
+            tree / TABLES,
+            configs,
+            flags,
+            f"{STAMP_PREFIX}{size['runes']}",
+            idle_s=args.idle_seconds,
+            after_s=args.after_seconds,
+            interval_s=args.interval,
+            env=env,
+        )
+        _warn_meter(TABLES, measured["written"])
+        line: dict[str, object] = {
+            "step": TABLES,
+            **size,
+            "configs": list(configs),
+            **asdict(flags),
+            "modes": " ".join(kernel_exec.mode_flags()) or "default modes",
+            **measured,
+            "alphabet": sorted(spec.runes),
+            "cpus": memory_budget.usable_cores(),
+            "ram": memory_budget.total_memory_bytes(),
+            "head": head,
+            "finished_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        text = json.dumps(line)
+        print(text, flush=True)
+        record.add(text)
     return 0
 
 

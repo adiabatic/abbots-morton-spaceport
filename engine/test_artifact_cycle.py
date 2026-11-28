@@ -2573,7 +2573,7 @@ def test_make_test_exempt_classification():
         "var/build-logs/latest/plan.txt",
         ".claude/settings.json",
         "engine/tools/memory_series.py",
-        "engine/memory-series.txt",
+        "var/keep/memory-series.txt",
         "Makefile",
         ".vscode/settings.json",
         ".vscode/permissive.schema.json",

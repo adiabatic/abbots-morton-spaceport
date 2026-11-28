@@ -340,7 +340,7 @@ class ResolvedSpec:  # spec_load's output; the input to everything else
     registry: ScriptRegistry
     narrowed: bool = field(
         default=False, metadata={KERNEL_FIELD: False}
-    )  # True on a spec spec_load.narrowed or scaling_series.sub_spec returns holding fewer runes than its input, or cut from an input already narrowed; only engine/pipeline/kern.py reads it, so the spec dump leaves it out and a spec read back from a dump carries False
+    )  # True on a spec spec_load.narrowed returns holding fewer runes than its input, or narrowed from an input already narrowed; only engine/pipeline/kern.py reads it, so the spec dump leaves it out and a spec read back from a dump carries False
 
     @cached_property
     def marker_features(self) -> Mapping[str, tuple[str, ...]]:

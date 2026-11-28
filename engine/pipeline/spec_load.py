@@ -1989,7 +1989,7 @@ def alphabet_lines() -> list[str]:
 
 
 def narrowed(spec: ResolvedSpec, names: Iterable[str]) -> ResolvedSpec:
-    """Return `spec` holding only the runes `names` lists, in its own rune order, with its registry, predicate classes and every rune's resolved records as the whole store left them, which is `scaling_series.sub_spec`'s rule. A ligature is kept only when it is named, and naming one is refused unless every component it names is named too, as is naming no rune or a rune the store does not hold, so the alphabet a build runs on is exactly the one named. The result carries `narrowed` (`model.ResolvedSpec.narrowed`) when it holds fewer runes than `spec`, or `spec` is already narrowed, so naming every rune of the store gives a spec the kern stage treats as the whole alphabet."""
+    """Return `spec` holding only the runes `names` lists, in its own rune order, with its registry, predicate classes and every rune's resolved records as the whole store left them. A ligature is kept only when it is named, and naming one is refused unless every component it names is named too, as is naming no rune or a rune the store does not hold, so the alphabet a build runs on is exactly the one named. The result carries `narrowed` (`model.ResolvedSpec.narrowed`) when it holds fewer runes than `spec`, or `spec` is already narrowed, so naming every rune of the store gives a spec the kern stage treats as the whole alphabet."""
     wanted = frozenset(names)
     if not wanted:
         raise SpecError(RUNES_ENV, "", "names no runes")
