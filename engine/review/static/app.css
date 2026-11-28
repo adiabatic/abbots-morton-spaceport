@@ -2276,11 +2276,6 @@ body.kern-view {
     color: var(--neither);
   }
 
-  .kern-carried {
-    color: var(--neither);
-    font-weight: 600;
-  }
-
   .kern-differs {
     color: var(--either);
     font-weight: 600;
@@ -2487,10 +2482,6 @@ body.kern-view {
 
     [data-role="mark"] {
       color: var(--hot);
-    }
-
-    [data-role="carried"] {
-      color: var(--neither);
     }
 
     [data-role="differs"] {

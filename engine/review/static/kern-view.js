@@ -2,13 +2,11 @@
 //
 // Editing: a change applies to the drawings at once, as an entry of `view.edits` that the drawings read before the server's values. Presses on one scope within `COALESCE_MS` of each other become one `POST kern`, and the view sends one request at a time, each against the block the last reply named. A reply that took the change gives the server's values, which replace the edit; a conflict whose reply carries the block as it stands is sent once more against that block; a refusal or a second conflict drops the edit, so the drawing goes back, and shows the server's message beside the pair; a reply that says a cycle pass holds the runes keeps the edit, marked as waiting, until `GET kern` reports no pending change. Each change the server wrote or queued goes on the tab's undo history with its journal seq (`historyAfterReply`). `u` drops the newest edit not sent yet, and otherwise asks the server to undo the history's newest change by its seq (`POST kern/undo`), which cancels it while it still waits for a pass.
 //
-// Carried-over marks: a facing pair the importer set (`GET kern`'s `carried`) is marked on its grid cell and its detail row while it is unreviewed and keeps the imported value (`isCarried`); `g` posts a mark for the selected scope (`POST kern/reviewed`) and moves to the next carried-over facing pair (`nextAfterMark`), moving on too from a scope with nothing left to mark (the reviewed button takes a mark off instead, `reviewStep`), and `]` and `[` move the cursor to the next and the previous pair of letters that still has one (`nextCarried`).
-//
 // Relatives: under the facing pairs, the detail panel lists the selected facing pair's relatives (`relativesOf`, the facing pairs whose junction is the same one, mirrored, upside down or turned half round), grouped by the value each takes, and its near relatives (`nearRelativesOf`). A class of relatives that takes more than one value is kerned inconsistently (`splitStanding`): its members are marked in the grid and in their detail rows, `r` and `w` move to the next and the previous such class, `t` sets the selected facing pair to the value most of its relatives take, `v` gives its value to every relative that differs, and `a` marks it as apart on purpose (`POST kern/apart`), which leaves it out of the comparison, and moves on.
 //
 // Layout: the facing pairs are listed by second shape (`facingOrder`), under a line naming it when the two letters have several, and only those with the selected pair's second shape are listed in full, the others as one line each; the relatives and comparables are tiles, a small drawing with a name, a line and its buttons, the rest in the tile's tooltip.
 //
-// List mode: with the URL hash's `pairs` (`parsePairList`), the grid pane shows only the listed pairs of letters, in the listed order, one cell each, drawn as the grid draws its cells (`paintCell`), with a line above it that counts them and a button that leaves the list for the whole grid. A listed pair the inventory does not know, or whose letters never meet at a break, keeps its place with a note saying which (`listedNote`), and the cursor passes over the ones the inventory does not know. The arrows, `]` and `[`, up and down past either end of the detail panel, and the mark key's move stay among the listed pairs; any other move to a pair outside the list, the jump box's among them, leaves list mode as a new history entry, so the browser's Back returns to the list.
+// List mode: with the URL hash's `pairs` (`parsePairList`), the grid pane shows only the listed pairs of letters, in the listed order, one cell each, drawn as the grid draws its cells (`paintCell`), with a line above it that counts them and a button that leaves the list for the whole grid. A listed pair the inventory does not know, or whose letters never meet at a break, keeps its place with a note saying which (`listedNote`), and the cursor passes over the ones the inventory does not know. The arrows, `]` and `[`, and up and down past either end of the detail panel stay among the listed pairs; any other move to a pair outside the list, the jump box's among them, leaves list mode as a new history entry, so the browser's Back returns to the list.
 //
 // Comparables: the section's three buttons, and `c`, choose what it lists (`view.compare`): the relatives, or the facing pairs with the same second shape whose first shape is like the selected pair's (`comparablesOf` with `COMPARE_LEAD`: every letter shaped like ·Ye before half ·Way), or those with the same first shape and a like second shape. Each row gives how alike the two shapes are, how far apart the pair's ink is where it is closest (`clearanceOf`) against the selected pair's, and buttons that tighten or loosen that pair in place or set it to the selected pair's clearance.
 
@@ -24,17 +22,9 @@ import {
   VALUES_FORMAT,
   blockOf,
   builtValue,
-  carriedCount,
-  carriedTrouble,
   classMembers,
   clearanceOf,
   comparablesOf,
-  entryCarried,
-  isCarried,
-  marksOf,
-  nextAfterMark,
-  reviewStep,
-  nextCarried,
   configNames,
   decidersOf,
   deciderText,
@@ -52,7 +42,6 @@ import {
   inventoryRefusal,
   isApart,
   journalLines,
-  listCells,
   listLine,
   listedAt,
   listedNote,
@@ -121,7 +110,7 @@ const CELL_BOTTOM = 10;
 const CELL_SLACK = 4;
 const STAGE_MARGIN = 1;
 const COALESCE_MS = 330;
-const COLOR_ROLES = [...ROLES, 'guide', 'text', 'muted', 'mark', 'carried', 'differs'];
+const COLOR_ROLES = [...ROLES, 'guide', 'text', 'muted', 'mark', 'differs'];
 // How many relatives a group of the detail panel lists before its "show all" button, and how many near relatives the panel lists.
 const GROUP_SHOWN = 8;
 const NEAR_SHOWN = 8;
@@ -262,7 +251,6 @@ export function createKernView({ root, toast, writeSelection }) {
       button('loosen', 'kern-loosen', 'Push the follower a pixel away', ['f', '→']),
       button('drop own value', 'kern-drop', 'Remove this scope’s own record, so it takes what it inherits', ['0']),
       button('note', 'kern-note', 'Write the why: of this scope’s record', ['n']),
-      button('reviewed', 'kern-review-toggle', 'Mark the carried-over facing pairs of this scope reviewed and move to the next one, or take the mark off when they all have it (g marks and moves on, and never takes a mark off)', ['g']),
       button('undo', 'kern-undo', 'Undo the last change', ['u']),
     );
     const why = el('p', 'kern-why');
@@ -407,7 +395,6 @@ export function createKernView({ root, toast, writeSelection }) {
       : [
           ...stalenessLines(view.model, view.values, view.refreshError),
           ...journalLines(view.values, view.seenSeq),
-          ...(carriedTrouble(view.values).error ? [{ level: 'error', text: `The reviewed marks cannot be read: ${carriedTrouble(view.values).error}` }] : []),
           ...(view.values?.payload?.apart?.error ? [{ level: 'error', text: `The apart marks cannot be read: ${view.values.payload.apart.error}` }] : []),
         ];
     const nodes = [];
@@ -431,15 +418,11 @@ export function createKernView({ root, toast, writeSelection }) {
     }
     const withPairs = doc.rune_pairs.filter((entry) => entry.pairs.length > 0).length;
     const unsent = view.edits.size - waitingCount();
-    const carried = carriedCount(view.model, view.values);
-    const trouble = carriedTrouble(view.values);
     const split = stand().classes;
     view.dom.summary.textContent =
       `${formatCount(doc.pairs.length)} facing pairs over ${formatCount(withPairs)} pairs of letters; ${formatCount(kerned)} kerned` +
       (unbuilt ? `, ${formatCount(unbuilt)} not in the built font yet` : '') +
       (unsent ? `; ${formatCount(unsent)} change${unsent === 1 ? '' : 's'} being written` : '') +
-      (carried ? `; ${formatCount(carried)} carried over from the old font and not reviewed${view.list ? '' : ' ([ and ] find them)'}` : '') +
-      (trouble.stale ? `; ${formatCount(trouble.stale)} carried-over or reviewed pair${trouble.stale === 1 ? ' names' : 's name'} a side this build no longer has` : '') +
       (split ? `; ${formatCount(split)} group${split === 1 ? '' : 's'} of matching shape pairs ${split === 1 ? 'is' : 'are'} kerned differently (w and r find them)` : '') +
       '.';
   }
@@ -569,7 +552,7 @@ export function createKernView({ root, toast, writeSelection }) {
     for (const col of model.doc.runes.keys()) paintCell(context, col * cell.width, runePairAt(model, row, col));
   }
 
-  // One cell at `x0` of a row's canvas, a grid row's or a listed pair's: the rune pair's representative facing pair at its value, the value, `×N` for several facing pairs, the reach chip, the carried-over and kerned-differently marks, and the dashed outline of a value the built font lacks. A rune pair with no facing pair leaves the cell blank.
+  // One cell at `x0` of a row's canvas, a grid row's or a listed pair's: the rune pair's representative facing pair at its value, the value, `×N` for several facing pairs, the reach chip, the kerned-differently mark, and the dashed outline of a value the built font lacks. A rune pair with no facing pair leaves the cell blank.
   function paintCell(context, x0, entry) {
     const { model, colors, cell } = view;
     context.fillStyle = colors.guide;
@@ -596,11 +579,6 @@ export function createKernView({ root, toast, writeSelection }) {
       context.fillStyle = colors.muted;
       context.textAlign = 'left';
       context.fillText(GRID_CHIPS[chip] ?? chip, x0 + 2, cell.height - 2);
-    }
-    if (entryCarried(model, view.values, entry)) {
-      context.fillStyle = colors.carried;
-      context.textAlign = 'right';
-      context.fillText('old', x0 + cell.width - 2, cell.height - 2);
     }
     if (entry.pairs.some((id) => view.split.pairs.has(id))) {
       context.fillStyle = colors.differs;
@@ -714,7 +692,6 @@ export function createKernView({ root, toast, writeSelection }) {
     }
     const edit = editOf(id);
     if (edit) what.append(el('span', `kern-pending ${edit.state}`, `changed here, ${EDIT_STATES[edit.state]}`));
-    if (isCarried(model, values, id)) what.append(el('span', 'kern-carried', 'carried over from the old font and not reviewed yet (g marks it)'));
     if (view.split.pairs.has(id)) what.append(el('span', 'kern-differs', 'kerned differently from a relative: see Relatives below'));
     if (isApart(model, values, id)) what.append(el('span', 'kern-apart', 'kerned apart from its relatives on purpose (a takes the mark off)'));
     if (notInFont(model, values, id)) what.append(el('span', 'kern-mark', `not in the built font yet, which has ${signed(builtValue(model, values, id))}`));
@@ -733,7 +710,6 @@ export function createKernView({ root, toast, writeSelection }) {
     const what = el('div', 'kern-what');
     what.append(el('code', null, pairLabel(model, id)));
     if (view.split.pairs.has(id)) what.append(el('span', 'kern-differs', '≠'));
-    if (isCarried(model, values, id)) what.append(el('span', 'kern-carried', 'old'));
     if (notInFont(model, values, id)) what.append(el('span', 'kern-mark', 'not built'));
     const value = valueOf(id);
     row.append(what, el('div', `kern-value${value === 0 ? ' zero' : ''}`, signed(value)));
@@ -1050,7 +1026,6 @@ export function createKernView({ root, toast, writeSelection }) {
     view.sending = true;
     try {
       if (item.kind === 'undo') await sendUndo(item.entry);
-      else if (item.kind === 'review') await sendReview(item.body);
       else if (item.kind === 'apart') await sendApart(item.body);
       else await sendSet(item.key);
     } finally {
@@ -1364,10 +1339,8 @@ export function createKernView({ root, toast, writeSelection }) {
       editLetters(action);
     } else if (action === 'kern-undo') {
       undo();
-    } else if (action === 'kern-review' || action === 'kern-review-toggle') {
-      review({ toggle: action === 'kern-review-toggle' });
-    } else if (action === 'kern-next-carried' || action === 'kern-prev-carried') {
-      moveOn(action === 'kern-next-carried' ? 1 : -1);
+    } else if (action === 'kern-next-listed' || action === 'kern-prev-listed') {
+      moveOn(action === 'kern-next-listed' ? 1 : -1);
     } else if (action === 'kern-next-split' || action === 'kern-prev-split') {
       jumpSplit(action === 'kern-next-split' ? 1 : -1);
     } else if (action === 'kern-compare') {
@@ -1723,52 +1696,12 @@ export function createKernView({ root, toast, writeSelection }) {
     box.replaceChildren(...nodes);
   }
 
-  // What `]` and `[` do, and up and down past either end of the detail panel: in list mode, move to the next (`step` 1) or the previous (`step` -1) listed pair, stopping at either end; otherwise, to the next or the previous pair of letters that still has a carried-over facing pair not reviewed.
+  // What `]` and `[` do, and up and down past either end of the detail panel: in list mode, move to the next (`step` 1) or the previous (`step` -1) listed pair, stopping at either end; outside list mode, nothing.
   function moveOn(step) {
-    if (!view.list) {
-      jumpCarried(step);
-      return;
-    }
+    if (!view.list) return;
     const at = stepListed(view.list, listedAt(view.list, view.cursor), step);
     if (at !== null) setCursor(view.list[at].cursor);
     else if (!unlisted()) toast(step > 0 ? 'This is the last listed pair of letters' : 'This is the first listed pair of letters');
-  }
-
-  // Move the cursor to the next (`step` 1) or the previous (`step` -1) pair of letters that still has a carried-over facing pair not reviewed.
-  function jumpCarried(step) {
-    const found = nextCarried(view.model, view.values, view.cursor, step);
-    if (found) setCursor(found);
-    else toast('No pair of letters has a carried-over value left to review');
-  }
-
-  // Mark the selected scope's carried-over facing pairs reviewed and move to the next carried-over facing pair (`nextAfterMark`), among the listed pairs in list mode, or take the mark off, staying put, when every one has it. A scope with nothing carried over is left as it is, and the selection moves on all the same.
-  function review({ toggle = false } = {}) {
-    const entry = currentEntry();
-    const scope = selectedScope();
-    const marks = scope && entry ? marksOf(view.model, view.values, scope, entry) : { imported: [], reviewed: false };
-    const { post, move } = reviewStep(marks, toggle);
-    if (post !== null) enqueue({ kind: 'review', body: { scope: scope.scope, lead: scope.lead, follow: scope.follow, reviewed: post } });
-    if (!move) return;
-    const next = nextAfterMark(view.model, view.values, view.cursor, view.facing, marks.imported, view.list ? listCells(view.list) : null);
-    if (!next) {
-      const where = view.list ? ' among the listed pairs' : '';
-      toast(post ? `That was the last carried-over value left to review${where}` : `No carried-over value is left to review${where}`);
-      return;
-    }
-    if (next.cursor.row !== view.cursor.row || next.cursor.col !== view.cursor.col) setCursor(next.cursor);
-    setFacing(next.facing);
-  }
-
-  async function sendReview(body) {
-    const { status, reply } = await postJson('kern/reviewed', body);
-    takeValues(reply);
-    if (status === 200) {
-      const count = reply.pairs?.length ?? 0;
-      view.dom.live.textContent = `${body.reviewed ? 'Marked' : 'Unmarked'} ${count} facing pair${count === 1 ? '' : 's'} reviewed`;
-    } else {
-      toast(refusalText(reply, status).split('\n')[0]);
-    }
-    redraw();
   }
 
   // The pane the view's keys act in (`paneFor`): the detail panel or the grid while it has focus, and the page anywhere else.

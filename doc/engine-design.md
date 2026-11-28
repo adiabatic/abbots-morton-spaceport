@@ -578,7 +578,7 @@ The rune files hold the old font's letters, and three rules govern what they kee
 
 1. **No patch layers.** The rows of the old font's three override tables (`restore_isolated_form_overrides`, `predecessor_demote_overrides`, `trailing_demote_overrides`), `_PENDING_BK_ENTRY_GUARDS`, and the guard, demote and isolated-restore passes have no counterpart. A behavior of theirs that the runes keep is an explicit refuse, prefer or resolve with a written reason.
 2. **Old outcomes are not preferences.** Where the old font's outcome rests on modifier-count and emission-order accidents, the build raises `E-INCOMPARABLE` or `E-AMBIGUOUS`, and the author settles each conflict with the remedy §6.2 gives for its kind, which is a recorded `resolve` only where prefers gathered at two positions collide. No tool proposes those resolves.
-3. **Kerning starts from the old font's.** The old font's Senior kerning is carried into the rune files' `kern:` blocks (§12), and the review app's kerning view marks each pair the import set (`var/kern/imported.json`) as carried over until the author reviews it (`doc/kerning-design.md` §8).
+3. **The kerning is the old font's, as the author refines it.** The rune files' `kern:` blocks hold the old font's Senior kerning (§12) as the author refines it in the review app's kerning view (`doc/kerning-design.md` §8).
 
 ## 14. Pipeline modules
 

@@ -11,18 +11,10 @@ import {
   WORD,
   blockOf,
   builtValue,
-  carriedCount,
-  carriedTrouble,
   classMembers,
   clearanceOf,
   comparablesOf,
   edgeLikeness,
-  entryCarried,
-  isCarried,
-  marksOf,
-  nextAfterMark,
-  reviewStep,
-  nextCarried,
   closestInk,
   decidersOf,
   deciderText,
@@ -39,7 +31,6 @@ import {
   isApart,
   journalLines,
   junctionOf,
-  listCells,
   listLine,
   listedAt,
   listedNote,
@@ -272,7 +263,6 @@ test('each listed pair is resolved against the inventory, and one it does not kn
 test('the list’s cursor steps over the pairs the inventory does not know, and the arrows hold it at either end', () => {
   assert.equal(listedAt(listed, noTeaCursor), 3);
   assert.equal(listedAt(listed, { row: 0, col: 0 }), -1);
-  assert.deepEqual(listCells(listed), [itNoCursor, { row: rune('qsPea'), col: rune('qsBay') }, noTeaCursor]);
   assert.equal(stepListed(listed, 1, 1), 2);
   assert.equal(stepListed(listed, 2, 1), 3);
   assert.equal(stepListed(listed, 3, 1), null);
@@ -294,18 +284,6 @@ test('in list mode the hash’s pair is focused when it is listed, and otherwise
   assert.deepEqual(selectionFromState(model, 'qsNope:qsTea', null, listed), { cursor: itNoCursor, facing: 0 });
   const unknown = resolvePairList(model, parsePairList('qsSeee:qsTea'));
   assert.deepEqual(selectionFromState(model, 'qsNo:qsTea', null, unknown), { cursor: noTeaCursor, facing: 0 });
-});
-
-test('in list mode the mark key moves among the listed pairs alone', () => {
-  const facing = noTea.pairs.indexOf(flippedHalf);
-  const cells = listCells(listed);
-  assert.deepEqual(nextCarried(model, values, itNoCursor, 1, cells), noTeaCursor);
-  assert.deepEqual(nextCarried(model, values, noTeaCursor, 1, cells), noTeaCursor);
-  assert.equal(nextCarried(model, values, itNoCursor, 1, [itNoCursor]), null);
-  assert.equal(nextCarried(model, values, itNoCursor, -1, []), null);
-  assert.deepEqual(nextAfterMark(model, values, itNoCursor, 0, [], cells), { cursor: noTeaCursor, facing });
-  assert.equal(nextAfterMark(model, values, itNoCursor, 0, [], [itNoCursor]), null);
-  assert.deepEqual(nextAfterMark(model, values, itNoCursor, 0, []), { cursor: noTeaCursor, facing });
 });
 
 test('a value shifts every glyph after its break, and a join never moves', () => {
@@ -516,69 +494,6 @@ test('a poll older than a write the view saw is ignored, but a restarted journal
   assert.equal(staleAnswer({ id: 'a', seq: 9 }, { id: null, seq: 0 }), false);
   assert.equal(staleAnswer(null, { id: 'a', seq: 1 }), false);
   assert.equal(BY_LIMIT, 64);
-});
-
-test('a facing pair carried over from the old font counts until it is marked or its value moves', () => {
-  assert.equal(isCarried(model, values, flippedHalf), true);
-  assert.equal(isCarried(model, values, loopFull), false);
-  assert.equal(entryCarried(model, values, noTea), true);
-  assert.equal(carriedCount(model, values), 1);
-  const marked = indexValues({ ...payload, carried: { ...payload.carried, reviewed: ['qsNo[flipped]|qsTea[half exit=x-height]'] } });
-  assert.equal(isCarried(model, marked, flippedHalf), false);
-  assert.equal(carriedCount(model, marked), 0);
-  const moved = indexValues({ ...payload, live: { ...payload.live, values: payload.live.values.map((value) => ({ ...value, by: -2 })) } });
-  assert.equal(isCarried(model, moved, flippedHalf), false);
-  assert.equal(carriedCount(model, indexValues({ ...payload, carried: undefined })), 0);
-});
-
-test('the jump keys find the next and the previous pair of letters with a carried-over pair left, wrapping round', () => {
-  const at = { row: rune('qsNo'), col: rune('qsTea') };
-  assert.deepEqual(nextCarried(model, values, { row: 0, col: 0 }, 1), at);
-  assert.deepEqual(nextCarried(model, values, { row: 0, col: 0 }, -1), at);
-  assert.deepEqual(nextCarried(model, values, at, 1), at);
-  const none = indexValues({ ...payload, carried: { pairs: [], reviewed: [] } });
-  assert.equal(nextCarried(model, none, at, 1), null);
-});
-
-test('the mark key moves to the next carried-over facing pair, reading the pairs it marked as reviewed', () => {
-  const at = { row: rune('qsNo'), col: rune('qsTea') };
-  const index = noTea.pairs.indexOf(flippedHalf);
-  const flippedKey = 'qsNo[flipped]|qsTea[half exit=x-height]';
-  assert.deepEqual(nextAfterMark(model, values, { row: 0, col: 0 }, 0, ['qsNo[loop]|qsTea[full]']), { cursor: at, facing: index });
-  assert.deepEqual(nextAfterMark(model, values, at, index, []), { cursor: at, facing: index });
-  assert.ok(index > 0);
-  assert.deepEqual(nextAfterMark(model, values, at, index - 1, []), { cursor: at, facing: index });
-  assert.equal(nextAfterMark(model, values, at, index, [flippedKey]), null);
-  assert.equal(nextAfterMark(model, values, { row: 0, col: 0 }, 0, [flippedKey]), null);
-});
-
-test('the mark key marks and moves on but never takes a mark off, and the reviewed button takes it off and stays', () => {
-  const none = { imported: [], reviewed: false };
-  const open = { imported: ['a|b'], reviewed: false };
-  const done = { imported: ['a|b'], reviewed: true };
-  assert.deepEqual(reviewStep(none, false), { post: null, move: true });
-  assert.deepEqual(reviewStep(open, false), { post: true, move: true });
-  assert.deepEqual(reviewStep(done, false), { post: null, move: true });
-  assert.deepEqual(reviewStep(none, true), { post: null, move: true });
-  assert.deepEqual(reviewStep(open, true), { post: true, move: true });
-  assert.deepEqual(reviewStep(done, true), { post: false, move: false });
-});
-
-test('a mark reaches the carried-over facing pairs of its scope, and takes the mark off when every one has it', () => {
-  const facing = facingScope(model, flippedHalf);
-  assert.deepEqual(marksOf(model, values, facing, noTea), { imported: ['qsNo[flipped]|qsTea[half exit=x-height]'], reviewed: false });
-  const letters = lettersScope(model, noTea);
-  assert.deepEqual(marksOf(model, values, letters, noTea).imported.sort(), ['qsNo[flipped]|qsTea[half exit=x-height]', 'qsNo[loop]|qsTea[full]']);
-  const marked = indexValues({ ...payload, carried: { ...payload.carried, reviewed: ['qsNo[flipped]|qsTea[half exit=x-height]', 'qsNo[loop]|qsTea[full]'] } });
-  assert.equal(marksOf(model, marked, letters, noTea).reviewed, true);
-  assert.deepEqual(marksOf(model, values, facingScope(model, noTea.pairs.find((id) => id !== flippedHalf && id !== loopFull)), noTea).imported, []);
-});
-
-test('the marks that name lost sides and marks that cannot be read are reported', () => {
-  assert.deepEqual(carriedTrouble(values), { stale: 0, error: null });
-  const lost = indexValues({ ...payload, carried: { ...payload.carried, stale: ['qsNo|qsTea'], error: 'var/kern/reviewed.json is not JSON' } });
-  assert.deepEqual(carriedTrouble(lost), { stale: 1, error: 'var/kern/reviewed.json is not JSON' });
-  assert.deepEqual(carriedTrouble(indexValues(null)), { stale: 0, error: null });
 });
 
 // A hand-made inventory for the relatives: ·A is a diagonal rising to the right and ·B its mirror image, which is also ·A upside down; ·S is a stem; ·C is ·A with one pixel of its second row from the top a column to the left; ·D is ·A under a Tall stem set far back from its right edge. Each rune has one leading and one following side, and the facing pairs are listed in `RELATIVE_PAIRS`' order.

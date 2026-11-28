@@ -59,18 +59,14 @@ export function hasFacingPairs(entry) {
 export function indexValues(payload) {
   const live = new Map();
   const built = new Map();
-  const imported = new Map();
   if (payload?.format !== VALUES_FORMAT) {
-    return { live, built, imported, reviewed: new Set(), apart: new Set(), liveError: null, builtPresent: false, payload: null };
+    return { live, built, apart: new Set(), liveError: null, builtPresent: false, payload: null };
   }
   for (const value of payload.live?.values ?? []) live.set(`${value.lead}|${value.follow}`, { by: value.by, deciders: value.deciders ?? [] });
   for (const [lead, follow, by] of payload.built?.values ?? []) built.set(`${lead}|${follow}`, by);
-  for (const entry of payload.carried?.pairs ?? []) imported.set(`${entry.lead}|${entry.follow}`, entry);
   return {
     live,
     built,
-    imported,
-    reviewed: new Set(payload.carried?.reviewed ?? []),
     apart: new Set(payload.apart?.pairs ?? []),
     liveError: payload.live?.error ?? null,
     builtPresent: Boolean(payload.built?.present),
@@ -244,11 +240,6 @@ export function resolvePairList(model, listed) {
 // The index of the listed pair at the grid cursor `cursor`, or -1 when no listed pair is there.
 export function listedAt(list, cursor) {
   return list.findIndex((one) => one.cursor !== null && one.cursor.row === cursor.row && one.cursor.col === cursor.col);
-}
-
-// The cursors of the listed pairs the inventory knows, in the list's order: the cells the mark key's walk visits in list mode.
-export function listCells(list) {
-  return list.filter((one) => one.cursor !== null).map((one) => one.cursor);
 }
 
 // The index of the listed pair the inventory knows `step` places from index `at` (`step` 1 the next, -1 the previous), passing over those it does not know, or null past either end.
@@ -555,80 +546,6 @@ export function journalLines(values, seenSeq) {
     lines.push({ level: 'error', text: `A change made while a pass ran was dropped when it ended: ${dropped.reason}` });
   }
   return lines;
-}
-
-// Carried-over marks (doc/kerning-design.md section 8). A facing pair is carried over and unreviewed while the import set it (`imported.json`), the author has not marked it (`reviewed.json`), and it still has the value the import gave it.
-export function isCarried(model, values, pairId) {
-  const key = model.pairKeys[pairId];
-  const entry = values?.imported?.get(key);
-  if (!entry || values.reviewed.has(key)) return false;
-  return liveValue(model, values, pairId) === entry.by;
-}
-
-export function entryCarried(model, values, entry) {
-  return Boolean(entry) && entry.pairs.some((id) => isCarried(model, values, id));
-}
-
-export function carriedCount(model, values) {
-  let count = 0;
-  for (const id of model.doc.pairs.keys()) if (isCarried(model, values, id)) count += 1;
-  return count;
-}
-
-// The grid cursors a walk from `cursor` visits, forward (`step` 1) or back (`step` -1), wrapping round to `cursor` itself last: every cell of the grid in reading order, or with `cells` (list mode's `listCells`) those cells in their order.
-function* walkFrom(model, cursor, step, cells) {
-  if (cells) {
-    const start = cells.findIndex((one) => one.row === cursor.row && one.col === cursor.col);
-    for (let offset = 1; offset <= cells.length; offset += 1) yield cells[(((start + step * offset) % cells.length) + cells.length) % cells.length];
-    return;
-  }
-  const size = model.size;
-  const total = size * size;
-  const start = cursor.row * size + cursor.col;
-  for (let offset = 1; offset <= total; offset += 1) {
-    const index = (((start + step * offset) % total) + total) % total;
-    yield { row: Math.floor(index / size), col: index % size };
-  }
-}
-
-// The grid cursor of the next pair of letters, in reading order from `cursor` (`step` 1) or the one before (`step` -1), that still has a carried-over facing pair not reviewed, wrapping round; null when none has one. With `cells` the walk visits only those, in their order.
-export function nextCarried(model, values, cursor, step, cells = null) {
-  for (const cell of walkFrom(model, cursor, step, cells)) {
-    if (entryCarried(model, values, runePairAt(model, cell.row, cell.col))) return cell;
-  }
-  return null;
-}
-
-// Where the mark key moves the selection once it marks the facing-pair keys `marked` reviewed: the next facing pair after `facing` in the same pair of letters that is still carried over, or else the first such facing pair of the next pair of letters that has one, in reading order (or among `cells`, in list mode) and wrapping round; null when none is left. It reads `marked` as reviewed already, since the mark's reply has not come back yet.
-export function nextAfterMark(model, values, cursor, facing, marked, cells = null) {
-  const after = { ...values, reviewed: new Set([...values.reviewed, ...marked]) };
-  const here = runePairAt(model, cursor.row, cursor.col);
-  const later = here ? here.pairs.findIndex((id, index) => index > facing && isCarried(model, after, id)) : -1;
-  if (later >= 0) return { cursor, facing: later };
-  const next = nextCarried(model, after, cursor, 1, cells);
-  if (!next) return null;
-  const entry = runePairAt(model, next.row, next.col);
-  return { cursor: next, facing: entry.pairs.findIndex((id) => isCarried(model, after, id)) };
-}
-
-// What the mark key (`toggle` false) or the reviewed button (`toggle` true) does with a scope's `marks` (`marksOf`): `post` is the mark to send (true marks, false takes the mark off, null sends none), and `move` whether the selection moves on to the next carried-over facing pair. The key never takes a mark off, so on a scope already marked, as a change of value marks it, it moves on as it does from a scope with nothing carried over; the button takes the mark off and stays.
-export function reviewStep(marks, toggle) {
-  if (marks.imported.length === 0) return { post: null, move: true };
-  if (!marks.reviewed) return { post: true, move: true };
-  return toggle ? { post: false, move: false } : { post: null, move: true };
-}
-
-// The facing pairs a mark of `scope` reaches that the import set, and whether every one of them is marked reviewed already, so the mark key takes them off.
-export function marksOf(model, values, scope, entry) {
-  const keys = scope.scope === SCOPE_FACING ? [`${scope.lead}|${scope.follow}`] : entry.pairs.map((id) => model.pairKeys[id]);
-  const imported = keys.filter((key) => values?.imported?.has(key));
-  return { imported, reviewed: imported.length > 0 && imported.every((key) => values.reviewed.has(key)) };
-}
-
-// The carried-over marks' trouble the header line and the status lines report: how many imported or marked facing pairs name a side the current build no longer has (a later build split or renamed it, and their marks no longer reach it), and why the marks cannot be read, if they cannot.
-export function carriedTrouble(values) {
-  const carried = values?.payload?.carried;
-  return { stale: carried?.stale?.length ?? 0, error: carried?.error ?? null };
 }
 
 // Relatives (doc/kerning-design.md section 6). A facing pair's junction is every horizontal gap between ink of its two sides on one row or on rows one apart, at a value of 0: the leading glyph's blank from its rightmost ink to its advance plus the following glyph's blank from its pen position to its leftmost ink, so the two letters' side bearings cancel out of it. Two facing pairs are relatives when their junctions are alike once one is left as it is (`same`), has its two sides exchanged (`mirror`, the junction seen in a mirror), is turned upside down (`flip`), or both (`turn`, a half turn). Alike means equal on every gap less than `CLOSE_REACH` pixels looser than the closest one, so ink set well back from the junction, a ligature's second letter's stem among it, counts for nothing. Relatives whose values differ are kerned inconsistently unless the author marks one as apart on purpose (`GET /kern`'s `apart`).

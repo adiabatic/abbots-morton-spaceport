@@ -38,7 +38,7 @@ export const NEITHER_MENU_MAP = new Map([
   ['Escape', 'neither-cancel'],
 ]);
 
-// The kerning view's keys (`#view=kern`), by the pane that has focus. The grid's arrows move its cursor, and `e`, `s`, `d` and `f` move it up, left, down and right too, Enter moves to the detail panel, and `-` and `=` (or `+`) tighten and loosen the value set on the focused pair of letters, for every facing pair of the two that has no record of its own. In the detail panel up and down (or `e` and `d`) choose a facing pair, and past the last or the first one move on as `]` and `[` do, left and right (or `s` and `f`) tighten and loosen the selected scope, `0` drops the scope's own record, `n` opens the note of the scope's record, and Escape returns to the grid. In the detail panel `g` marks the selected scope's carried-over facing pairs reviewed and moves to the next carried-over facing pair, in this pair of letters or the next one that has one, and on a scope with nothing carried over or already marked (a change of value marks it) it only moves; it never takes a mark off, which the detail panel's reviewed button does. `u` undoes the last change in either pane, and `]` and `[` move to the next and the previous pair of letters that still has a carried-over facing pair not reviewed. In list mode (the URL hash's `pairs`) the grid pane holds only the listed pairs of letters: the arrows move its cursor to the previous (up and left) or the next (down and right) listed pair, and `]` and `[`, and up and down past either end of the detail panel, move to the next and the previous listed pair, stopping at either end. `r` and `w` move, in either pane, to the next and the previous facing pair kerned differently from a relative, a facing pair whose junction is the same one, mirrored, upside down or turned half round, passing over the selected pair's own relatives; in the detail panel `t` sets the selected facing pair to the value most of its relatives take, `v` gives its value to every relative that has another, and `a` marks it as kerned apart from them on purpose and moves on as `r` does, or takes that mark off; `c` steps through what the relatives section lists, the same-junction relatives, the pairs with a like first shape before the same second shape, and those with a like second shape after the same first, and `t`, `v` and `a` act only while it lists the relatives. Anywhere else on the page (`page`, a header button among them) the grid's keys still act, but Enter keeps its own meaning.
+// The kerning view's keys (`#view=kern`), by the pane that has focus. The grid's arrows move its cursor, and `e`, `s`, `d` and `f` move it up, left, down and right too, Enter moves to the detail panel, and `-` and `=` (or `+`) tighten and loosen the value set on the focused pair of letters, for every facing pair of the two that has no record of its own. In the detail panel up and down (or `e` and `d`) choose a facing pair, left and right (or `s` and `f`) tighten and loosen the selected scope, `0` drops the scope's own record, `n` opens the note of the scope's record, and Escape returns to the grid. `u` undoes the last change in either pane. In list mode (the URL hash's `pairs`) the grid pane holds only the listed pairs of letters: the arrows move its cursor to the previous (up and left) or the next (down and right) listed pair, and `]` and `[`, and up and down past either end of the detail panel, move to the next and the previous listed pair, stopping at either end. `r` and `w` move, in either pane, to the next and the previous facing pair kerned differently from a relative, a facing pair whose junction is the same one, mirrored, upside down or turned half round, passing over the selected pair's own relatives; in the detail panel `t` sets the selected facing pair to the value most of its relatives take, `v` gives its value to every relative that has another, and `a` marks it as kerned apart from them on purpose and moves on as `r` does, or takes that mark off; `c` steps through what the relatives section lists, the same-junction relatives, the pairs with a like first shape before the same second shape, and those with a like second shape after the same first, and `t`, `v` and `a` act only while it lists the relatives. Anywhere else on the page (`page`, a header button among them) the grid's keys still act, but Enter keeps its own meaning.
 export const KERN_GRID_MAP = new Map([
   ['ArrowUp', 'kern-up'],
   ['ArrowDown', 'kern-down'],
@@ -53,8 +53,8 @@ export const KERN_GRID_MAP = new Map([
   ['=', 'kern-letters-loosen'],
   ['+', 'kern-letters-loosen'],
   ['u', 'kern-undo'],
-  [']', 'kern-next-carried'],
-  ['[', 'kern-prev-carried'],
+  [']', 'kern-next-listed'],
+  ['[', 'kern-prev-listed'],
   ['r', 'kern-next-split'],
   ['w', 'kern-prev-split'],
   ['/', 'kern-jump'],
@@ -72,14 +72,13 @@ export const KERN_DETAIL_MAP = new Map([
   ['f', 'kern-loosen'],
   ['0', 'kern-drop'],
   ['n', 'kern-note'],
-  ['g', 'kern-review'],
   ['t', 'kern-take'],
   ['v', 'kern-give'],
   ['a', 'kern-apart'],
   ['c', 'kern-compare'],
   ['u', 'kern-undo'],
-  [']', 'kern-next-carried'],
-  ['[', 'kern-prev-carried'],
+  [']', 'kern-next-listed'],
+  ['[', 'kern-prev-listed'],
   ['r', 'kern-next-split'],
   ['w', 'kern-prev-split'],
   ['/', 'kern-jump'],

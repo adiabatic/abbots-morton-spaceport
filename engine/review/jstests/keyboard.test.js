@@ -178,8 +178,8 @@ const KERN_GRID = [
   ['=', 'kern-letters-loosen'],
   ['+', 'kern-letters-loosen'],
   ['u', 'kern-undo'],
-  [']', 'kern-next-carried'],
-  ['[', 'kern-prev-carried'],
+  [']', 'kern-next-listed'],
+  ['[', 'kern-prev-listed'],
   ['r', 'kern-next-split'],
   ['w', 'kern-prev-split'],
   ['/', 'kern-jump'],
@@ -197,14 +197,13 @@ const KERN_DETAIL = [
   ['f', 'kern-loosen'],
   ['0', 'kern-drop'],
   ['n', 'kern-note'],
-  ['g', 'kern-review'],
   ['t', 'kern-take'],
   ['v', 'kern-give'],
   ['a', 'kern-apart'],
   ['c', 'kern-compare'],
   ['u', 'kern-undo'],
-  [']', 'kern-next-carried'],
-  ['[', 'kern-prev-carried'],
+  [']', 'kern-next-listed'],
+  ['[', 'kern-prev-listed'],
   ['r', 'kern-next-split'],
   ['w', 'kern-prev-split'],
   ['/', 'kern-jump'],
@@ -225,11 +224,10 @@ test('the grid’s - and = act on the letters and leave the detail panel’s arr
   assert.equal(actionForKey('-', { view: 'kern', kernPane: 'detail' }), null);
   assert.equal(actionForKey('0', { view: 'kern', kernPane: 'grid' }), null);
   assert.equal(actionForKey('n', { view: 'kern', kernPane: 'grid' }), null);
-  assert.equal(actionForKey('g', { view: 'kern', kernPane: 'grid' }), null);
   for (const key of ['t', 'v', 'a', 'c']) assert.equal(actionForKey(key, { view: 'kern', kernPane: 'grid' }), null, `grid ${key}`);
   assert.equal(actionForKey('r', { view: 'kern', kernPane: 'grid' }), 'kern-next-split');
   assert.equal(actionForKey('r'), 'repeat');
-  assert.equal(actionForKey(']', { view: 'kern', kernPane: 'grid' }), 'kern-next-carried');
+  assert.equal(actionForKey(']', { view: 'kern', kernPane: 'grid' }), 'kern-next-listed');
   assert.equal(actionForKey(']'), 'next-class');
   assert.equal(actionForKey('ArrowLeft', { view: 'kern', kernPane: 'detail' }), 'kern-tighten');
   assert.equal(actionForKey('ArrowLeft', { view: 'kern', kernPane: 'grid' }), 'kern-left');

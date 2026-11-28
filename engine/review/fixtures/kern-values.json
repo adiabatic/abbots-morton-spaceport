@@ -75,29 +75,6 @@
   "pending": 0,
   "dropped": []
  },
- "carried": {
-  "pairs": [
-   {
-    "lead": "qsNo[flipped]",
-    "follow": "qsTea[half exit=x-height]",
-    "by": -1,
-    "file": "glyph_data/runes/qsNo.yaml",
-    "line": "- {stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}",
-    "scope": "facing"
-   },
-   {
-    "lead": "qsNo[loop]",
-    "follow": "qsTea[full]",
-    "by": -1,
-    "file": "glyph_data/runes/qsNo.yaml",
-    "line": "- {stance: loop, right: {family: qsTea, stance: full}, by: -1}",
-    "scope": "facing"
-   }
-  ],
-  "reviewed": [],
-  "stale": [],
-  "error": null
- },
  "apart": {
   "pairs": [],
   "stale": [],
