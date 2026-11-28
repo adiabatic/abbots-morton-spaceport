@@ -45,11 +45,11 @@ Between the run_build skip and a full rebuild there is a third mode, the gates-o
 
 A fourth mode is the kern-only rebuild. When the diff against the run_build green is confined to runes' kern lines and the font's non-Quikscript data (`font_only_label`: a rune's `kern` block is in the run_build skip key through `fingerprint.kern_lines` and in no other key, and the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules and the glyph-name map through `fingerprint.font_data_lines`), engine/out/build holds the build a gates-only rerun would read, and its Stage A record matches the sources on disk (`stage_a_current`), the cycle spawns `run_build --kern-only`. It runs the glyph chain alone over the tables on disk (`run_build.kern_only_run`): the kern stage, the defect gates at the kerned offsets, the GSUB and GPOS emission, the compile and read-back. The string replay, the witness stage, the shipped-order walk and the Manual-pin gate read nothing a kern block or a Latin glyph feeds, so their summaries stand, and the pass records a green over the new inputs as a gates-only rerun does (`kern_only_rebuild`). The matching Stage A record is what shows those summaries are a passing run's over these inputs, so without it the cycle rebuilds. The child carries that record forward and publishes its files only once read-back passes, so a kern-only child that fails leaves the prior build, its summaries and the record in place, and the next pass plans a kern-only rebuild again.
 
-The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites the shards the tab reads by byte range and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes the corpus in place. A corpus-changing pass builds the table-diff corpus at engine/out/review.next, which it empties first, and the land (`engine.review.landing`) then swaps the corpus in and, when the stamp moves, carries the store onto it by unit id (`verdict_store.carry`) in one short section under the store's lock: a verdict whose unit the new corpus still has, its content unchanged and so its id, stays, a skip is dropped, and the rest go to var/verdict-orphans/, which no pass refuses over. The store is small and the review server writes it whole on every save, so the land reads every save made before it takes the lock, and a save made while it holds the lock gets a retryable 503. The land runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed between its swap and its store write leaves a store on the old stamp, which the next save stamped for the served corpus, or the next pass's land, carries onto the new one. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
+The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites the shards a tab loads and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes the corpus in place. A corpus-changing pass builds the table-diff corpus at engine/out/review.next, which it empties first, and the land (`engine.review.landing`) then swaps the corpus in and, when the stamp moves, carries the store onto it by unit id (`verdict_store.carry`) in one short section under the store's lock: a verdict whose unit the new corpus still has, its content unchanged and so its id, stays, a skip is dropped, and the rest go to var/verdict-orphans/, which no pass refuses over. The store is small and the review server writes it whole on every save, so the land reads every save made before it takes the lock, and a save made while it holds the lock gets a retryable 503. The land runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed between its swap and its store write leaves a store on the old stamp, which the next save stamped for the served corpus, or the next pass's land, carries onto the new one. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
 
 The cycle asks a listening server's /capabilities what it is (`probe_server`). A server from this checkout on the working tree's land-protocol and freshness code (`landing.code_digest`) keeps running; one from this checkout on other code is restarted on the tree's code first (`restart_review_server`) when the pass writes the corpus or the store under it, and keeps running through a pass that writes neither (`server_can_keep_running`); and one serving another checkout is left alone and sent no reload. A listener that gives no usable /capabilities answer, such as a server stalled on a long request or a process that is not a review server, is never stopped: a pass that writes neither the corpus nor the store runs beside it, and any other pass refuses. --recipe-serves, which `make review-cycle` passes, says the recipe serves the corpus after the pass, so the readiness checklist leaves the server row to it.
 
-An edit confined to engine/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`engine.review.serve.register_dormant_watch`).
+An edit confined to engine/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`engine.review.serve.register_dormant_watch`).
 
 A corpus promotion is the opposite case under the same skip: the land swaps the staged corpus in, the stamp changes with it, and the land carries the store onto it by unit id.
 
@@ -89,7 +89,7 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from engine.review import app_index, landing, shards, store_lock  # noqa: E402
+from engine.review import landing, shards, store_lock  # noqa: E402
 from engine.tools import console, cycle_paths  # noqa: E402
 from engine.tools import contracts_closure as contracts  # noqa: E402
 from engine.tools.green_record import (  # noqa: E402
@@ -133,7 +133,7 @@ UNDECIDED_UNTIL_BUILD = {
     "gate:conform": CONFORM_MAYBE_NOTE,
     "gate:make-test": MAKE_TEST_MAYBE_NOTE,
 }
-ASSETS_REFRESH_NOTE = "only the review UI assets moved since the corpus was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
+ASSETS_REFRESH_NOTE = "only the review UI assets moved since the corpus was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard or generated_at moves; --fresh overrides"
 CORPUS_PROMOTE_NOTE = "a staging pass already built the corpus these inputs produce, byte for byte; the land swaps that directory in instead of a rebuild; --fresh overrides"
 SERVER_KEEPS_RUNNING_NOTE = (
     "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
@@ -908,7 +908,7 @@ def contracts_closure(root: Path) -> tuple[str | None, dict[str, str] | None]:
 def corpus_build_skippable(
     root: Path = ROOT, review_out: Path | None = None, ignore: tuple[str, ...] = ()
 ) -> bool:
-    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the verdict store keeps its stamp. The cycle builds the table-diff corpus (`engine.review.build`), so True only for a corpus whose manifest's recorded inputs fingerprint equals the one a build would stamp now (`status.table_diff_inputs` over the current snapshot under `root` and the tables' stamp of engine/out/build, which a build copies, `snapshot.tables_stamp`), every shard the manifest names present, engine/out/build/Senior-Regular.otf byte for byte the after font the manifest records, as the readiness check's freshness row compares it, and the corpus complete (`corpus_complete`). A corpus of another mode never is, so the first pass of a tree that serves one builds the table-diff corpus. `generated_at` is derived from the inputs' mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content; skipping keeps the stamp, and with it the store's alignment with the corpus.
+    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the verdict store keeps its stamp. The cycle builds the table-diff corpus (`engine.review.build`), so True only for a corpus whose manifest's recorded inputs fingerprint equals the one a build would stamp now (`status.table_diff_inputs` over the current snapshot under `root` and the tables' stamp of engine/out/build, which a build copies, `snapshot.tables_stamp`), engine/out/build/Senior-Regular.otf byte for byte the after font the manifest records, as the readiness check's freshness row compares it, and the corpus complete (`corpus_complete`: every shard the manifest names present). A corpus of another mode never is, so the first pass of a tree that serves one builds the table-diff corpus. `generated_at` is derived from the inputs' mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content; skipping keeps the stamp, and with it the store's alignment with the corpus.
 
     The after font is compared whole, `kern` lookup included, because the corpus's kerning units show that lookup and its kern bucket reads engine/out/build/kern.tsv, which a kern edit rewrites with the font; the `font_inputs` component hashes the runes' kern blocks too. So a kern-only rebuild rebuilds the corpus.
 
@@ -933,12 +933,6 @@ def corpus_build_skippable(
     if {key: value for key, value in recorded.items() if key not in ignored} != {
         key: value for key, value in expected.items() if key not in ignored
     }:
-        return False
-    try:
-        parts = [part for meta in manifest["classes"] for part in shards.class_shards(meta)]
-    except KeyError, TypeError, AttributeError:
-        return False
-    if not all((corpus / part).exists() for part in parts):
         return False
     try:
         after_sha = manifest["fonts"]["after"]["sha256"]
@@ -969,14 +963,17 @@ def next_corpus_dir(live: Path | None = None) -> Path:
 
 
 def corpus_complete(corpus: Path) -> bool:
-    """Return whether the corpus at `corpus` is one a build finished: its manifest parses, and the files a build writes after it, both app sidecars, are stamped for that manifest (`app_index.outputs_not_current`, the one check of a finished corpus, which `status`'s freshness check takes too; with the comparison with today's inputs, these are the checks `corpus_build_skippable` makes)."""
+    """Return whether the corpus at `corpus` is one a build finished: its manifest parses and lists its classes, and every shard it names is on disk. The build writes the manifest last (`shards.missing_shards`, the one check of a finished corpus, which `status`'s freshness check takes too; with the comparison with today's inputs, these are the checks `corpus_build_skippable` makes)."""
     try:
         manifest = json.loads((corpus / "manifest.json").read_text())
     except OSError, ValueError:
         return False
-    if not isinstance(manifest, dict):
+    if not isinstance(manifest, dict) or not isinstance(manifest.get("classes"), list):
         return False
-    return not app_index.outputs_not_current(corpus)
+    try:
+        return not shards.missing_shards(corpus, manifest)
+    except TypeError, AttributeError:
+        return False
 
 
 def recover_next_corpus(live: Path | None = None, *, delete: bool = True) -> str | None:
@@ -998,9 +995,9 @@ def recover_next_corpus(live: Path | None = None, *, delete: bool = True) -> str
 def promotable_corpus(
     root: Path = ROOT, summary_path: Path | None = None, live: Path | None = None
 ) -> Path | None:
-    """Return the corpus built beside the live one that a live pass can land instead of rebuilding, or None. Candidates are checked in order: `review.next` beside the live corpus (`next_corpus_dir`), which a pass stopped after its build leaves complete; the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), which a staging pass (`--review-out`) wrote as a whole corpus (shards and sidecars) where the live pass never reads; then `var/staged-review` under `root`, the conventional staging directory. Every staging path derives from `root`, so a scratch repo never reads the live staged corpus. The caller asks only on a pass whose run_build skipped or reproduced its Stage A, because the check compares against the Stage A run_build recorded on disk, so a corpus built before a rune edit is never landed over it.
+    """Return the corpus built beside the live one that a live pass can land instead of rebuilding, or None. Candidates are checked in order: `review.next` beside the live corpus (`next_corpus_dir`), which a pass stopped after its build leaves complete; the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), which a staging pass (`--review-out`) wrote as a whole corpus where the live pass never reads; then `var/staged-review` under `root`, the conventional staging directory. Every staging path derives from `root`, so a scratch repo never reads the live staged corpus. The caller asks only on a pass whose run_build skipped or reproduced its Stage A, because the check compares against the Stage A run_build recorded on disk, so a corpus built before a rune edit is never landed over it.
 
-    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (the land swaps the two trees, which cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font, the three stamped sidecars and the unit store), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in engine/review/build.py), so a staged corpus can have a stamp older than the corpus it would replace, and a backwards promotion would land a corpus older than the one the store was carried onto. An unreadable manifest rules the candidate out, which costs only a rebuild.
+    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (the land swaps the two trees, which cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font and every shard), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in engine/review/build.py), so a staged corpus can have a stamp older than the corpus it would replace, and a backwards promotion would land a corpus older than the one the store was carried onto. An unreadable manifest rules the candidate out, which costs only a rebuild.
     """
     live_dir = live if live is not None else REVIEW_OUT
     summary = summary_path if summary_path is not None else root / "engine" / "out" / "cycle_summary.json"
@@ -1115,7 +1112,7 @@ STEP_DESCRIPTIONS = {
     "build:gates-only": "Reruns the defect gates and the Manual-pin gate over the tables and font already on disk, rebuilding nothing. Taken when only gate-side inputs moved since the last green build.",
     "build:kern-only": "Recompiles the font over the tables already on disk after a kern edit or an edit to the font's non-Quikscript data: the kern stage, the defect gates, the GSUB and GPOS emission, the compile and read-back. Taken when only runes' kern blocks or the font data moved since the last green build, which no table or settlement reads.",
     "corpus-build": "Builds the table-diff corpus: the accepted snapshot of the build (engine/review-snapshot.json names it, var/keep/review-snapshot/ holds it) against engine/out/build, each unit one visible change, into engine/out/review.next beside the served corpus (in place only on a first run).",
-    "assets-refresh": "Overwrites each served copy of the review app's JS, CSS, and HTML whose bytes changed, leaving the others in place, and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
+    "assets-refresh": "Overwrites each served copy of the review app's JS, CSS, and HTML whose bytes changed, leaving the others in place, and restamps only the manifest's static component. No shard moves, so the open tab's store stays aligned.",
     "land": "Moves the new corpus into place and carries the verdict store onto it by unit id, under the verdict store's lock, in one child that a stop signal does not interrupt: a verdict whose unit the new corpus still has stays, a skip is dropped, the rest go to var/verdict-orphans/, and the corpus is swapped in with one rename. The open tabs then move onto it.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
@@ -1854,7 +1851,7 @@ def build_plan(
                 Step(
                     "assets-refresh",
                     ["uv", "run", "python", "-m", "engine.review.build", "refresh-assets"],
-                    "copy engine/review/static/ over the served copy and restamp the manifest's static component; the units and the sidecars are untouched, so the autosave stays aligned",
+                    "copy engine/review/static/ over the served copy and restamp the manifest's static component; the units are untouched, so the autosave stays aligned",
                     lane="build",
                 )
             )
@@ -2796,14 +2793,14 @@ def _broadcast_review_reload(emit: console.CycleConsole, step: str, kind: str) -
 def _do_assets_refresh(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> bool:
-    """Copy the review app's static files over the served corpus and restamp the manifest's `static` component, on a pass where that component is the only input that changed. It runs in place of the corpus build, and later steps treat the pass as a corpus skip: no unit, shard, sidecar or `generated_at` changes, so the carry is the identity and the review server keeps running. Once every file is in place, the open tabs are told to reload onto them (`_broadcast_review_reload`)."""
+    """Copy the review app's static files over the served corpus and restamp the manifest's `static` component, on a pass where that component is the only input that changed. It runs in place of the corpus build, and later steps treat the pass as a corpus skip: no unit, shard or `generated_at` changes, so the carry is the identity and the review server keeps running. Once every file is in place, the open tabs are told to reload onto them (`_broadcast_review_reload`)."""
     result = spawn("assets-refresh", plan.argv("assets-refresh"), emit=emit, registry=registry, stream=False)
     if result.returncode != 0:
         emit.note("assets-refresh", f"ERROR: review.build refresh-assets exited {result.returncode}.")
         report.assets_status = f"FAILED (exit {result.returncode})"
         _close_step(emit, report, "assets-refresh", result)
         return False
-    report.assets_status = "refreshed in place (units, sidecars and generated_at unmoved)"
+    report.assets_status = "refreshed in place (units and generated_at unmoved)"
     if plan.broadcast:
         _broadcast_review_reload(emit, "assets-refresh", "assets")
     _close_step(emit, report, "assets-refresh", result)

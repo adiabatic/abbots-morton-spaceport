@@ -1,4 +1,3 @@
-import gzip
 import json
 import subprocess
 import sys
@@ -12,14 +11,6 @@ from engine.tools import perf_fingerprint as pf
 SCRIPT = Path(pf.__file__)
 
 
-def _gz(path: Path, header: dict | None, body: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(path, "wt") as handle:
-        if header is not None:
-            handle.write(json.dumps(header) + "\n")
-        handle.write(body)
-
-
 def _corpus(root: Path, *, stamp: str, head: str, inputs: str, unit: str = '{"id": "u-1"}') -> Path:
     corpus = root / "review"
     corpus.mkdir(parents=True)
@@ -31,12 +22,6 @@ def _corpus(root: Path, *, stamp: str, head: str, inputs: str, unit: str = '{"id
         "units": 1,
     }
     (corpus / "manifest.json").write_text(json.dumps(manifest))
-    _gz(
-        corpus / "app-units.ndjson.gz",
-        {"format": "ams-app-units/1", "manifest_sha256": head, "generated_at": stamp},
-        "row\n",
-    )
-    _gz(corpus / "app-locator-rows.ndjson.gz", None, "locator\n")
     (corpus / "units").mkdir()
     (corpus / "units" / "shard-0.json").write_text(unit)
     return corpus

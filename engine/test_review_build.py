@@ -1,6 +1,6 @@
 """Tests for the review-app build: the §7 contract checker over engine/review/fixtures/ (the checker the build runs over what it writes and `check_output_dir` runs over a written corpus), the manifest's class records, the config badge text, the app shell and its scripts, the assets refresh, the shard writer, `_write_json`, and the refusal to build into the served corpus while the review server listens.
 
-No test here reads the live corpus. The build checks the per-unit and per-shard contracts over every unit it writes and fails on any violation, and what the manifest writer computes from its own inputs (the fingerprint and the feature descriptions) needs no separate check. A real table-diff build's corpus, its sidecars' byte addressing among it, is checked in `engine/test_review_diff_units.py` and `engine/test_app_index.py`, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards.
+No test here reads the live corpus. The build checks the per-unit and per-shard contracts over every unit it writes and fails on any violation, and what the manifest writer computes from its own inputs (the fingerprint and the feature descriptions) needs no separate check. A real table-diff build's corpus is checked in `engine/test_review_diff_units.py`, and the build writes its manifest last, so the currency check in `artifact_cycle.corpus_build_skippable` never takes an unfinished corpus for a finished one.
 """
 
 import copy
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from engine.pipeline import fingerprint
-from engine.review import app_index, diff_units, shards
+from engine.review import diff_units, shards
 from engine.review import build as review_build
 from engine.review.build import (
     FEATURE_DESCRIPTIONS,
@@ -310,7 +310,7 @@ def test_node_check_passes_on_every_shipped_script():
 def _seed_refreshable_corpus(
     corpus: Path, inputs_fingerprint: dict, root: Path, mode: str | None = None
 ) -> dict:
-    """Build a corpus holding only the files `_check_output_files` requires: an empty manifest, of `mode` when one is given, both app sidecars stamped for that manifest, and the copied after font, whose bytes match both the sha the manifest records and the Senior-Regular.otf under `root`. `refresh_assets` writes index.html itself from the static tree it copies. The font record names no `source`, so the check compares the copy with the manifest only and resolves no path inside the fixture tree."""
+    """Build a corpus holding only the files `_check_output_files` requires: an empty manifest, of `mode` when one is given, and the copied after font, whose bytes match both the sha the manifest records and the Senior-Regular.otf under `root`. `refresh_assets` writes index.html itself from the static tree it copies. The font record names no `source`, so the check compares the copy with the manifest only and resolves no path inside the fixture tree."""
     corpus.mkdir(parents=True, exist_ok=True)
     font_bytes = b"OTTO-fixture"
     (root / "engine" / "out" / "build").mkdir(parents=True, exist_ok=True)
@@ -326,7 +326,6 @@ def _seed_refreshable_corpus(
         "fonts": {"after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(font_bytes).hexdigest()}},
     }
     (corpus / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
-    app_index.write_app_artifacts(corpus, {}, {})
     return manifest
 
 
@@ -339,7 +338,7 @@ def _fake_static_tree(root: Path) -> Path:
 
 
 def test_refresh_assets_restamps_only_the_static_component(tmp_path):
-    """Checks everything an assets refresh does: it copies the app shell onto the corpus, rewrites the `static` fingerprint component in place, and changes nothing else. `generated_at` stays, so an open review session keeps its verdict store. Both sidecars stay current, because the manifest's identity excludes this component. A table-diff corpus, the one the cycle builds, that `corpus_build_skippable` reported as stale before the refresh reports as current after it, so the next pass skips the build."""
+    """Checks everything an assets refresh does: it copies the app shell onto the corpus, rewrites the `static` fingerprint component in place, and changes nothing else. `generated_at` stays, so an open review session keeps its verdict store. A table-diff corpus, the one the cycle builds, that `corpus_build_skippable` reported as stale before the refresh reports as current after it, so the next pass skips the build."""
     from engine.review import status
     from engine.tools.artifact_cycle import corpus_build_skippable
 
@@ -369,8 +368,6 @@ def test_refresh_assets_restamps_only_the_static_component(tmp_path):
         name: value for name, value in before["inputs_fingerprint"].items() if name != "static"
     }
     assert manifest["generated_at"] == before["generated_at"]
-    for name, fmt in app_index.ARTIFACTS:
-        assert app_index.artifact_is_current(corpus, name, fmt)
     assert corpus_build_skippable(root, corpus)
 
 
@@ -388,12 +385,12 @@ def test_refresh_assets_refuses_a_corpus_it_cannot_restamp(tmp_path):
 
 
 def test_refresh_assets_puts_the_manifest_back_when_the_corpus_is_broken(tmp_path):
-    """The restamp makes the corpus read as current, so a failed contract check must undo it. A manifest left claiming freshness over sidecars that no longer match it would make the next cycle skip the rebuild, which is the only repair."""
+    """The restamp makes the corpus read as current, so a failed contract check must undo it. A manifest left claiming freshness over a corpus missing a file it names would make the next cycle skip the rebuild, which is the only repair."""
     root = tmp_path / "repo"
     _fake_static_tree(root)
     corpus = root / "engine" / "out" / "review"
     _seed_refreshable_corpus(corpus, {"static": "OLD"}, root)
-    app_index.artifact_path(corpus, app_index.APP_INDEX_NAME).unlink()
+    (corpus / "fonts" / "after.otf").unlink()
     with pytest.raises(SystemExit):
         review_build.refresh_assets(corpus, root)
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
@@ -412,8 +409,6 @@ def test_the_refresh_assets_verb_copies_the_shipped_app(tmp_path):
     assert (corpus / "index.html").read_text(encoding="utf-8") == (STATIC_DIR / "index.html").read_text(
         encoding="utf-8"
     )
-    for name, fmt in app_index.ARTIFACTS:
-        assert app_index.artifact_is_current(corpus, name, fmt)
 
 
 def test_the_app_copy_and_the_static_component_leave_out_dotfiles(tmp_path):
@@ -505,75 +500,39 @@ def _padded(count: int, filler: int = 0) -> list[dict]:
     return [{"id": f"u-{index:04d}", "pad": "x" * filler} for index in range(count)]
 
 
-def test_write_shard_keeps_a_class_under_the_cap_in_one_bare_file(tmp_path):
-    """A class under the size cap keeps one `units/<class-id>.json` file, the path the small classes, the checked-in fixtures, and archived corpora already use, and its bytes match one `json.dumps` call."""
-    fragments = _padded(4, 40)
-    assert _write_shard(tmp_path, "small", fragments)[0] == ["units/small.json"]
-    path = tmp_path / "units" / "small.json"
+def test_write_shard_writes_a_class_as_one_file_of_one_json_array(tmp_path):
+    """A class is one `units/<class-id>.json` file whose bytes match one `json.dumps` call, which the app fetches and parses whole, and the manifest's `shards` list for it names that file alone."""
+    fragments = _padded(24, 600)
+    assert _write_shard(tmp_path, "big", fragments) == ["units/big.json"]
+    path = tmp_path / "units" / "big.json"
     assert path.read_bytes() == (json.dumps(fragments, indent=1, ensure_ascii=True) + "\n").encode("utf-8")
-    assert sorted(entry.name for entry in (tmp_path / "units").iterdir()) == ["small.json"]
-
-
-def test_write_shard_splits_a_class_that_outgrows_the_cap(tmp_path, monkeypatch):
-    """Past the cap, the class is written as parts numbered from `000` with no bare file beside them. Each part is within the cap, each part's bytes match one `json.dumps` of that part, and the parts concatenate to the class in order."""
-    monkeypatch.setattr("engine.review.build.SHARD_PART_BYTES", 512)
-    fragments = _padded(24, 60)
-    parts, _spans = _write_shard(tmp_path, "big", fragments)
-    assert len(parts) > 1
-    assert parts == [f"units/big.{index:03d}.json" for index in range(len(parts))]
-    assert not (tmp_path / "units" / "big.json").exists()
-    seen: list[dict] = []
-    for part in parts:
-        raw = (tmp_path / part).read_bytes()
-        assert len(raw) <= 512, part
-        units = json.loads(raw)
-        assert raw == (json.dumps(units, indent=1, ensure_ascii=True) + "\n").encode("utf-8"), part
-        seen.extend(units)
-    assert seen == fragments
-
-
-def test_write_shard_gives_an_oversized_fragment_a_part_of_its_own(tmp_path, monkeypatch):
-    """A single fragment larger than the cap is written in a part of its own, not split, and the fragments around it stay in their own parts."""
-    monkeypatch.setattr("engine.review.build.SHARD_PART_BYTES", 128)
-    fragments = [{"id": "u-0000"}, {"id": "u-0001", "pad": "x" * 400}, {"id": "u-0002"}]
-    parts, _spans = _write_shard(tmp_path, "big", fragments)
-    assert [json.loads((tmp_path / part).read_text(encoding="utf-8")) for part in parts] == [
-        [fragments[0]],
-        [fragments[1]],
-        [fragments[2]],
-    ]
+    assert sorted(entry.name for entry in (tmp_path / "units").iterdir()) == ["big.json"]
 
 
 def test_write_shard_writes_an_empty_class_as_one_empty_array(tmp_path):
-    assert _write_shard(tmp_path, "empty", []) == (["units/empty.json"], [])
+    assert _write_shard(tmp_path, "empty", []) == ["units/empty.json"]
     assert (tmp_path / "units" / "empty.json").read_bytes() == b"[]\n"
 
 
 def test_write_shard_leaves_no_staging_file_behind_when_serializing_fails(tmp_path):
-    """Parts are staged and renamed for the same reason `_write_json` stages: an encode that fails partway must leave the previous build's units in place, with no truncated part or leftover `.partial` file."""
+    """A shard is staged and renamed (`_write_json`): an encode that fails partway must leave the previous build's units in place, with no truncated shard or leftover `.partial` file."""
     with pytest.raises(TypeError):
         _write_shard(tmp_path, "big", [{"id": "u-0000"}, {"id": object()}])
     assert list((tmp_path / "units").iterdir()) == []
 
 
 def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
-    """Every part the manifest lists is kept, and both forms of an unlisted name are removed: the bare file a class left when it grew into parts, and a numbered part a shrinking class no longer fills."""
+    """Every shard the manifest lists is kept, and the shard of a class the manifest no longer lists is removed; a file that is not JSON is left alone."""
     units = tmp_path / "units"
     units.mkdir()
-    for name in ("a.json", "b.json", "big.json", "big.000.json", "big.001.json", "big.002.json"):
+    for name in ("a.json", "b.json", "c.json"):
         (units / name).write_text("[]", encoding="utf-8")
     (units / "stray.txt").write_text("keep me", encoding="utf-8")
-    manifest = {
-        "classes": [
-            {"shards": ["units/a.json"]},
-            {"shards": ["units/big.000.json", "units/big.001.json"]},
-        ]
-    }
+    manifest = {"classes": [{"shards": ["units/a.json"]}, {"shards": ["units/c.json"]}]}
     removed = _prune_orphan_shards(tmp_path, manifest)
-    assert removed == ["b.json", "big.002.json", "big.json"]
+    assert removed == ["b.json"]
     assert (units / "a.json").exists()
-    assert (units / "big.000.json").exists()
-    assert (units / "big.001.json").exists()
+    assert (units / "c.json").exists()
     assert (units / "stray.txt").exists()
     assert not (units / "b.json").exists()
 
@@ -595,7 +554,7 @@ def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
     ),
 )
 def test_write_json_matches_one_shot_dumps_byte_for_byte(tmp_path, payload):
-    """`_write_json` writes a list one element at a time instead of building the whole string, so it assembles around per-element calls the framing and depth-1 indent that one `json.dumps` call would produce. The bytes must match because a shard's framing is the byte addressing the app's sidecars read (`engine/test_app_index.py`). This test compares against the one-call form over the shapes a shard or manifest can hold, including empty collections and escaped non-ASCII, where hand-built framing is most likely to differ."""
+    """`_write_json` writes a list one element at a time instead of building the whole string, so it assembles around per-element calls the framing and depth-1 indent that one `json.dumps` call would produce. The bytes must match so that two builds of the same inputs write the same shards and manifest (doc/review-design.md §6). This test compares against the one-call form over the shapes a shard or manifest can hold, including empty collections and escaped non-ASCII, where hand-built framing is most likely to differ."""
     target = tmp_path / "payload.json"
     _write_json(target, payload)
     assert target.read_bytes() == (json.dumps(payload, indent=1, ensure_ascii=True) + "\n").encode("utf-8")

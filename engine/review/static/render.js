@@ -100,13 +100,18 @@ export function namerDotStandInEntities(entities) {
 const MACHINE_CHECKS = ['ink_identical', 'picture_identical'];
 
 export function needsNoVerdict(unit) {
-  // Matches audit.needs_no_verdict in the build: a unit approved by any machine check, or in a class that takes no verdict, takes no verdict. It reads the flags, not the batch, because only app-index rows carry a batch. Those rows are all human units and omit the flags, so they read as human here.
+  // Matches audit.needs_no_verdict in the build: a unit approved by any machine check, or in a class that takes no verdict, takes no verdict. It reads the flags, which every record carries, and a unit without them reads as human.
   return Boolean(unit) && (unit.no_verdict === true || MACHINE_CHECKS.some((check) => unit[check] === true));
 }
 
-// A human row's position in the manifest's triage index, the order the app pages in, or Infinity for a record without one.
+// A human unit's position in the manifest's triage index (`order`, which corpus.js gives it), the order the app pages in, or Infinity for a unit without one.
 export function triageOrder(unit) {
   return typeof unit?.order === 'number' ? unit.order : Number.POSITIVE_INFINITY;
+}
+
+// Whether a unit's samples render with kerning on: a table-diff corpus's kern unit, which shows a kern value and which the build shapes with kerning on in both fonts (`diff_units.KernedInkComparator`). Every other unit renders with kerning off, as the build shapes it.
+export function drawnWithKerning(unit) {
+  return unit?.kerning === true;
 }
 
 export function familiesOfGroup(group) {
@@ -119,7 +124,7 @@ export function unitWorklist(value) {
 
 export function orderWorklist(units, order) {
   if (order === 'given') return units;
-  // Sort by triage order where rows have it. Records without it (a worklist's machine records) sort after them by group, then id.
+  // Sort by triage order where units have it. Units without it (a worklist's units that take no verdict) sort after them by group, then id.
   return [...units].sort(
     (a, b) => triageOrder(a) - triageOrder(b) || a.group.localeCompare(b.group) || a.id.localeCompare(b.id),
   );
@@ -160,23 +165,6 @@ export function partitionUnits(units, filters, recordOf) {
 export function humanClassCount(cls) {
   if (cls.no_verdict) return 0;
   return cls.unit_count - (cls.machine_approved_count ?? 0);
-}
-
-// A class's units that take no verdict: all of a no-verdict class, else its machine-approved units. It comes from the manifest so a show-machine fold can show its size without fetching the class.
-export function machineFoldTotal(cls) {
-  return cls.no_verdict ? cls.unit_count : (cls.machine_approved_count ?? 0);
-}
-
-// The badge for that fold, from the manifest's per-class machine-check counts. Checks are tried from narrowest to widest (ink-identical, then picture-identical), and the first whose count plus the narrower checks' counts equals the fold total is the badge; otherwise the fold gets the no-verdict badge.
-export function machineFoldCheck(cls) {
-  const total = machineFoldTotal(cls);
-  const checks = cls.machine_checks ?? {};
-  const ink = checks.ink_identical ?? 0;
-  const picture = checks.picture_identical ?? 0;
-  if (total === 0) return 'no_verdict';
-  if (ink === total) return 'ink_identical';
-  if (ink + picture === total) return 'picture_identical';
-  return 'no_verdict';
 }
 
 export function humanTotal(manifest) {
@@ -356,7 +344,7 @@ export function availableBatches(manifest, classId) {
 }
 
 export function classesInBatch(manifest, batch, showMachine = true) {
-  // Selects classes as machineFoldPlan does: the classes in the batch, plus the batchless classes in batch 0 when machine units are shown, since those classes hold only units that take no verdict.
+  // The classes in the batch, plus the batchless classes in batch 0 when units that take no verdict are shown, since those classes hold only such units. The batch view (`unitsInView` in corpus.js) and the sidebar's outline both select classes this way.
   const ids = new Set();
   for (const cls of manifest.classes) {
     if (cls.batches.includes(batch)) ids.add(cls.id);

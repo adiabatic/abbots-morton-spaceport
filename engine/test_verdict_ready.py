@@ -1,4 +1,4 @@
-"""Tests for `engine.review.status.compute_status`, which builds the readiness dict that the review server's /status handler and the `verdict_ready` CLI render, and for the CLI's server row and checklist. Fixtures build a fake repo tree (a table-diff corpus's manifest and its sidecars, a snapshot and the tracked pointer that names it, the cycle summary and the verdict store) and stub the components' recompute, so no real build inputs are read."""
+"""Tests for `engine.review.status.compute_status`, which builds the readiness dict that the review server's /status handler and the `verdict_ready` CLI render, and for the CLI's server row and checklist. Fixtures build a fake repo tree (a table-diff corpus's manifest and its shards, a snapshot and the tracked pointer that names it, the cycle summary and the verdict store) and stub the components' recompute, so no real build inputs are read."""
 
 import gzip
 import hashlib
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from engine.review import app_index, status, store_lock
+from engine.review import status, store_lock
 from engine.review.status import compute_status, count_effective
 from engine.tools import verdict_ready
 
@@ -106,7 +106,7 @@ def write_corpus(
     inputs_fp: str | Mapping[str, str | None] = "fresh",
     after_font: str = "present",
 ) -> None:
-    """A table-diff corpus of `units` units: `human` in `joins`, two more machine-approved there, and the rest in `kerning`, which takes no verdict, with both app sidecars stamped for the manifest, as a finished build leaves them. `after_font` sets how the manifest's after-font record relates to the `Senior-Regular.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of other bytes (as after a `run_build` that ran after the corpus build), and "omit" writes no `fonts` block."""
+    """A table-diff corpus of `units` units: `human` in `joins`, two more machine-approved there, and the rest in `kerning`, which takes no verdict, with every shard the manifest lists beside it, as a finished build leaves them. `after_font` sets how the manifest's after-font record relates to the `Senior-Regular.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of other bytes (as after a `run_build` that ran after the corpus build), and "omit" writes no `fonts` block."""
 
     review_dir = repo / "engine" / "out" / "review"
     none = units - len(human) - 2 if units else 0
@@ -162,7 +162,6 @@ def write_corpus(
     for meta in classes:
         (review_dir / meta["shards"][0]).parent.mkdir(parents=True, exist_ok=True)
         (review_dir / meta["shards"][0]).write_text("[]")
-    app_index.write_app_artifacts(review_dir, {}, {})
 
 
 def write_summary(
@@ -316,13 +315,13 @@ def test_freshness_fails_unless_the_after_font_is_the_built_font_on_disk(tmp_pat
     assert result["ready"] is False
 
 
-def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
-    """Both app sidecars are written after the manifest and are not part of it, so a build killed between them, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus; the check names the file, as the cycle's `corpus_complete` does through the same `app_index.outputs_not_current`."""
+def test_freshness_fails_when_a_shard_the_manifest_lists_is_missing(tmp_path):
+    """The build writes the manifest after its shards, so a manifest that lists a shard not on disk reads fresh by its fingerprint while the app would fail to load the corpus; the check names the shard, as the cycle's `corpus_complete` does through the same `shards.missing_shards`."""
     setup(tmp_path)
-    app_index.artifact_path(tmp_path / "engine" / "out" / "review", app_index.APP_INDEX_NAME).unlink()
+    (tmp_path / "engine" / "out" / "review" / "units" / "joins.json").unlink()
     result = call(tmp_path)
     freshness = result["checks"]["freshness"]
-    assert freshness["level"] == "fail" and app_index.APP_INDEX_NAME in freshness["detail"]
+    assert freshness["level"] == "fail" and "units/joins.json" in freshness["detail"]
     assert result["ready"] is False
 
 

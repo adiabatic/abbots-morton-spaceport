@@ -2369,7 +2369,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
 def test_cycle_summary_payload_records_an_assets_refresh():
     """The summary records the assets refresh as its own step, so a pass that skipped the corpus build can be told apart from one that copied new app assets over the served corpus."""
     report = _green_report()
-    report.assets_status = "refreshed in place (units, sidecars and generated_at unmoved)"
+    report.assets_status = "refreshed in place (units and generated_at unmoved)"
     payload = ac.cycle_summary_payload(report, [], _plan(skip_corpus=True, refresh_assets=True), "ok")
     assert payload["plan"]["refresh_assets"] is True
     assert payload["assets_status"].startswith("refreshed in place")
@@ -3789,9 +3789,7 @@ def test_the_contracts_key_is_none_outside_git(tmp_path):
 
 
 def test_corpus_build_skippable_matches_manifest(tmp_path):
-    """A skip means a table-diff build would reproduce this corpus byte for byte, so the test checks each thing that must match: the mode, the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, both app sidecars, and the after font, which must be Senior-Regular.otf byte for byte, since the corpus's kerning units show its `kern` lookup, so a kern-only rebuild that rewrote Senior-Regular.otf makes it stale. The sidecars are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present. A corpus of another mode is never skippable, since the cycle builds the table-diff corpus."""
-    from engine.review import app_index
-
+    """A skip means a table-diff build would reproduce this corpus byte for byte, so the test checks each thing that must match: the mode, the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, which `corpus_complete` reads, and the after font, which must be Senior-Regular.otf byte for byte, since the corpus's kerning units show its `kern` lookup, so a kern-only rebuild that rewrote Senior-Regular.otf makes it stale. A corpus of another mode is never skippable, since the cycle builds the table-diff corpus."""
     expected = _promotion_root(tmp_path)
     font = tmp_path / "engine" / "out" / "build" / "Senior-Regular.otf"
     corpus = tmp_path / "engine" / "out" / "review"
@@ -3802,7 +3800,9 @@ def test_corpus_build_skippable_matches_manifest(tmp_path):
 
     restamp()
     assert ac.corpus_build_skippable(tmp_path, corpus)
+    assert ac.corpus_complete(corpus)
     shard.unlink()
+    assert not ac.corpus_complete(corpus)
     assert not ac.corpus_build_skippable(tmp_path, corpus)
     restamp(recorded={**expected, "tables": "changed"})
     assert not ac.corpus_build_skippable(tmp_path, corpus)
@@ -3826,23 +3826,6 @@ def test_corpus_build_skippable_matches_manifest(tmp_path):
     restamp()
     assert ac.corpus_build_skippable(tmp_path, corpus)
 
-    for name, _fmt in app_index.ARTIFACTS:
-        kept = app_index.artifact_path(corpus, name)
-        raw = kept.read_bytes()
-        kept.unlink()
-        assert not ac.corpus_build_skippable(tmp_path, corpus)
-        kept.write_bytes(raw)
-    assert ac.corpus_build_skippable(tmp_path, corpus)
-
-    # A manifest rewritten without its sidecars: every shard is present and the fingerprint matches, so only the stale stamps on the files beside it show the mismatch.
-    restamp()
-    restamp(stamp="2026-02-02T00:00:00Z", sidecars=False)
-    assert not ac.corpus_complete(corpus)
-    assert not ac.corpus_build_skippable(tmp_path, corpus)
-    restamp(stamp="2026-02-02T00:00:00Z")
-    assert ac.corpus_complete(corpus)
-    assert ac.corpus_build_skippable(tmp_path, corpus)
-
 
 def _promotion_root(root):
     """Write Senior-Regular.otf under `root`, and return the inputs fingerprint a table-diff corpus must record to be skippable against it: no current snapshot and no windows heads there, so its `snapshot` and `tables` are None (`status.table_diff_inputs`)."""
@@ -3854,10 +3837,8 @@ def _promotion_root(root):
     return status.table_diff_inputs(root, build_out=build_out)
 
 
-def _write_corpus(corpus, recorded, stamp, *, sidecars=True, fonts=True):
-    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard, a manifest with `recorded` as its inputs fingerprint, `stamp` as its generated_at and, with `fonts`, Senior-Regular.otf's sha256 as its after font's, and, with `sidecars`, the app sidecars stamped for that manifest. Without `sidecars`, those an earlier call wrote stay stamped for its manifest, as a build stopped before them leaves them."""
-    from engine.review import app_index
-
+def _write_corpus(corpus, recorded, stamp, *, fonts=True):
+    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard and a manifest with `recorded` as its inputs fingerprint, `stamp` as its generated_at and, with `fonts`, Senior-Regular.otf's sha256 as its after font's."""
     corpus.mkdir(parents=True, exist_ok=True)
     (corpus / "units-000.json").write_text("[]")
     manifest = {
@@ -3873,8 +3854,6 @@ def _write_corpus(corpus, recorded, stamp, *, sidecars=True, fonts=True):
             "after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(b"OTTO").hexdigest()}
         }
     (corpus / "manifest.json").write_text(json.dumps(manifest))
-    if sidecars:
-        app_index.write_app_artifacts(corpus, {}, {})
 
 
 def test_promotable_corpus_names_a_current_staged_corpus_and_refuses_the_rest(tmp_path):
@@ -3931,7 +3910,7 @@ def test_promotable_corpus_reads_the_recorded_pointer_before_the_convention(tmp_
 
 
 def test_promotable_corpus_prefers_a_complete_review_next(tmp_path):
-    """A complete `review.next` a stopped pass left is the first candidate, ahead of the staging directories, when it reproduces these inputs; one built for other inputs is passed over for the next candidate, and so is one whose build stopped before its sidecars, which the next pass deletes as unfinished."""
+    """A complete `review.next` a stopped pass left is the first candidate, ahead of the staging directories, when it reproduces these inputs; one built for other inputs is passed over for the next candidate, and so is one whose build stopped before its manifest, the last file a build writes, which the next pass deletes as unfinished."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "engine" / "out" / "review"
     _write_corpus(live, {**expected, "font_inputs": "stale"}, "2026-01-01T00:00:00Z")
@@ -3943,7 +3922,8 @@ def test_promotable_corpus_prefers_a_complete_review_next(tmp_path):
     assert ac.promotable_corpus(tmp_path, summary, live) == beside
     _write_corpus(beside, {**expected, "font_inputs": "older"}, "2026-01-02T00:00:00Z")
     assert ac.promotable_corpus(tmp_path, summary, live) == staged
-    _write_corpus(beside, expected, "2026-01-03T00:00:00Z", sidecars=False)
+    _write_corpus(beside, expected, "2026-01-03T00:00:00Z")
+    (beside / "manifest.json").unlink()
     assert ac.promotable_corpus(tmp_path, summary, live) == staged
     note = ac.recover_next_corpus(live)
     assert note is not None and note.startswith("Deleted ") and not beside.exists()
@@ -4014,9 +3994,7 @@ def test_recover_superseded_corpus_settles_the_leftover_before_the_first_run_que
 
 
 def test_a_landed_corpus_still_answers_for_itself(tmp_path):
-    """Every stamp inside a corpus depends only on its manifest's content, so a corpus the land swaps in from another path still passes the skip's checks on both app sidecars. The outgoing tree ends at the staged path."""
-    from engine.review import app_index
-
+    """Nothing inside a corpus names the path it was built at, so a corpus the land swaps in from another path is still complete there. The outgoing tree ends at the staged path."""
     source = tmp_path / "staged"
     _write_corpus(source, {}, "2026-01-01T00:00:00Z")
     live = tmp_path / "review"
@@ -4027,8 +4005,6 @@ def test_a_landed_corpus_still_answers_for_itself(tmp_path):
 
     assert (source / "stale.txt").exists()
     assert not (live / "stale.txt").exists()
-    for name, fmt in app_index.ARTIFACTS:
-        assert app_index.artifact_is_current(live, name, fmt), name
     assert ac.corpus_complete(live)
 
 

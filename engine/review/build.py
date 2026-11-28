@@ -1,4 +1,4 @@
-"""Build the review app's output directory, engine/out/review/ (doc/review-design.md §1.3): the table-diff corpus (`build_table_diff`), the accepted build as a snapshot holds it (`engine/review/snapshot.py`) against a build, with the units `engine/review/diff_units.py` finds, written as manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file), the app sidecars (`engine/review/app_index.py`), copies of both fonts, and the static app files. The §7 contract checker (`check_manifest`, `check_unit`, `check_shards`, `check_output_dir`) checks a corpus, the one the build has just written included. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into engine/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at engine/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
+"""Build the review app's output directory, engine/out/review/ (doc/review-design.md §1.3): the table-diff corpus (`build_table_diff`), the accepted build as a snapshot holds it (`engine/review/snapshot.py`) against a build, with the units `engine/review/diff_units.py` finds, written as one unit shard per class, copies of both fonts, the static app files and, last, manifest.json. The §7 contract checker (`check_manifest`, `check_unit`, `check_shards`, `check_output_dir`) checks a corpus, the one the build has just written included. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into engine/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at engine/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 
 Usage:
     uv run python -m engine.review.build [--snapshot <dir>] [--new engine/out/build] [--out <dir>]
@@ -22,11 +22,10 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
-from typing import BinaryIO
 
 from engine.pipeline import fingerprint, output_sink, spec_load, table
 from engine.pipeline.alphabet import ALPHABET
-from engine.review import app_index, diff_units, shards, snapshot, sweep_record, tablediff, unit_ids
+from engine.review import diff_units, shards, snapshot, sweep_record, tablediff, unit_ids
 from engine.review.audit import (
     BATCH_SIZE,
     MACHINE_CHECKS,
@@ -48,7 +47,6 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 MANIFEST_FORMAT = "ams-review-manifest/2"
 MODE = "table-diff"
-SHARD_PART_BYTES = shards.SHARD_PART_BYTES
 BUILD_COMMAND = "uv run python -m engine.review.build"
 SERVE_COMMAND = "uv run python -m engine.review.serve"
 REVIEW_SERVER_PORT = 7294
@@ -233,7 +231,7 @@ def copy_static(out_dir: Path, static_dir: Path = STATIC_DIR) -> list[str]:
 
 
 def refresh_assets(out_dir: Path, repo_root: Path = REPO_ROOT) -> list[str]:
-    """Copy `engine/review/static/` over an already-built corpus (`copy_static`, which leaves a file whose bytes come out the same in place) and restamp only the manifest's `static` fingerprint component. An app JS, CSS or HTML edit changes only that component, and no unit depends on it. Everything else stays as the build left it: `generated_at` and `repo_head`, every shard, and both app sidecars. The autosave is keyed on `generated_at`, so a verdict session in progress is unaffected, and the sidecars stay current because `shards.manifest_sha256` leaves this component out of the manifest's identity. `_check_output_files` runs afterwards to confirm that. If it finds errors, the original manifest is restored, because a restamped manifest over sidecars that do not match it would look fresh to the next cycle, which would then skip the build that could repair it."""
+    """Copy `engine/review/static/` over an already-built corpus (`copy_static`, which leaves a file whose bytes come out the same in place) and restamp only the manifest's `static` fingerprint component. An app JS, CSS or HTML edit changes only that component, and no unit depends on it. Everything else stays as the build left it: `generated_at` and `repo_head`, every shard and both fonts. The autosave is keyed on `generated_at`, so a verdict session in progress is unaffected. `_check_output_files` runs afterwards over the files beside the manifest. If it finds errors, the original manifest is restored, because a restamped manifest over a broken corpus would look fresh to the next cycle, which would then skip the build that could repair it."""
     out_dir = Path(out_dir)
     repo_root = Path(repo_root)
     manifest_path = out_dir / "manifest.json"
@@ -263,7 +261,7 @@ def refresh_assets(out_dir: Path, repo_root: Path = REPO_ROOT) -> list[str]:
 def _write_json(path: Path, payload) -> None:
     """Write `payload` to `path` as indented ASCII JSON through a staging file that is renamed into place, streaming a non-empty list one element at a time.
 
-    The build calls it only for manifest.json, a dict that goes through `json.dumps` whole. Shards are written by `_write_shard`, which frames each fragment as the list path here frames an element, and the tests write shards through this function. Each list element is serialized inside a one-element list and the list's framing is stripped, so the C encoder writes the depth-1 indent (it handles `indent` for a one-shot dump on Python 3.14) and the bytes equal `json.dumps(payload, indent=1, ensure_ascii=True) + "\\n"`. Serializing a large list whole that way holds two full-size copies of the string at once, because the concatenation cannot resize the serialized string in place. `JSONEncoder.iterencode` would be simpler, but it uses the pure-Python encoder when it is not one-shot, which makes the write several times slower; stripping the framing adds under a third, a couple of seconds across the whole units directory.
+    The build writes manifest.json, a dict that goes through `json.dumps` whole, and each class's shard (`_write_shard`), a list, through it. Each list element is serialized inside a one-element list and the list's framing is stripped, so the C encoder writes the depth-1 indent (it handles `indent` for a one-shot dump on Python 3.14) and the bytes equal `json.dumps(payload, indent=1, ensure_ascii=True) + "\\n"`. Serializing a large list whole that way holds two full-size copies of the string at once, because the concatenation cannot resize the serialized string in place. `JSONEncoder.iterencode` would be simpler, but it uses the pure-Python encoder when it is not one-shot, which makes the write several times slower; stripping the framing adds under a third, a couple of seconds across the whole units directory.
 
     The staging file is needed because nothing downstream detects a half-written corpus file: a failed encode or a killed build must leave the previous file intact, not a truncated shard or an empty manifest.
     """
@@ -286,63 +284,15 @@ def _write_json(path: Path, payload) -> None:
         staging.unlink(missing_ok=True)
 
 
-def _fragment_bytes(fragment: dict) -> bytes:
-    """Return a fragment's bytes as a shard part holds them (`_write_shard`): framed as `_write_json` frames a list element, without the comma before it."""
-    return json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2].encode("ascii")
-
-
-def _write_shard(
-    out_dir: Path, class_id: str, fragments: list[dict]
-) -> tuple[list[str], list[tuple[int, int, int]]]:
-    """Write one class's fragments, held as a list, as its parts, and return the relative part paths in part order and, aligned with `fragments`, each fragment's (part index, byte start, byte length). The fragments go into the parts in the order passed, which is id order, cut by `shards.PartLayout` at `SHARD_PART_BYTES` and named by `shards.base_part_names`: the bare `units/<class-id>.json` for a class that fits one part, and `units/<class-id>.000.json` onward for a larger one. The cap is for the browser, whose range reads never cross a part (`shards.SHARD_PART_BYTES` says why), and every part stays within it except a part holding a single fragment that alone exceeds it. Each fragment is framed as `_fragment_bytes` frames it, so a part equals `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"`.
-
-    The returned spans are byte addresses on disk, which the review app's explain panel Range-fetches through the app sidecars. No punctuation falls inside a fragment's own bytes, and `ensure_ascii=True` makes the character count equal the byte offset, so `bytes[start:start + length]` is a standalone JSON value. Changing the `indent`, `ensure_ascii` or `separators` of the dump in `_fragment_bytes` breaks this without any error; `engine/test_app_index.py` slices every fragment back out to catch it.
-
-    Every part is staged under a `.partial` name and renamed into place once the last one is written, so a failed encode leaves the previous parts in place, and the staging files are deleted.
-    """
-    out_dir = Path(out_dir)
-    units_dir = out_dir / "units"
-    units_dir.mkdir(parents=True, exist_ok=True)
-    layout = shards.PartLayout(SHARD_PART_BYTES)
-    staged: list[Path] = []
-    spans: list[tuple[int, int, int]] = []
-    handle: BinaryIO | None = None
-    try:
-        for fragment in fragments:
-            body = _fragment_bytes(fragment)
-            index, start, first = layout.place(len(body))
-            if first:
-                if handle is not None:
-                    handle.write(shards.PART_CLOSING)
-                    handle.close()
-                staged.append(units_dir / f"{class_id}.{index:03d}.json.partial")
-                handle = staged[-1].open("wb")
-                handle.write(b"[")
-            else:
-                assert handle is not None
-                handle.write(b",")
-            handle.write(body)
-            spans.append((index, start, len(body)))
-        if handle is not None:
-            handle.write(shards.PART_CLOSING)
-            handle.close()
-            handle = None
-        if not staged:
-            staged.append(units_dir / f"{class_id}.000.json.partial")
-            staged[-1].write_bytes(b"[]\n")
-        names = shards.base_part_names(class_id, len(layout.sizes()))
-        for staging, name in zip(staged, names, strict=True):
-            staging.replace(out_dir / name)
-        return names, spans
-    finally:
-        if handle is not None:
-            handle.close()
-        for staging in staged:
-            staging.unlink(missing_ok=True)
+def _write_shard(out_dir: Path, class_id: str, fragments: list[dict]) -> list[str]:
+    """Write one class's fragments, in the order passed, which is id order, as its shard `units/<class-id>.json`, a JSON array written through `_write_json`, and return the manifest's `shards` list for the class: that one path. The bytes equal `json.dumps(fragments, indent=1, ensure_ascii=True) + "\\n"`, and the app fetches and parses the file whole."""
+    name = f"units/{class_id}.json"
+    _write_json(Path(out_dir) / name, fragments)
+    return [name]
 
 
 def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
-    """Delete the units/*.json files the manifest no longer references: shards of classes that are gone and parts that are no longer used. It runs only after the manifest is written, so a crash mid-build leaves orphan files instead of a manifest that names a deleted shard. It only considers *.json files directly under units/."""
+    """Delete the units/*.json files the manifest no longer references, the shards of classes that are gone. It runs only after the manifest is written, so a crash mid-build leaves orphan files instead of a manifest that names a deleted shard. It only considers *.json files directly under units/."""
     units_dir = Path(out_dir) / "units"
     if not units_dir.is_dir():
         return []
@@ -664,7 +614,6 @@ def build_table_diff(
 
     classes_meta: list[dict] = []
     shards_by_class: dict[str, list[dict]] = {}
-    spans_by_class: dict[str, list[tuple[int, int, int]]] = {}
     machine_by_class: dict[str, int] = {}
     check_totals = {check_id: 0 for check_id in MACHINE_CHECKS}
     for cls in present:
@@ -674,7 +623,7 @@ def build_table_diff(
             for check_id in MACHINE_CHECKS
         }
         machine_count = sum(1 for fragment in shard if machine_approved(fragment))
-        parts, spans_by_class[cls.id] = _write_shard(out_dir, cls.id, shard)
+        parts = _write_shard(out_dir, cls.id, shard)
         shards_by_class[cls.id] = shard
         if machine_count:
             machine_by_class[cls.id] = machine_count
@@ -768,15 +717,15 @@ def build_table_diff(
         "build_command": BUILD_COMMAND,
         "serve_command": SERVE_COMMAND,
     }
+    copy_static(out_dir, static_dir)
+    errors = check_shards(manifest, shards_by_class)
+    if errors:
+        raise SystemExit("contract check failed:\n" + "\n".join(errors[:CONTRACT_ERRORS_SHOWN]))
+    # The manifest is the last file the build writes, after the shards, the fonts and the static app files, and only once the contract check passes, so a corpus whose manifest parses and names no missing shard is one a build finished (`shards.missing_shards`).
     _write_json(out_dir / "manifest.json", manifest)
     pruned = _prune_orphan_shards(out_dir, manifest)
     if pruned:
         print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
-    copy_static(out_dir, static_dir)
-    app_index.write_app_artifacts(out_dir, shards_by_class, spans_by_class)
-    errors = check_shards(manifest, shards_by_class)
-    if errors:
-        raise SystemExit("contract check failed:\n" + "\n".join(errors[:CONTRACT_ERRORS_SHOWN]))
     shaped = sum(record.texts for record in counts.values())
     seconds = sum(record.seconds for record in counts.values())
     console.say(
@@ -1279,7 +1228,6 @@ class _CorpusCheck:
                 f"class {meta.get('id')}: {self._machine_count} machine-approved units, "
                 f"manifest says {meta.get('machine_approved_count')}"
             )
-        # The app draws a machine fold's badge from this record alone, before it loads the fold's units, so a stale count would mislabel the fold.
         declared_checks = meta.get("machine_checks")
         if isinstance(declared_checks, dict) and dict(declared_checks) != self._check_counts:
             errors.append(
@@ -1372,7 +1320,7 @@ def check_shards(manifest: dict, shards_by_class: dict[str, list[dict]]) -> list
 
 
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
-    """Check the files beside the manifest: every shard part the manifest lists is present and non-empty, a reader of part names that never opens one, both app sidecars are present and stamped for this manifest (`app_index.artifact_is_current`), index.html exists, and each copied font matches the sha256 the manifest records and, when `repo_root` resolves its `source`, the font it was copied from, byte for byte, since the kern units show the `kern` lookup. A build already guarantees the source comparison (`_copy_font` checks the copy against the digest taken at load), and the cycle's corpus skip and `make verdict-ready` compare the manifest's after-font sha256 with `engine/out/build/Senior-Regular.otf`; the comparison here is for `check_output_dir` and `refresh_assets`."""
+    """Check the files beside the manifest: every shard the manifest lists is present and non-empty (a check that opens none), index.html exists, and each copied font matches the sha256 the manifest records and, when `repo_root` resolves its `source`, the font it was copied from, byte for byte, since the kern units show the `kern` lookup. A build already guarantees the source comparison (`_copy_font` checks the copy against the digest taken at load), and the cycle's corpus skip and `make verdict-ready` compare the manifest's after-font sha256 with `engine/out/build/Senior-Regular.otf`; the comparison here is for `check_output_dir` and `refresh_assets`."""
     errors: list[str] = []
     for meta in manifest.get("classes", ()):
         for part in shards.class_shards(meta):
@@ -1397,16 +1345,11 @@ def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = 
                 errors.append(f"fonts.{side}: the copy is not {record['source']} as it stands on disk")
     if not (Path(out_dir) / "index.html").exists():
         errors.append("index.html is missing")
-    for name, fmt in app_index.ARTIFACTS:
-        if not app_index.artifact_path(out_dir, name).is_file():
-            errors.append(f"{name} is missing")
-        elif not app_index.artifact_is_current(out_dir, name, fmt):
-            errors.append(f"{name} is unreadable or stamped for another manifest")
     return errors
 
 
 def check_output_dir(out_dir: Path, repo_root: Path | None = None) -> list[str]:
-    """Run the whole §7 contract check over the corpus written at `out_dir`: the manifest (`check_manifest`), every fragment read back from its parts (`check_shards`), and the files beside the manifest (`_check_output_files`)."""
+    """Run the whole §7 contract check over the corpus written at `out_dir`: the manifest (`check_manifest`), every fragment read back from its shard (`check_shards`), and the files beside the manifest (`_check_output_files`)."""
     out_dir = Path(out_dir)
     manifest_path = out_dir / "manifest.json"
     if not manifest_path.exists():
@@ -1451,7 +1394,7 @@ def review_server_root(port: int = REVIEW_SERVER_PORT) -> str | None:
 
 
 def refuse_the_served_corpus(out: Path) -> None:
-    """Refuse a build into the corpus the review server serves while the server listens. A build rewrites the shards the open tabs read by byte range and restamps the manifest their saves are keyed on; the artifact cycle builds beside the served corpus and lands the result with the verdict store (`engine.review.landing`), which keeps the tabs working. A build into any other directory, a build while the listening server names another checkout as its root (`review_server_root`), such as a worktree's first pass beside the main checkout's server, and `refresh-assets`, which renames each file into place, are allowed; a server that names no root may serve this checkout, so it blocks the build. So is a build into a served corpus with no manifest (a first run, after engine/out/review was deleted under a running server), which no tab can have loaded, and which the artifact cycle builds in place because it has nothing to land beside."""
+    """Refuse a build into the corpus the review server serves while the server listens. A build rewrites the files the open tabs load and restamps the manifest their saves are keyed on; the artifact cycle builds beside the served corpus and lands the result with the verdict store (`engine.review.landing`), which keeps the tabs working. A build into any other directory, a build while the listening server names another checkout as its root (`review_server_root`), such as a worktree's first pass beside the main checkout's server, and `refresh-assets`, which renames each file into place, are allowed; a server that names no root may serve this checkout, so it blocks the build. So is a build into a served corpus with no manifest (a first run, after engine/out/review was deleted under a running server), which no tab can have loaded, and which the artifact cycle builds in place because it has nothing to land beside."""
     if Path(out).resolve() != DEFAULT_OUT.resolve() or not (DEFAULT_OUT / "manifest.json").exists():
         return
     if not review_server_listening():

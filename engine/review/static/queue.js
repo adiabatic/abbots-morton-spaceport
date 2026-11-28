@@ -10,7 +10,7 @@ export function isBlank(record) {
   return !record || record.verdict === 'skip';
 }
 
-// A human row's position in the manifest's triage index, the order the app pages in. A row without one sorts last. Human rows have distinct positions; byTriageOrder breaks any other tie on the id.
+// A human unit's position in the manifest's triage index (`order`, which corpus.js gives it), the order the app pages in. A unit without one sorts last. Human units have distinct positions; byTriageOrder breaks any other tie on the id.
 function triageOrder(unit) {
   return typeof unit?.order === 'number' ? unit.order : Number.POSITIVE_INFINITY;
 }

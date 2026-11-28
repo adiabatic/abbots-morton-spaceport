@@ -11,12 +11,12 @@ from pathlib import Path
 import pytest
 
 from engine.pipeline import compile_font, emit_gpos, emit_gsub, fixtures, run_build
-from engine.review import app_index, build, diff_units, snapshot, sweep_record, tablediff, unit_ids
+from engine.review import build, diff_units, snapshot, sweep_record, tablediff, unit_ids
 from engine.review.enrich import LETTERS
 from engine.review.ink import IDENTITY_DIFF
-from engine.test_app_index import check_a_builds_sidecars
 from engine.validation.shaping import ShapeResult, Shaper
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
 CHANGED = ("default", "ss04", "ss05", "ss07")
 
 
@@ -87,7 +87,6 @@ def _junction_unit(shards):
 def test_the_corpus_passes_the_contract_check_and_needs_no_unit_store(corpus):
     out, manifest, _shards = corpus
     assert build.check_output_dir(out) == []
-    assert app_index.outputs_not_current(out) == []
     assert manifest["configs"] == list(tablediff.SETTLED_CONFIGS)
     assert manifest["baseline"]["present"] is True and manifest["baseline"]["digest"]
     assert [meta["id"] for meta in manifest["classes"]] == ["joins", "provenance-only"]
@@ -306,7 +305,6 @@ def test_an_empty_diff_builds_a_corpus_with_no_units(builds, tmp_path):
     assert manifest["classes"] == [] and manifest["human_unit_ids"] == [] and manifest["table_rows"] == {}
     assert manifest["baseline"] == taken.baseline()
     assert build.check_output_dir(out) == []
-    assert app_index.outputs_not_current(out) == []
 
 
 def test_no_snapshot_builds_a_corpus_with_no_units_over_the_after_font_alone(builds, tmp_path):
@@ -320,7 +318,7 @@ def test_no_snapshot_builds_a_corpus_with_no_units_over_the_after_font_alone(bui
 
 
 def test_two_builds_of_the_same_inputs_write_the_same_bytes(corpus, builds, tmp_path):
-    """The determinism gate of doc/review-design.md §6: a second build of the same snapshot and tables writes a byte-identical manifest, shards and sidecars, `generated_at` included, because the stamp is the latest input mtime (`build._generated_at`)."""
+    """The determinism gate of doc/review-design.md §6: a second build of the same snapshot and tables writes a byte-identical manifest and shards, `generated_at` included, because the stamp is the latest input mtime (`build._generated_at`)."""
     out, _manifest, _shards = corpus
     _accepted, edited, taken = builds
     again = tmp_path / "again"
@@ -332,9 +330,18 @@ def test_two_builds_of_the_same_inputs_write_the_same_bytes(corpus, builds, tmp_
 
 
 def test_the_build_writes_a_corpus_the_app_and_the_contract_read(corpus):
-    """`check_a_builds_sidecars` over the build: the whole corpus contract, the sidecars addressing the build's own shards, and the classes' machine-check counts."""
-    out, _manifest, _shards = corpus
-    check_a_builds_sidecars(out)
+    """The whole corpus contract over the build (`check_output_dir`, the only place the manifest-shape and file predicates run over a real build, with the copied fonts held to their sources), and the files the app fetches at boot: each class's one shard, `units/<class-id>.json`, a JSON array of the class's fragments in id order, and nothing else under `units/`."""
+    out, manifest, _shards = corpus
+    assert build.check_output_dir(out, REPO_ROOT) == []
+    for meta in manifest["classes"]:
+        assert meta["shards"] == [f"units/{meta['id']}.json"]
+        ids = [
+            fragment["id"] for fragment in json.loads((out / meta["shards"][0]).read_text(encoding="ascii"))
+        ]
+        assert ids == sorted(ids)
+    assert sorted(path.name for path in (out / "units").iterdir()) == sorted(
+        f"{meta['id']}.json" for meta in manifest["classes"]
+    )
 
 
 def test_the_manifest_predicates_hold_the_baseline_the_universe_and_the_classes(corpus):

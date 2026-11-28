@@ -43,7 +43,7 @@ def test_class_section_puts_a_class_with_nothing_to_judge_under_no_review_needed
 
 
 def test_a_unit_takes_no_verdict_when_a_machine_check_approves_it_or_its_class_takes_none():
-    """`machine_approved` reads the flags in `MACHINE_CHECKS`, and `needs_no_verdict` adds the class's `no_verdict`. A flag must be `True` itself: a missing flag, as on an app-index row, reads as not set."""
+    """`machine_approved` reads the flags in `MACHINE_CHECKS`, and `needs_no_verdict` adds the class's `no_verdict`. A flag must be `True` itself: a missing flag reads as not set."""
     assert MACHINE_CHECKS == ("ink_identical", "picture_identical")
     for check in MACHINE_CHECKS:
         assert machine_approved({check: True}) and needs_no_verdict({check: True})

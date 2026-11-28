@@ -1,6 +1,6 @@
 """Tests for the review corpus's contract checks, each run against a corpus that breaks one predicate, and for the build steps that refuse instead of producing a bad value.
 
-`check_unit`, `check_shards` (through `_CorpusCheck`), `check_manifest` and the file predicates (`_check_output_files`) are the §7 contract, which the build runs over what it writes and `check_output_dir` runs over a written corpus, a real table-diff build among them in `engine/test_review_diff_units.py`. A violation appears only as one line in a `contract check failed` list, not as a named failing test, so this module tests the checker itself. It runs `check_manifest` and `check_shards` over the checked-in fixture corpus, which passes as shipped and carries no fonts, index page, or sidecars, and then with one field broken at a time. It runs the file predicates over small corpora under tmp_path with one file missing or wrong.
+`check_unit`, `check_shards` (through `_CorpusCheck`), `check_manifest` and the file predicates (`_check_output_files`) are the §7 contract, which the build runs over what it writes and `check_output_dir` runs over a written corpus, a real table-diff build among them in `engine/test_review_diff_units.py`. A violation appears only as one line in a `contract check failed` list, not as a named failing test, so this module tests the checker itself. It runs `check_manifest` and `check_shards` over the checked-in fixture corpus, which passes as shipped and carries no fonts or index page, and then with one field broken at a time. It runs the file predicates over small corpora under tmp_path with one file missing or wrong.
 """
 
 import copy
@@ -11,12 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from engine.review import app_index, shards
+from engine.review import shards
 from engine.review.build import (
     _check_output_files,
     _copy_font,
     _sha256,
-    _write_json,
     build_table_diff,
     check_manifest,
     check_output_dir,
@@ -50,11 +49,6 @@ def _one(unit_id: str = PLAIN_UNIT) -> dict:
 
 def _expect_error(errors: list[str], needle: str) -> None:
     assert any(needle in error for error in errors), errors
-
-
-def _sidecars(corpus: Path) -> None:
-    """Writes the stamped sidecars the output check requires beside a manifest (the files in `app_index.ARTIFACTS`), so a test about one missing file does not also fail on the others."""
-    app_index.write_app_artifacts(corpus, {}, {})
 
 
 def test_the_fixture_corpus_passes_every_predicate():
@@ -127,18 +121,6 @@ def test_a_no_verdict_class_carrying_batches_fails_the_build():
 # --- the files beside the manifest --------------------------------------------------------------
 
 
-def test_a_missing_or_stale_sidecar_fails_the_build(tmp_path):
-    """The app boots from the sidecars, not the shards. A corpus without one, or with one stamped for another manifest, would show the app another corpus's rows."""
-    manifest = {"classes": [], "fonts": {}}
-    (tmp_path / "index.html").write_text("")
-    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    _expect_error(_check_output_files(tmp_path, manifest), f"{app_index.APP_INDEX_NAME} is missing")
-    _sidecars(tmp_path)
-    assert _check_output_files(tmp_path, manifest) == []
-    (tmp_path / "manifest.json").write_text("{}\n", encoding="utf-8")
-    _expect_error(_check_output_files(tmp_path, {"classes": [], "fonts": {}}), "stamped for another manifest")
-
-
 def test_a_missing_or_empty_shard_fails_the_build(tmp_path):
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     _expect_error(_check_output_files(tmp_path, manifest), "is missing")
@@ -149,48 +131,14 @@ def test_a_missing_or_empty_shard_fails_the_build(tmp_path):
     _expect_error(_check_output_files(tmp_path, manifest), "is empty")
 
 
-def _split_first_class(corpus: Path) -> None:
-    """Rewrite the corpus's first class as two numbered parts, which is the layout a class past the byte cap ships in."""
+def test_a_shard_that_is_not_a_json_array_fails_the_check(tmp_path):
+    """The app parses each class's shard whole as an array of units, so `check_output_dir` reads every shard back and reports one that is not an array."""
+    corpus = tmp_path / "corpus"
+    shutil.copytree(FIXTURES, corpus, ignore=shutil.ignore_patterns("mini", "*.md", "*.py"))
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    meta = manifest["classes"][0]
-    (whole,) = shards.class_shards(meta)
-    units = json.loads((corpus / whole).read_text(encoding="utf-8"))
-    chunks = (units[:1], units[1:])
-    meta["shards"] = [f"units/{meta['id']}.{index:03d}.json" for index in range(len(chunks))]
-    for part, chunk in zip(meta["shards"], chunks, strict=True):
-        _write_json(corpus / part, chunk)
-    (corpus / whole).unlink()
-    _write_json(corpus / "manifest.json", manifest)
-
-
-def test_a_class_written_as_parts_reads_back_as_the_same_class(tmp_path):
-    """`check_output_dir` concatenates a class's parts in order before checking, so it reports the same errors whether a class is one file or several."""
-    plain = tmp_path / "plain"
-    shutil.copytree(FIXTURES, plain, ignore=shutil.ignore_patterns("mini", "*.md", "*.py"))
-    split = tmp_path / "split"
-    shutil.copytree(plain, split)
-    _split_first_class(split)
-    assert check_output_dir(split) == check_output_dir(plain)
-    assert not any("shard" in error for error in check_output_dir(split))
-
-
-def test_every_part_of_a_split_class_must_be_present_and_non_empty(tmp_path):
-    """A build that wrote part 000 and died before 001 must not pass as complete, so the check reads every part."""
-    manifest = {
-        "classes": [{"id": "big", "shards": ["units/big.000.json", "units/big.001.json"]}],
-        "fonts": {},
-    }
-    (tmp_path / "index.html").write_text("")
-    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    _sidecars(tmp_path)
-    _expect_error(_check_output_files(tmp_path, manifest), "units/big.000.json is missing")
-    (tmp_path / "units").mkdir()
-    (tmp_path / "units" / "big.000.json").write_text("[]", encoding="utf-8")
-    _expect_error(_check_output_files(tmp_path, manifest), "units/big.001.json is missing")
-    (tmp_path / "units" / "big.001.json").write_bytes(b"")
-    _expect_error(_check_output_files(tmp_path, manifest), "units/big.001.json is empty")
-    (tmp_path / "units" / "big.001.json").write_text("[]", encoding="utf-8")
-    assert _check_output_files(tmp_path, manifest) == []
+    (whole,) = shards.class_shards(manifest["classes"][0])
+    (corpus / whole).write_text('{"id": "u-AZd95bckcbg"}\n', encoding="ascii")
+    _expect_error(check_output_dir(corpus), f"shard of {manifest['classes'][0]['id']} does not read")
 
 
 def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):
@@ -211,7 +159,6 @@ def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):
     manifest = {"classes": [], "fonts": fonts}
     (tmp_path / "index.html").write_text("")
     (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-    _sidecars(tmp_path)
     assert _check_output_files(tmp_path, manifest) == []
     errors = _check_output_files(tmp_path, manifest, REPO_ROOT)
     assert [error for error in errors if "as it stands on disk" in error] == [

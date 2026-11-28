@@ -22,8 +22,6 @@ import {
   partitionUnits,
   humanClassCount,
   humanTotal,
-  machineFoldCheck,
-  machineFoldTotal,
   noVerdictTotal,
   formatCount,
   verdictAtText,
@@ -57,6 +55,7 @@ import {
   tokenSeparators,
   searchHaystack,
   searchUnits,
+  drawnWithKerning,
 } from '../static/render.js';
 
 const fixtureDir = new URL('../fixtures/', import.meta.url);
@@ -487,7 +486,7 @@ test('needsNoVerdict reads the machine checks and the exemption, never a batch',
     assert.equal(needsNoVerdict({ [flag]: false }), false, flag);
   }
   assert.equal(needsNoVerdict({ batch: null }), false, 'a fragment carries no batch, so one says nothing');
-  assert.equal(needsNoVerdict({ order: 0, batch: 0 }), false, 'an app-index row carries no flags and is human');
+  assert.equal(needsNoVerdict({ order: 0, batch: 0 }), false, "a unit's place in the triage index says nothing about its flags");
   assert.equal(needsNoVerdict({}), false, 'a unit without any flag stays human');
   assert.equal(needsNoVerdict(null), false);
 });
@@ -502,22 +501,13 @@ test('triageOrder reads a row\'s place in the manifest index and puts a record w
   assert.deepEqual(orderWorklist(rows, 'given').map((row) => row.id), ['b', 'a', 'c']);
 });
 
-// App index rows leave out the machine-check flags and `no_verdict`, because only human units have a row (app_index.app_row). These tests check that the readers treat a row without the flags the same as a shard record with them false.
-const slimRow = (unit) => {
-  const row = { ...unit };
-  for (const field of ['ink_identical', 'picture_identical', 'no_verdict', 'explain', 'provenance']) {
-    delete row[field];
-  }
-  return row;
-};
-
-test('partitionUnits over slim rows queues exactly the units it queues over whole records', () => {
-  const human = allUnits.filter((unit) => !needsNoVerdict(unit));
-  const overRows = partitionUnits(human.map(slimRow), { ...emptyFilters, machine: '1' }, noRecords);
-  const overRecords = partitionUnits(human, { ...emptyFilters, machine: '1' }, noRecords);
-  assert.deepEqual(overRows.human.map((unit) => unit.id), overRecords.human.map((unit) => unit.id));
-  assert.deepEqual(overRows.machine, []);
-  assert.deepEqual(overRecords.machine, []);
+test('drawnWithKerning is true only on a unit that says it shows a kern value', () => {
+  const unit = allUnits.find((candidate) => !needsNoVerdict(candidate) && candidate.text_entities !== null);
+  assert.equal(drawnWithKerning({ ...unit, kerning: true }), true);
+  assert.equal(drawnWithKerning({ ...unit, kerning: false }), false);
+  assert.equal(drawnWithKerning({ ...unit, kerning: undefined }), false, 'a record without the field is drawn with kerning off');
+  assert.equal(drawnWithKerning(null), false);
+  assert.ok(allUnits.some((candidate) => drawnWithKerning(candidate)), 'the fixtures must carry a kern unit');
 });
 
 test('a no-verdict unit leaves the human queue and appears with the machine toggle', () => {
@@ -558,37 +548,6 @@ test('human and machine counts come from the manifest class metadata', () => {
   assert.equal(humanClassCount(joins), joins.unit_count);
   assert.equal(humanTotal(manifest), manifest.human_unit_ids.length);
   assert.equal(noVerdictTotal(manifest), 2, 'the Kerning and Provenance only units');
-});
-
-test('machineFoldTotal counts what a class fold will hold before the class is fetched', () => {
-  const byId = (id) => manifest.classes.find((cls) => cls.id === id);
-  assert.equal(machineFoldTotal(byId('settlement')), 1);
-  assert.equal(machineFoldTotal(byId('joins')), 0, 'a class with nothing machine-approved folds nothing');
-  assert.equal(machineFoldTotal(byId('kerning')), 1, 'a class that takes no verdict folds every unit');
-  assert.equal(machineFoldTotal({ no_verdict: true, unit_count: 6344, machine_approved_count: 4465 }), 6344);
-  assert.equal(machineFoldTotal({ no_verdict: false, unit_count: 9 }), 0, 'a countless class folds nothing');
-});
-
-test('machineFoldCheck picks the narrowest check that accounts for every machine unit', () => {
-  const cls = (over) => ({ no_verdict: false, unit_count: 10, machine_approved_count: 10, ...over });
-  assert.equal(machineFoldCheck(cls({ machine_checks: { ink_identical: 10, picture_identical: 0 } })), 'ink_identical');
-  assert.equal(machineFoldCheck(cls({ machine_checks: { ink_identical: 6, picture_identical: 4 } })), 'picture_identical');
-  assert.equal(
-    machineFoldCheck({
-      no_verdict: true,
-      unit_count: 10,
-      machine_approved_count: 4,
-      machine_checks: { ink_identical: 4, picture_identical: 0 },
-    }),
-    'no_verdict',
-    'a no-verdict class folds its exempt units too, so no machine check accounts for all of them',
-  );
-});
-
-test('machineFoldCheck falls back to the no-verdict badge for a class carrying no check split', () => {
-  assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 10 }), 'no_verdict');
-  assert.equal(machineFoldCheck({ no_verdict: false, unit_count: 10, machine_approved_count: 0 }), 'no_verdict');
-  assert.equal(machineFoldCheck(manifest.classes.find((cls) => cls.id === 'settlement')), 'ink_identical');
 });
 
 test('a no-verdict class contributes nothing to the human units and everything non-identical to the exempt total', () => {

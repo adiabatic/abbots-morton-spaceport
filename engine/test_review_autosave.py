@@ -27,7 +27,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from engine.review import app_index
 from engine.review.serve import (
     DELTA_FORMAT,
     EXPORT_FORMAT,
@@ -128,26 +127,9 @@ def test_parse_rejects_non_export_documents():
     assert parse_autosave_payload(b"{}") is None
 
 
-def test_the_precompressed_sidecars_go_out_gzip_encoded():
-    """The app fetches these as NDJSON and lets the browser decompress them, so the encoding must be declared. A file served as `application/gzip` arrives as bytes the streaming parser cannot read, and the failure gives no useful error."""
-    for name, _fmt in app_index.ARTIFACTS:
-        headers = static_headers_for(f"/{name}")
-        assert headers["Content-Encoding"] == "gzip"
-        assert headers["Content-Type"] == "application/x-ndjson"
-        assert headers["Cache-Control"] == "no-store"
-
-
-def test_everything_else_is_served_uncompressed_and_uncached():
-    """The shards must be served identity-encoded, because the app reads one record inside a part by byte range. The locator's rows file must be too, because the app fetches one gzip member of it by the span the locator table names and Chrome refuses a partial response that declares a content encoding. Every file gets `no-store`, because a rebuild reuses every name."""
-    for path in (
-        "index.html",
-        "app.js",
-        "manifest.json",
-        "units/split-by-space-or-zwnj.000.json",
-        "fonts/after.otf",
-        app_index.LOCATOR_ROWS_NAME,
-        f"/{app_index.LOCATOR_ROWS_NAME}",
-    ):
+def test_every_file_is_served_uncached():
+    """Every file gets `no-store` and nothing else, because a rebuild reuses every name: a stale cached shard or font would show the reader another corpus without any sign of it."""
+    for path in ("index.html", "app.js", "manifest.json", "units/joins.json", "fonts/after.otf"):
         assert static_headers_for(path) == {"Cache-Control": "no-store"}
 
 

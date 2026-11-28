@@ -19,7 +19,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from engine.review import app_index, landing
+from engine.review import landing
 from engine.review.store_lock import LockBusy, store_lock
 from engine.review.verdict_store import (
     AUTOSAVE_NAME,
@@ -49,7 +49,6 @@ BUILD_OUT = REPO_ROOT / "engine" / "out" / "build"
 RUNES_DIR = REPO_ROOT / "glyph_data" / "runes"
 CYCLE_SUMMARY_PATH = REPO_ROOT / "engine" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = REPO_ROOT / AUTOSAVE_NAME
-NDJSON_SUFFIX = ".ndjson.gz"
 PORT = 7294
 STATUS_TTL_S = 10.0
 RETRY_AFTER_S = 1
@@ -96,12 +95,8 @@ def namer_dot_stand_in_font(source: Path) -> bytes:
 
 
 def static_headers_for(path: str) -> dict[str, str]:
-    """Return the headers for a static file. Every file gets `Cache-Control: no-store`, because a rebuild reuses every file name. The precompressed `.ndjson.gz` sidecars are sent as gzip-encoded `application/x-ndjson`, so the browser decompresses them. The unit shards and the locator's rows file (`app_index.LOCATOR_ROWS_NAME`) are sent as the bytes on disk with no content encoding, because the app reads them by byte range. The app fetches one gzip member of the rows file at a time and decompresses it itself, and Chrome refuses a partial response that declares a content encoding."""
-    headers = {"Cache-Control": "no-store"}
-    if path.endswith(NDJSON_SUFFIX) and not path.endswith(app_index.LOCATOR_ROWS_NAME):
-        headers["Content-Type"] = "application/x-ndjson"
-        headers["Content-Encoding"] = "gzip"
-    return headers
+    """Return the headers for a static file: `Cache-Control: no-store` on every file, because a rebuild reuses every file name."""
+    return {"Cache-Control": "no-store"}
 
 
 def manifest_signature(review_dir: Path) -> tuple[int, int, int] | None:
@@ -199,14 +194,14 @@ def main() -> None:
                 self.set_header(name, value)
 
         def compute_etag(self) -> str | None:
-            """Return no etag. Tornado's default computes a sha512 of the whole file, which for a large shard runs on the first Range request the explain panel makes, and caches it in a class dict that a rebuild never clears. With `Cache-Control: no-store`, no client would use the etag."""
+            """Return no etag. Tornado's default computes a sha512 of the whole file and caches it in a class dict that a rebuild never clears. With `Cache-Control: no-store`, no client would use the etag."""
             return None
 
         def should_return_304(self) -> bool:
-            """Always send the body. Otherwise a Range request whose `If-Modified-Since` is satisfied would get a 304 with no body, and the app would have nothing to parse."""
+            """Always send the body. Otherwise a request whose `If-Modified-Since` is satisfied would get a 304 with no body, and the app would have nothing to parse."""
             return False
 
-    # /status recomputes the input fingerprints to check that the corpus is current. The app requests it on every focus, visibility change, and hash change. It runs in the executor so that the shard Range requests a card waits on are not blocked. Concurrent requests over the same manifest share one computation, and a result is reused for STATUS_TTL_S seconds unless the manifest's signature has moved since it was computed, so a rebuilt corpus shows at once and any other change on disk can lag by up to that long.
+    # /status recomputes the input fingerprints to check that the corpus is current. The app requests it on every focus, visibility change, and hash change. It runs in the executor so that the files the app fetches at boot are not blocked. Concurrent requests over the same manifest share one computation, and a result is reused for STATUS_TTL_S seconds unless the manifest's signature has moved since it was computed, so a rebuilt corpus shows at once and any other change on disk can lag by up to that long.
     class StatusCache:
         at: float = 0.0
         key: tuple[int, int, int] | None = None

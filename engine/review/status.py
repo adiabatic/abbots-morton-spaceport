@@ -1,4 +1,4 @@
-"""Compute the review corpus's readiness: whether the table-diff corpus (doc/review-design.md §2.3) is served, whether it matches the runes and code on disk (`fingerprint.TABLE_DIFF_COMPONENTS`, its after font is engine/out/build/Senior-Regular.otf byte for byte, and both app sidecars are stamped for its manifest, the check of a finished corpus the cycle shares, `app_index.outputs_not_current`), whether a green artifact cycle produced it, whether the snapshot it compares with is the one the tracked pointer names (`_snapshot_check`), whether the verdict store is stamped for it, how many of its human units read blank, and how many unaccepted changes it shows (`_diff_check`, which never fails). The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs."""
+"""Compute the review corpus's readiness: whether the table-diff corpus (doc/review-design.md §2.3) is served, whether it matches the runes and code on disk (`fingerprint.TABLE_DIFF_COMPONENTS`, its after font is engine/out/build/Senior-Regular.otf byte for byte, and every shard its manifest lists is on disk, the check of a finished corpus the cycle shares, `shards.missing_shards`), whether a green artifact cycle produced it, whether the snapshot it compares with is the one the tracked pointer names (`_snapshot_check`), whether the verdict store is stamped for it, how many of its human units read blank, and how many unaccepted changes it shows (`_diff_check`, which never fails). The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from engine.pipeline import fingerprint
-from engine.review import app_index, shards, store_lock
+from engine.review import shards, store_lock
 from engine.review.verdict_store import (
     MalformedStore,
     latest_by_unit,
@@ -98,7 +98,7 @@ def table_diff_inputs(repo_root, snapshot_home=None, build_out=None) -> dict:
 def _freshness_check(
     manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy, review_dir, build_out
 ) -> dict:
-    """The freshness check: every `fingerprint.TABLE_DIFF_COMPONENTS` value the manifest records against `recompute(repo_root)`, a `snapshot` both leave null (no snapshot) counting as fresh, then the after font against engine/out/build/Senior-Regular.otf byte for byte, since the corpus's kern units show its `kern` lookup, then the files a finished build leaves (`app_index.outputs_not_current`); a change in the asset component alone warns, since the cycle refreshes the served copy in place."""
+    """The freshness check: every `fingerprint.TABLE_DIFF_COMPONENTS` value the manifest records against `recompute(repo_root)`, a `snapshot` both leave null (no snapshot) counting as fresh, then the after font against engine/out/build/Senior-Regular.otf byte for byte, since the corpus's kern units show its `kern` lookup, then the shards a finished build leaves (`shards.missing_shards`); a change in the asset component alone warns, since the cycle refreshes the served copy in place."""
     names = fingerprint.TABLE_DIFF_COMPONENTS
     unknown = {name: "unknown" for name in names}
     if not isinstance(manifest_fp, dict):
@@ -157,11 +157,14 @@ def _freshness_check(
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
-    missing = app_index.outputs_not_current(review_dir)
+    try:
+        missing = shards.missing_shards(review_dir, manifest)
+    except TypeError, AttributeError:
+        missing = ["the manifest's classes"]
     if missing:
         return {
             "level": "fail",
-            "detail": f"These files are missing or stamped for another manifest: {', '.join(missing)}. Either the build that wrote this corpus did not finish, or the manifest was rewritten without them.",
+            "detail": f"These shards the manifest lists are missing: {', '.join(missing)}. The build writes the manifest after its shards, so this corpus is not the one a build left.",
             "remedy": artifact_cycle_remedy,
             "components": components,
         }

@@ -933,12 +933,6 @@ details.group.machine-group {
   > summary .group-counts {
     color: var(--approve);
   }
-
-  > .fold-more {
-    display: block;
-    margin: 0.7rem 1rem;
-    font-size: 13px;
-  }
 }
 
 .col-headers {
@@ -1421,8 +1415,7 @@ details.group {
       }
     }
 
-    .explain-intro,
-    .explain-pending {
+    .explain-intro {
       margin: 0.2rem 0 0.4rem;
       font-size: 12px;
       color: var(--muted);
@@ -1550,7 +1543,7 @@ details.group {
   }
 }
 
-/* A table-diff corpus's kern unit shows a kern value, so its samples render with kerning on, as the build shapes them (`drawnWithKerning` in static/slim.js). */
+/* A table-diff corpus's kern unit shows a kern value, so its samples render with kerning on, as the build shapes them (`drawnWithKerning` in static/render.js). */
 .sample.kerned {
   .qs,
   .qs-plain {
