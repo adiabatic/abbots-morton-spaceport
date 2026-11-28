@@ -1,6 +1,6 @@
 """Tests for the settle memo's keys in engine/pipeline/settle_memo_keys.py: the whole-memo stamp, the per-family keys, and the staleness mask a reader builds over them.
 
-No test here depends on a glyph, so none needs the live build. The rune tree, schema, and registry are copied from the mini bundle into a tmp root that each test may edit, and the spec is `fixtures.mini_spec()`. Like every engine test, these must not read `engine/out/`.
+No test here depends on a glyph, so none needs the live build. The working tree's rune files, schemas, and registry are copied into a tmp root that each test may edit, and the spec is `fixtures.mini_spec()`: a stamp reads those files' bytes, and none of the routes needs the files and the spec to agree. Like every engine test, these must not read `engine/out/`.
 
 A per-family key covers only the routes that stay inside one rune file. Every route that crosses the registry (a predicate class gaining a member, a rune-local group, a ligature's declared sequence, a capability unlock, the registry's families and heights, the engine's settlement flags) must move the stamp instead. `specificity::family_set` expands a `class:` reference to its full member set and `compare_axes` ranks two records by whether each axis set of one is a subset of the other's, so a rune joining or leaving a class can change the settlement of a window that names no such rune. Each route is checked to move its own named stamp line and no other.
 """
@@ -14,6 +14,10 @@ import pytest
 import yaml
 
 from engine.pipeline import conform, fingerprint, fixtures, kernel_exec, settle_memo_keys
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+# The spec files a stamp or a family key reads: the rune files, the schemas, and the registry.
+SPEC_PATHS = ("glyph_data/runes", "engine/schema", "glyph_data/script.yaml")
 
 
 def _script(root: Path) -> Path:
@@ -29,10 +33,16 @@ def _rewrite_script(root: Path, edit=None) -> None:
 
 
 @pytest.fixture
-def repo(mini_bundle, tmp_path) -> Path:
-    """Return an editable repo root: the mini bundle's runes, schema, and registry copied under `tmp_path`. The registry is already round-tripped, so only a later edit changes its bytes."""
+def repo(tmp_path) -> Path:
+    """Return an editable repo root: the working tree's `SPEC_PATHS` copied under `tmp_path`. The registry is already round-tripped, so only a later edit changes its bytes."""
     root = tmp_path / "root"
-    shutil.copytree(mini_bundle.spec_root, root)
+    for relative in SPEC_PATHS:
+        source, target = REPO_ROOT / relative, root / relative
+        if source.is_dir():
+            shutil.copytree(source, target)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
     _rewrite_script(root)
     return root
 

@@ -971,12 +971,12 @@ class ReplayDisagreement(KernelRunError):
     """`replay-strings` found a window its rules and its engine settle differently, or one the engine refuses. The message is the crate's, naming the configuration, the window and the text it was reached in. A separate class lets a build tell this finding, a failed build naming a text, from a kernel interface failure."""
 
 
-# The head token of the window memo `replay-strings` writes per configuration under `--memo-dir` (`engine/kernel-rs/src/replay.rs`'s `MEMO_FORMAT`); `conform.read_replay_memo` and `conform.absorb_replay_memo` reject a memo with any other token.
+# The head token of the window memo `replay-strings` writes at `--memo-file` (`engine/kernel-rs/src/replay.rs`'s `MEMO_FORMAT`); `conform.read_replay_memo` and `conform.absorb_replay_memo` reject a memo with any other token.
 REPLAY_MEMO_FORMAT = "ams-replay-memo/1"
 
 
 def replay_memo_dump(out_dir: Path, config: str) -> Path:
-    """Where `replay-strings` writes one configuration's window memo under a memo directory (`replay_strings`'s `memo_dir`; `fanout::replay_memo_path` builds the same name), and the name the build's own walks give that memo's stream in a message. The build's walks write no file here: `replay_memo_walk` hands each walk a pipe, so the memo goes from the crate to its reader and never reaches the disk. It is a build input, not an artifact."""
+    """The name the build's own walks give one configuration's window memo stream in a message, a path beside the tables under `out_dir`, where a test that keeps a walk's memo on disk files it. The build's walks write no file here: `replay_memo_walk` hands each walk a pipe, so the memo goes from the crate to its reader and never reaches the disk. It is a build input, not an artifact."""
     return Path(out_dir) / f"replay-windows-{config}.bin"
 
 
@@ -1040,16 +1040,15 @@ def replay_strings(
     families: Sequence[str] | None,
     threads: int,
     timings: bool = False,
-    memo_dir: Path | None = None,
     memo_windows: int | None = None,
     last: str | None = None,
     on_peak: Callable[[int], None] | None = None,
 ) -> dict[str, dict[str, int]]:
-    """Replay every named configuration's persisted rules under `out_dir` over every text up to `max_length`, in one `replay-strings` process that runs `threads` walks at once, and return `{config: {texts, windows, skipped}}` on a clean walk. Each walk takes its texts a last symbol at a time and releases its memos after each (`engine/kernel-rs/src/replay.rs`). With `families`, only the texts naming one of those runes are walked. With `last`, one symbol of the spec's alphabet (`labels.spec_alphabet`), only the texts ending in it are walked, as in the deep sweep's units (`run_build_gates.sweep_units`): the walks over every symbol partition the texts between them, and `skipped` counts only the texts ending in it that `families` leaves out. It reaches the subcommand as `--last=` and the symbol's code point, and a string that is not one character raises `ValueError` before anything is spawned, as does `last` beside `memo_dir`, since a memo written from one symbol's texts would hold only part of a configuration's windows. Rules apply first-match with the settled left fed forward, and each window is checked against the crate's own settlement. `windows` counts window settles: each distinct window once on a walk with no ceiling, and again each time it is met after a ceiling release. The spec is the same memoized dump the settlement functions and the guard sweep read.
+    """Replay every named configuration's persisted rules under `out_dir` over every text up to `max_length`, in one `replay-strings` process that runs `threads` walks at once, and return `{config: {texts, windows, skipped}}` on a clean walk. Each walk takes its texts a last symbol at a time and releases its memos after each (`engine/kernel-rs/src/replay.rs`). With `families`, only the texts naming one of those runes are walked. With `last`, one symbol of the spec's alphabet (`labels.spec_alphabet`), only the texts ending in it are walked, as in the deep sweep's units (`run_build_gates.sweep_units`): the walks over every symbol partition the texts between them, and `skipped` counts only the texts ending in it that `families` leaves out. It reaches the subcommand as `--last=` and the symbol's code point, and a string that is not one character raises `ValueError` before anything is spawned. Rules apply first-match with the settled left fed forward, and each window is checked against the crate's own settlement. `windows` counts window settles: each distinct window once on a walk with no ceiling, and again each time it is met after a ceiling release. The spec is the same memoized dump the settlement functions and the guard sweep read.
 
     A disagreement or a refused window raises `ReplayDisagreement` with the crate's message. Every other failure the CLI contract distinguishes raises `KernelRunError`, as does a clean exit whose output names a different set of configurations from the one requested. An empty `families` raises `ValueError` before anything is spawned, because the subcommand treats it as a usage error and a caller with nothing to walk has nothing to ask.
 
-    With `memo_dir`, each passing walk writes its window memo to `replay_memo_dump(memo_dir, config)`: every distinct window it settled, keyed in the crate's own form, with every distinct settled record beside them. The result is unchanged. The build's full replay walks through `replay_memo_walk` instead, one configuration a process with its memo through a pipe; a caller that wants the memos on disk, such as a test, asks here. The deep walk (`engine/tools/deep_replay.py`) never asks for a memo and passes `memo_windows` instead, which reaches the subcommand as `--memo-windows=`: the most windows a walk keeps memoized before it releases its memos and continues. Passing both raises `ValueError` before anything is spawned, because a walk that released its memo holds only the windows settled since, and a walk that writes its memo has no ceiling. A ceiling below one window also raises.
+    A walk here writes no window memo: the build's full replay walks through `replay_memo_walk`, one configuration a process with its memo through a pipe. The deep walk (`engine/tools/deep_replay.py`) passes `memo_windows`, which reaches the subcommand as `--memo-windows=`: the most windows a walk keeps memoized before it releases its memos and continues. A ceiling below one window raises `ValueError` before anything is spawned.
 
     `on_peak`, when given, is called with the crate process's own peak RSS in bytes once a walk has answered cleanly (`_run_kernel_reaped`), before this returns. The walks are threads of that one process, so the figure covers every walk it ran at once. The build's narrowed replay (`run_build.run_replay_strings`) and the deep replay (`engine/tools/deep_replay.py`) record it for `make job-costs`. On macOS the process runs with this process's environment and `KERNEL_ALLOCATOR_ENVIRONMENT` (`_allocator_environment`), so the tables the trace memo and the walk memo outgrow go back to the system as they are freed.
     """
@@ -1059,14 +1058,6 @@ def replay_strings(
         raise ValueError(f"replay_strings takes one symbol as the last, not {last!r}")
     if memo_windows is not None and memo_windows < 1:
         raise ValueError(f"replay_strings takes a memo ceiling of at least one window, not {memo_windows}")
-    if memo_windows is not None and memo_dir is not None:
-        raise ValueError(
-            "replay_strings takes a memo directory or a memo ceiling, not both: a walk that writes its memo walks with no ceiling, since a released memo holds only the windows settled since the release"
-        )
-    if last is not None and memo_dir is not None:
-        raise ValueError(
-            "replay_strings takes a memo directory or a last symbol, not both: a walk over the texts ending in one symbol settles only part of its configuration's windows"
-        )
     spec_path = _spec_dump(spec)
     ensure_built()
     arguments = [
@@ -1083,8 +1074,6 @@ def replay_strings(
         arguments.append(f"--families={','.join(families)}")
     if last is not None:
         arguments.append(f"--last=U+{ord(last):04X}")
-    if memo_dir is not None:
-        arguments.append(f"--memo-dir={memo_dir}")
     if memo_windows is not None:
         arguments.append(f"--memo-windows={memo_windows}")
     if timings:

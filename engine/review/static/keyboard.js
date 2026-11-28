@@ -34,7 +34,6 @@ export const REJECT_MENU_MAP = new Map([
 
 export const NEITHER_MENU_MAP = new Map([
   ['c', 'neither-no-comment'],
-  ['d', 'neither-ss10'],
   ['x', 'neither-comment'],
   ['Escape', 'neither-cancel'],
 ]);

@@ -1,9 +1,8 @@
-"""Diff two builds' settlement and join tables row by row for the review corpus's table-diff mode (doc/review-design.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. A changed row is evidence: `engine/review/diff_units.py` turns the entries into the visible changes the corpus shows, and the bucket names are the `kinds` its units carry. The loaders read a table as run_build writes it or gzipped, as a snapshot holds it (`engine/review/snapshot.py`)."""
+"""Diff two builds' settlement and join tables row by row for the review corpus's table-diff mode (doc/review-design.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to a `provenance-only` bucket of their own. A changed row is evidence: `engine/review/diff_units.py` turns the entries into the visible changes the corpus shows, and the bucket names are the `kinds` its units carry. The loaders read a table as run_build writes it or gzipped, as a snapshot holds it (`engine/review/snapshot.py`)."""
 
 from __future__ import annotations
 
 import gzip
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Literal, Self
@@ -98,7 +97,7 @@ def open_table(path: Path) -> IO[str]:
 
 
 def load_outcomes(path: Path) -> list[str]:
-    """Read only the outcome of each rule of a settlement table, in rule order: the cell its input settles to, the third column from the end at every width `load_settlement` reads."""
+    """Read only the outcome of each rule of a settlement table, in rule order: the cell its input settles to, the third column from the end."""
     outcomes: list[str] = []
     with open_table(path) as handle:
         for line in handle:
@@ -109,7 +108,7 @@ def load_outcomes(path: Path) -> list[str]:
 
 
 def load_settlement(path: Path, config: str | None = None) -> dict[SettlementKey, SettlementValue]:
-    """Read a settlement table into its rows, in rule order. `config` names the configuration the keys carry, which defaults to the one the file's name gives."""
+    """Read a settlement table, nine columns a row as the crate writes it (`artifacts::settlement_tsv`), into its rows, in rule order. `config` names the configuration the keys carry, which defaults to the one the file's name gives."""
     rows: dict[SettlementKey, SettlementValue] = {}
     config = config if config is not None else _config_from_path(path, "settlement-")
     with open_table(path) as handle:
@@ -117,16 +116,9 @@ def load_settlement(path: Path, config: str | None = None) -> dict[SettlementKey
             if line.startswith("#") or line.startswith("input\t") or not line.strip():
                 continue
             fields = line.rstrip("\n").split("\t")
-            if len(fields) == 7:
-                # A table without the lookahead3 and lookahead4 columns: both slots are unconstrained.
-                input_glyph, backtrack, look1, look2, outcome, joint, provenance = fields
-                look3 = "-"
-                look4 = "-"
-            elif len(fields) == 8:
-                input_glyph, backtrack, look1, look2, look3, outcome, joint, provenance = fields
-                look4 = "-"
-            else:
-                input_glyph, backtrack, look1, look2, look3, look4, outcome, joint, provenance = fields
+            if len(fields) != 9:
+                raise ValueError(f"{path}: a settlement row has {len(fields)} fields, not 9: {line.rstrip()}")
+            input_glyph, backtrack, look1, look2, look3, look4, outcome, joint, provenance = fields
             key = SettlementKey(
                 config,
                 input_glyph,
@@ -158,12 +150,6 @@ def load_joins(path: Path, config: str | None = None) -> dict[JoinKey, JoinValue
 
 def _config_from_path(path: Path, prefix: str) -> str:
     return Path(path).name.removesuffix(".gz").removesuffix(".tsv").removeprefix(prefix)
-
-
-def table_configs(directory: Path) -> list[str]:
-    """Return the configurations with a settlement table under `directory`, keeping only those in `SETTLED_CONFIGS`, so a table left behind by a configuration the build does not settle never enters a diff."""
-    configs = (path.stem.removeprefix("settlement-") for path in Path(directory).glob("settlement-*.tsv"))
-    return sorted(config for config in configs if config in SETTLED_CONFIGS)
 
 
 def diff_settlement(
@@ -241,27 +227,6 @@ def diff_joins(
         if key not in old:
             entries.append(JoinDiffEntry(bucket="added", config=config, key=key, old=None, new=new[key]))
     return entries
-
-
-def diff_dirs(baseline_dir: Path, new_dir: Path, configs: list[str] | None = None) -> list[DiffEntry]:
-    baseline_dir, new_dir = Path(baseline_dir), Path(new_dir)
-    if configs is None:
-        configs = sorted(set(table_configs(baseline_dir)) | set(table_configs(new_dir)))
-    entries: list[DiffEntry] = []
-    for config in configs:
-        old_settlement = _load_if_exists(baseline_dir / f"settlement-{config}.tsv", load_settlement)
-        new_settlement = _load_if_exists(new_dir / f"settlement-{config}.tsv", load_settlement)
-        entries.extend(diff_settlement(old_settlement, new_settlement, config))
-        old_joins = _load_if_exists(baseline_dir / f"joins-{config}.tsv", load_joins)
-        new_joins = _load_if_exists(new_dir / f"joins-{config}.tsv", load_joins)
-        entries.extend(diff_joins(old_joins, new_joins, config))
-    order = {bucket: index for index, bucket in enumerate(DIFF_BUCKETS)}
-    entries.sort(key=lambda entry: (order[entry.bucket], entry.config, entry.table, entry.key.label()))
-    return entries
-
-
-def _load_if_exists(path: Path, loader: Callable[[Path], dict]) -> dict:
-    return loader(path) if path.exists() else {}
 
 
 _COMPARE_CHUNK = 1 << 20

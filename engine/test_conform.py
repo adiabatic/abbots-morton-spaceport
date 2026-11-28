@@ -1016,15 +1016,16 @@ class TestCrateEmittedSettleMemo:
     def dumps_dir(self, tmp_path_factory, spec):
         out_dir = tmp_path_factory.mktemp("replay-memo")
         run_build.build_tables(spec, out_dir)
-        kernel_exec.replay_strings(
-            spec,
-            out_dir,
-            conform.SETTLEMENT_CONFIGS,
-            max_length=4,
-            families=None,
-            threads=2,
-            memo_dir=out_dir,
-        )
+        for config in conform.SETTLEMENT_CONFIGS:
+            dump = kernel_exec.replay_memo_dump(out_dir, config)
+            kernel_exec.replay_memo_walk(
+                kernel_exec._spec_dump(spec),
+                out_dir,
+                config,
+                max_length=4,
+                symbols=len(conform.spec_alphabet(spec)),
+                read=lambda source, dump=dump: dump.write_bytes(source.read()),
+            )
         return out_dir
 
     @pytest.fixture(scope="class")
@@ -1033,15 +1034,16 @@ class TestCrateEmittedSettleMemo:
         reduced = _without_the_tea_oy_ligature(spec)
         out_dir = tmp_path_factory.mktemp("replay-memo-reduced")
         run_build.build_tables(reduced, out_dir)
-        kernel_exec.replay_strings(
-            reduced,
-            out_dir,
-            conform.SETTLEMENT_CONFIGS,
-            max_length=4,
-            families=None,
-            threads=2,
-            memo_dir=out_dir,
-        )
+        for config in conform.SETTLEMENT_CONFIGS:
+            dump = kernel_exec.replay_memo_dump(out_dir, config)
+            kernel_exec.replay_memo_walk(
+                kernel_exec._spec_dump(reduced),
+                out_dir,
+                config,
+                max_length=4,
+                symbols=len(conform.spec_alphabet(reduced)),
+                read=lambda source, dump=dump: dump.write_bytes(source.read()),
+            )
         return out_dir
 
     def _memo(self, tmp_path, config="default", stamp=STAMP, keys=None):

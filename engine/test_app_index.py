@@ -55,6 +55,27 @@ LIST_DEFAULTED = ("notation_tokens", "boundary_marks", "configs", "kinds")
 _SIDECAR_NAMES = (app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME, app_index.LOCATOR_ROWS_NAME)
 
 
+def _sidecar_rows(corpus: Path, name: str) -> list[dict]:
+    """Every line after the header of one sidecar: the app index's rows, or the locator's block table."""
+    with gzip.open(app_index.artifact_path(corpus, name), "rt", encoding="utf-8") as stream:
+        next(stream)
+        return [json.loads(line) for line in stream]
+
+
+def _locator_rows(corpus: Path) -> list[dict]:
+    """Every row of the locator's rows file in file order. `gzip` reads the members back to back as one stream; the app instead fetches one member at a time by the table's spans."""
+    path = app_index.artifact_path(corpus, app_index.LOCATOR_ROWS_NAME)
+    with gzip.open(path, "rt", encoding="utf-8") as stream:
+        return [json.loads(line) for line in stream]
+
+
+def _block_bytes(corpus: Path, block: dict) -> bytes:
+    """The bytes of one block as the app's Range request reads them: that slice of the rows file."""
+    with open(app_index.artifact_path(corpus, app_index.LOCATOR_ROWS_NAME), "rb") as rows:
+        rows.seek(block["byte_start"])
+        return rows.read(block["byte_length"])
+
+
 def _class_fragments(root: Path, meta: dict) -> list[dict]:
     return list(shards.iter_class_fragments(root, meta))
 
@@ -169,7 +190,7 @@ def _assert_row_projects(row: dict, fragment: dict) -> None:
 def test_the_app_index_is_the_shards_field_for_field(fixture_corpus):
     _manifest, by_class = _corpus_shards(fixture_corpus)
     by_id = {fragment["id"]: fragment for shard in by_class.values() for fragment in shard}
-    rows = app_index.load_rows(fixture_corpus, app_index.APP_INDEX_NAME)
+    rows = _sidecar_rows(fixture_corpus, app_index.APP_INDEX_NAME)
     assert rows
     for row in rows:
         _assert_row_projects(row, by_id[row["id"]])
@@ -178,8 +199,8 @@ def test_the_app_index_is_the_shards_field_for_field(fixture_corpus):
 def test_every_row_addresses_the_fragment_it_was_projected_from(fixture_corpus):
     manifest, _shards = _corpus_shards(fixture_corpus)
     for rows in (
-        app_index.load_rows(fixture_corpus, app_index.APP_INDEX_NAME),
-        app_index.load_locator_rows(fixture_corpus),
+        _sidecar_rows(fixture_corpus, app_index.APP_INDEX_NAME),
+        _locator_rows(fixture_corpus),
     ):
         assert rows
         for row in rows:
@@ -188,7 +209,7 @@ def test_every_row_addresses_the_fragment_it_was_projected_from(fixture_corpus):
 
 def test_the_slimmed_flags_are_absent_and_every_row_carries_an_integer_batch(fixture_corpus):
     """A row in this file is a human unit: `check_shards` fails a build whose `human_unit_ids` differs from the shards' human units, which excludes machine-approved and no-verdict units. So the three flags are dropped instead of carried as three falses per unit, and a reader finds them undefined, which is falsy."""
-    rows = app_index.load_rows(fixture_corpus, app_index.APP_INDEX_NAME)
+    rows = _sidecar_rows(fixture_corpus, app_index.APP_INDEX_NAME)
     assert rows
     for row in rows:
         assert isinstance(row["batch"], int)
@@ -231,7 +252,7 @@ def test_what_a_card_draws_from_its_record_is_not_in_the_row():
 
 
 def test_the_locator_carries_an_address_and_nothing_else(fixture_corpus):
-    rows = app_index.load_locator_rows(fixture_corpus)
+    rows = _locator_rows(fixture_corpus)
     assert rows
     for row in rows:
         assert set(row) == LOCATOR_ROW_KEYS
@@ -242,9 +263,8 @@ def test_the_locator_carries_an_address_and_nothing_else(fixture_corpus):
 
 def _blocks_address_their_rows(corpus: Path) -> None:
     """Check what the app assumes of the locator table. Each block is a gzip member that decodes alone from its span, holding the rows the table counts, all of one class, with the named first and last ids, in unit-number order. The spans tile the rows file with no gaps. Within a class the blocks are disjoint and ordered, which the deep link's binary search assumes."""
-    blocks = app_index.load_rows(corpus, app_index.LOCATOR_NAME)
-    rows = app_index.load_locator_rows(corpus)
-    assert blocks is not None and rows is not None
+    blocks = _sidecar_rows(corpus, app_index.LOCATOR_NAME)
+    rows = _locator_rows(corpus)
     header = app_index.artifact_header(corpus, app_index.LOCATOR_NAME)
     assert header is not None
     assert header["blocks"] == len(blocks)
@@ -255,7 +275,7 @@ def _blocks_address_their_rows(corpus: Path) -> None:
     for block in blocks:
         assert set(block) == LOCATOR_BLOCK_KEYS
         assert block["byte_start"] == offset
-        member = gzip.decompress(app_index.locator_block_bytes(corpus, block))
+        member = gzip.decompress(_block_bytes(corpus, block))
         held = [json.loads(line) for line in member.splitlines()]
         assert 0 < len(held) == block["units"] <= app_index.LOCATOR_BLOCK_ROWS
         assert {row["class"] for row in held} == {block["class"]}
@@ -289,8 +309,7 @@ def test_blocks_close_at_the_row_cap_and_at_every_class_change(tmp_path):
     }
     corpus = _rewrite_fragments(tmp_path, fragments)
     _blocks_address_their_rows(corpus)
-    blocks = app_index.load_rows(corpus, app_index.LOCATOR_NAME)
-    assert blocks is not None
+    blocks = _sidecar_rows(corpus, app_index.LOCATOR_NAME)
     assert [(block["class"], block["units"]) for block in blocks] == [
         ("a", cap),
         ("a", cap),
@@ -302,8 +321,8 @@ def test_blocks_close_at_the_row_cap_and_at_every_class_change(tmp_path):
 
 def test_a_locator_id_resolves_to_exactly_one_block_of_its_class(fixture_corpus):
     """Replays the browser's deep link: for a machine id, the one block of its class whose first and last ids bracket it holds it, and no other class's blocks are consulted."""
-    blocks = app_index.load_rows(fixture_corpus, app_index.LOCATOR_NAME)
-    rows = app_index.load_locator_rows(fixture_corpus)
+    blocks = _sidecar_rows(fixture_corpus, app_index.LOCATOR_NAME)
+    rows = _locator_rows(fixture_corpus)
     assert blocks and rows
     for row in rows:
         holders = [
@@ -312,7 +331,7 @@ def test_a_locator_id_resolves_to_exactly_one_block_of_its_class(fixture_corpus)
             if block["class"] == row["class"] and block["first"] <= row["id"] <= block["last"]
         ]
         assert len(holders) == 1, row["id"]
-        member = gzip.decompress(app_index.locator_block_bytes(fixture_corpus, holders[0]))
+        member = gzip.decompress(_block_bytes(fixture_corpus, holders[0]))
         assert row in [json.loads(line) for line in member.splitlines()]
 
 
@@ -328,7 +347,7 @@ def test_a_class_whose_rows_do_not_ascend_is_refused(tmp_path):
 def test_every_row_carries_its_place_in_the_manifests_triage_index(fixture_corpus):
     """`order` is the row's position in `human_unit_ids` and `batch` is that position divided by `batch_size`, both read from the manifest because a fragment carries neither, so the app pages the queue in the manifest's order whatever order the shards are written in."""
     manifest, _shards = _corpus_shards(fixture_corpus)
-    rows = app_index.load_rows(fixture_corpus, app_index.APP_INDEX_NAME)
+    rows = _sidecar_rows(fixture_corpus, app_index.APP_INDEX_NAME)
     assert rows
     positions = {unit_id: position for position, unit_id in enumerate(manifest["human_unit_ids"])}
     for row in rows:
@@ -353,12 +372,7 @@ def test_a_rows_file_of_another_length_makes_the_locator_stale(fixture_corpus):
 
 
 def _ids(corpus: Path, name: str) -> list[str]:
-    rows = (
-        app_index.load_locator_rows(corpus)
-        if name == app_index.LOCATOR_NAME
-        else app_index.load_rows(corpus, name)
-    )
-    assert rows is not None
+    rows = _locator_rows(corpus) if name == app_index.LOCATOR_NAME else _sidecar_rows(corpus, name)
     return [row["id"] for row in rows]
 
 
@@ -389,8 +403,7 @@ def test_the_headers_stamp_the_manifest_beside_them(fixture_corpus):
         app_index.APP_INDEX_NAME: len(_ids(fixture_corpus, app_index.APP_INDEX_NAME)),
         app_index.LOCATOR_NAME: len(_ids(fixture_corpus, app_index.LOCATOR_NAME)),
     }
-    blocks = app_index.load_rows(fixture_corpus, app_index.LOCATOR_NAME)
-    assert blocks is not None
+    blocks = _sidecar_rows(fixture_corpus, app_index.LOCATOR_NAME)
     rows_bytes = app_index.artifact_path(fixture_corpus, app_index.LOCATOR_ROWS_NAME).stat().st_size
     for name, fmt in app_index.ARTIFACTS:
         header = app_index.artifact_header(fixture_corpus, name)
@@ -433,7 +446,6 @@ def test_a_truncated_or_foreign_sidecar_is_refused(fixture_corpus):
         with gzip.open(path, "wb") as stream:
             stream.write((json.dumps({"format": "something-else"}) + "\n").encode())
         assert app_index.artifact_is_current(fixture_corpus, name, fmt) is False
-        assert app_index.load_rows(fixture_corpus, name) == []
 
 
 def test_a_failed_projection_leaves_the_previous_set_intact(fixture_corpus, monkeypatch):
@@ -498,16 +510,14 @@ def check_a_builds_sidecars(corpus: Path) -> None:
     assert check_output_dir(corpus, REPO_ROOT) == []
     manifest, by_class = _corpus_shards(corpus)
     by_id = {fragment["id"]: fragment for shard in by_class.values() for fragment in shard}
-    rows = app_index.load_rows(corpus, app_index.APP_INDEX_NAME)
-    assert rows is not None
+    rows = _sidecar_rows(corpus, app_index.APP_INDEX_NAME)
     assert [row["id"] for row in rows] == _shard_order_ids(manifest, by_class, human=True)
     assert set(row["id"] for row in rows) == set(manifest["human_unit_ids"])
     for row in rows:
         fragment = by_id[row["id"]]
         _assert_row_projects(row, fragment)
         assert _addressed(corpus, manifest, row) == fragment
-    locator = app_index.load_locator_rows(corpus)
-    assert locator is not None
+    locator = _locator_rows(corpus)
     assert [row["id"] for row in locator] == _shard_order_ids(manifest, by_class, human=False)
     assert set(row["id"] for row in locator) == set(by_id) - set(manifest["human_unit_ids"])
     for row in locator:

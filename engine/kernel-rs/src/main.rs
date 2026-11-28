@@ -11,8 +11,8 @@
 //! - `ams-kernel spec-echo <spec>` writes the canonical dump plus one newline.
 //! - `ams-kernel settle-cases <spec> <cases> [--features=a,b,…] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]` settles a plain-text case file, or standard input for `-`, through one engine, in file order. Each line of the input is one tab-separated window, as `kernel_exec.case_line` writes it. Each output line is the case line, a tab, and the case result: the whole trace as JSON (`kernel_exec.trace_of` reads it), or with `--settled-only` the settled record as seven tab-separated fields (`kernel_exec._settled_of_fields` reads it). A window that raises a settlement error gets an ordinary output line, the same `{"raise":…,"message":…}` object in either shape, and does not change the exit status.
 //! - `ams-kernel guard-sweep <spec> [--config=<token>]` writes the section 5.7 guard verdict map, one tab-separated verdict per line. Without `--config=`, each verdict is quantified over the powerset of capability-unlock features, which is the map the font ships. With `--config=`, the map is answered under that one configuration, named by a token in `--configs=` form; `default` names the no-feature configuration, which an empty `--features=` could not. The engine suite compares each configuration's map with the quantified one. The guard fixes its own engine modes, so the two mode flags are a usage error here.
-//! - `ams-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--trace-memo-buckets=N] [--trace-memo-entries=N] [--trace-memo-policy=clear|half] [--no-trace-memo-skip] [--snapshot-cache-blocks=N] [--snapshot-restart-records=R] [--no-snapshot-filter] [--no-grouped-sweeps | --check-grouped-sweeps] [--previous=<config>=<base>:N,<segment>:N,…] [--windows=<config>=<path>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs each named configuration's table-build fixpoint and folds its product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/joins-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…,"windows_bytes":…}` line per configuration to stdout in command-line order, where `windows_bytes` is how many bytes the configuration's window file took. `--windows=<config>=<path>`, given at most once a configuration and only for one `--configs=` names, writes that configuration's window file at `<path>` instead of under `<outdir>`. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.stream_payloads` hands one, so the payload reaches its reader through no path another process can open, and the reader checks the bytes it received against `windows_bytes`. `default` enumerates first and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold preparation taking one of the worker slots. `--scratch-beside-default=N` starts up to `N` of the heaviest from scratch beside `default` instead, in whole tiers of equal unlocking-rune count and capped at one less than `--threads`, so they read no memo of `default`'s and need not wait for it, and the rest run as deltas once `default` has enumerated. Before any table is written, the configurations exchange the windows each keeps live that another's rules would answer wrongly in the order the font ships ([`ams_kernel::crossconfig`]), so a configuration's tables depend on the set `--configs=` names. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_kernel::memo`]) and writes the same tables a from-scratch enumeration writes. `--no-default-memo-sharing` enumerates every configuration from scratch, and a set without `default` does so anyway. Any configuration enumerated from scratch writes the same tables. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts there, and a delta served one reruns only the probe's asks that name one of its unlocking runes ([`ams_kernel::liveness`]); `--no-verdict-sharing` runs every probe whole, which writes the same tables. The fourth-slot prospect probe, wherever it runs whole, answers an ask from the transcript an earlier ask of the same probe recorded when the ask's token answers every question in it alike, instead of settling the ask's own window again ([`ams_kernel::liveness`]). `--no-grouped-sweeps` runs every ask in full instead, and `--check-grouped-sweeps` groups the asks and also runs every ask a transcript answered in full, exiting 1 with a message naming the probe and the two tokens when the full ask returns another result or fires a pointer the build had not. All three write the same tables and digests, and the two flags cannot be given together. A memo lives only inside the process: `default` keeps its finished memo while a delta is left to read it, every other configuration releases its own before it drains and sorts its rows, and the build reads no memo file and writes none. Each configuration's engine clears its prospect memo in place once it holds what a table of 2^20 buckets holds, and its candidate memo at 2^22 buckets ([`ams_kernel::fixpoint::TABLE_MEMO_CEILINGS`]); `--prospect-memo-buckets=N` and `--candidates-memo-buckets=N` set other ceilings, each a power of two of at least eight. Each configuration whose memo no delta reads, every delta and `default` once every delta starts from scratch, holds its trace memo's sixteen shards to 2^25 buckets in all, clearing a shard whose next insert would double its table, and stores none of the windows with a concrete third slot and a known fourth ([`ams_kernel::fixpoint::TABLE_TRACE_CEILING`]); `--trace-memo-buckets=N` sets another ceiling, a power of two of at least 128, `--trace-memo-entries=N` has the shards make room once they hold N entries together, at least sixteen and no more than the buckets hold, for a ceiling between two powers of two, `--trace-memo-policy=half` has a shard drop about half its entries instead of clearing, and `--no-trace-memo-skip` stores those windows too. Any ceiling writes the same tables and digests. While a delta reads it, `default` packs its memo at its release into sorted blocks of 512 records behind fences and a negative filter, and each delta's engine keeps a cache of 455 decoded blocks of it ([`ams_kernel::memo::SnapshotEntries`]); `--snapshot-cache-blocks=N` sets another cache, zero for none, under which a lookup decodes its block in place, `--snapshot-restart-records=R` also codes a whole record every R records inside a block, R dividing 512, and `--no-snapshot-filter` builds no filter. Any of them writes the same tables and digests. `--previous=<config>=<base>:N,<segment>:N,…`, given at most once a configuration and only for one `--configs=` names, lists that configuration's previous windows rows, its base and then its segments in order, each a path and the rows its head lists: the base's window rows, and each segment's upserts and tombstones, with every header line stripped ([`ams_kernel::row_merge`]). Each path may name `/dev/fd/N`, a pipe the process inherits, as `run_build.build_tables` hands them, and each is opened and read once, front to back, at that configuration's finish. Its `windows-<config>.tsv` then holds its head line and only the rows that differ from the merged previous rows, an upsert for a new key or a changed outcome and a tombstone for a key that is gone, with no column line ([`ams_kernel::artifacts::write_windows`]); a part whose keys do not strictly ascend or whose rows are not the count it names exits 1 naming the part, and the digest is over the table's own rows either way. `run_build.build_tables` gzips the windows payload into the next base or segment of the configuration's windows output and keeps its head line as the output's head file, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries. `<spec>` may name `/dev/fd/N`, a pipe the process inherits from a caller that writes the dump into it, as `kernel_exec.build_table_files` hands it; the spec is read once, front to back, before any output is opened.
-//! - `ams-kernel replay-strings <spec> <outdir> --configs=a,b,… --max-length=N [--families=a,b,…] [--last=U+XXXX] [--memo-dir=<dir> | --memo-file=<path> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_kernel::replay`]), one last symbol at a time: the texts ending in each symbol are a unit, after which the walk releases its memos, keeping only the windows a later unit can meet. With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. With `--last=`, it walks only the texts whose last symbol is the alphabet symbol at that code point, a letter or a boundary token, written as `U+` and four to six uppercase hexadecimal digits; a code point outside the alphabet exits 1. The walks over every symbol partition the texts between them, as a walk's own units do, and `skipped` counts only the texts ending in that symbol that `--families=` leaves out; such a walk is one unit and releases nothing after it. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_build` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-dir=<dir>` has each walk keep a row for every window it settles and then write a passing walk's window memo there as `replay-windows-<config>.bin`, the input to the build's settle memo ([`ams_kernel::replay::Replay::write_window_memo`]). `--memo-file=<path>`, for a run that names one configuration, writes that walk's memo at `<path>` instead, which may name `/dev/fd/N`, a pipe the process inherits: `run_build` hands each walk one (`kernel_exec.replay_memo_walk`) and reads it as the rows arrive; a reader that closes it before the end stops the write, and the run still answers on stdout and exits 0, with nothing on stderr. `--memo-windows=N` caps each walk's memos at `N` windows, or at one text's windows when `N` is below the maximum length: before any text that could push them past the cap, the walk releases its memos and its engine's memos. The walk's memory then does not grow with the size of the text set, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-dir=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The maximum length is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
+//! - `ams-kernel build-tables <spec> <outdir> --configs=a,b,… --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--trace-memo-buckets=N] [--no-trace-memo-skip] [--snapshot-cache-blocks=N] [--no-snapshot-filter] [--no-grouped-sweeps | --check-grouped-sweeps] [--previous=<config>=<base>:N,<segment>:N,…] [--windows=<config>=<path>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]` runs each named configuration's table-build fixpoint and folds its product in memory, writing `<outdir>/settlement-<config>.tsv`, `<outdir>/joins-<config>.tsv`, and the uncompressed `<outdir>/windows-<config>.tsv` under the fingerprint `--inputs=` names, and one `{"config":…,"digest":…,"windows_bytes":…}` line per configuration to stdout in command-line order, where `windows_bytes` is how many bytes the configuration's window file took. `--windows=<config>=<path>`, given at most once a configuration and only for one `--configs=` names, writes that configuration's window file at `<path>` instead of under `<outdir>`. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.stream_payloads` hands one, so the payload reaches its reader through no path another process can open, and the reader checks the bytes it received against `windows_bytes`. `default` enumerates first and keeps its trace memo. The other configurations then run as deltas, `--threads` at a time, heaviest first by unlocking-rune count, with `default`'s fold preparation taking one of the worker slots. `--scratch-beside-default=N` starts up to `N` of the heaviest from scratch beside `default` instead, in whole tiers of equal unlocking-rune count and capped at one less than `--threads`, so they read no memo of `default`'s and need not wait for it, and the rest run as deltas once `default` has enumerated. Before any table is written, the configurations exchange the windows each keeps live that another's rules would answer wrongly in the order the font ships ([`ams_kernel::crossconfig`]), so a configuration's tables depend on the set `--configs=` names. Each delta reads `default`'s memo for every window that names none of its own unlocking runes ([`ams_kernel::memo`]) and writes the same tables a from-scratch enumeration writes. `--no-default-memo-sharing` enumerates every configuration from scratch, and a set without `default` does so anyway. Any configuration enumerated from scratch writes the same tables. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts there, and a delta served one reruns only the probe's asks that name one of its unlocking runes ([`ams_kernel::liveness`]); `--no-verdict-sharing` runs every probe whole, which writes the same tables. The fourth-slot prospect probe, wherever it runs whole, answers an ask from the transcript an earlier ask of the same probe recorded when the ask's token answers every question in it alike, instead of settling the ask's own window again ([`ams_kernel::liveness`]). `--no-grouped-sweeps` runs every ask in full instead, and `--check-grouped-sweeps` groups the asks and also runs every ask a transcript answered in full, exiting 1 with a message naming the probe and the two tokens when the full ask returns another result or fires a pointer the build had not. All three write the same tables and digests, and the two flags cannot be given together. A memo lives only inside the process: `default` keeps its finished memo while a delta is left to read it, every other configuration releases its own before it drains and sorts its rows, and the build reads no memo file and writes none. Each configuration's engine clears its prospect memo in place once it holds what a table of 2^20 buckets holds, and its candidate memo at 2^22 buckets ([`ams_kernel::fixpoint::TABLE_MEMO_CEILINGS`]); `--prospect-memo-buckets=N` and `--candidates-memo-buckets=N` set other ceilings, each a power of two of at least eight. Each configuration whose memo no delta reads, every delta and `default` once every delta starts from scratch, holds its trace memo's sixteen shards to 2^25 buckets in all, clearing a shard whose next insert would double its table, and stores none of the windows with a concrete third slot and a known fourth ([`ams_kernel::fixpoint::TABLE_TRACE_CEILING`]); `--trace-memo-buckets=N` sets another ceiling, a power of two of at least 128, and `--no-trace-memo-skip` stores those windows too. Any ceiling writes the same tables and digests. While a delta reads it, `default` packs its memo at its release into sorted blocks of 512 records behind fences and a negative filter, and each delta's engine keeps a cache of 455 decoded blocks of it ([`ams_kernel::memo::SnapshotEntries`]); `--snapshot-cache-blocks=N` sets another cache, zero for none, under which a lookup decodes its block in place, and `--no-snapshot-filter` builds no filter. Either writes the same tables and digests. `--previous=<config>=<base>:N,<segment>:N,…`, given at most once a configuration and only for one `--configs=` names, lists that configuration's previous windows rows, its base and then its segments in order, each a path and the rows its head lists: the base's window rows, and each segment's upserts and tombstones, with every header line stripped ([`ams_kernel::row_merge`]). Each path may name `/dev/fd/N`, a pipe the process inherits, as `run_build.build_tables` hands them, and each is opened and read once, front to back, at that configuration's finish. Its `windows-<config>.tsv` then holds its head line and only the rows that differ from the merged previous rows, an upsert for a new key or a changed outcome and a tombstone for a key that is gone, with no column line ([`ams_kernel::artifacts::write_windows`]); a part whose keys do not strictly ascend or whose rows are not the count it names exits 1 naming the part, and the digest is over the table's own rows either way. `run_build.build_tables` gzips the windows payload into the next base or segment of the configuration's windows output and keeps its head line as the output's head file, because the crate has no compressor. The directory is created if needed and nothing in it is deleted, because a build writes into its artifact directory beside other artifacts. `--inputs=` is required because a persisted enumeration is accepted or rejected on the stamp it carries. `<spec>` may name `/dev/fd/N`, a pipe the process inherits from a caller that writes the dump into it, as `kernel_exec.build_table_files` hands it; the spec is read once, front to back, before any output is opened.
+//! - `ams-kernel replay-strings <spec> <outdir> --configs=a,b,… --max-length=N [--families=a,b,…] [--last=U+XXXX] [--memo-file=<path> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]` reads each configuration's `<outdir>/settlement-<config>.tsv` and walks every text of length 1 through `N` over the spec's alphabet ([`ams_kernel::replay`]), one last symbol at a time: the texts ending in each symbol are a unit, after which the walk releases its memos, keeping only the windows a later unit can meet. With `--families=`, it walks only the texts that name one of those runes; a ligature is named through its components. With `--last=`, it walks only the texts whose last symbol is the alphabet symbol at that code point, a letter or a boundary token, written as `U+` and four to six uppercase hexadecimal digits; a code point outside the alphabet exits 1. The walks over every symbol partition the texts between them, as a walk's own units do, and `skipped` counts only the texts ending in that symbol that `--families=` leaves out; such a walk is one unit and releases nothing after it. It applies the rules first-match, feeding each settled left forward, and compares every window's rule outcome with this engine's settlement of that window. `run_build` runs it after every table build as the enumeration-completeness check. A clean run writes one `{"config":…,"texts":…,"windows":…,"skipped":…}` line per configuration to stdout. `--memo-file=<path>`, for a run that names one configuration, has the walk keep a row for every window it settles and then write a passing walk's window memo at `<path>`, the input to the build's settle memo ([`ams_kernel::replay::Replay::write_window_memo`]). The path may name `/dev/fd/N`, a pipe the process inherits: `run_build` hands each walk one (`kernel_exec.replay_memo_walk`) and reads it as the rows arrive; a reader that closes it before the end stops the write, and the run still answers on stdout and exits 0, with nothing on stderr. `--memo-windows=N` caps each walk's memos at `N` windows, or at one text's windows when `N` is below the maximum length: before any text that could push them past the cap, the walk releases its memos and its engine's memos. The walk's memory then does not grow with the size of the text set, apart from the settled records and labels it keeps, and `windows` counts window settles instead of distinct windows. `--memo-windows=` with `--memo-file=` is a usage error, because a released memo is incomplete. A window where the rules and the engine disagree, or that the engine refuses, exits 1 with a message naming the configuration, the window, and the text it was reached in. The maximum length is required because the caller records the depth the walk covered. There is no grain flag, because a replay settles single windows, which have no grain.
 //! - `ams-kernel replay-emitted <windows> --config=<token> --table=<settlement.tsv> --order=<order.tsv> --order-rules=N --context=<context.tsv> [--base-rows=N [--segments=<segment>:N,…]] [--timings]` walks one configuration's window enumeration (the plain `ams-windows/3` payload at `<windows>`, or standard input for `-`) against the settlement order the font ships ([`ams_kernel::shipped_order`]). With `--base-rows=`, `<windows>` is a base of the configuration's windows output, whose rows after its head and column lines must be that many, and `--segments=` lists the segments to merge over it in order, each a path, `/dev/fd/N` as `kernel_exec.replay_emitted` hands them, and the rows its head lists, with its header line stripped; the walk reads the base's head and column lines and then the merged rows in key order ([`ams_kernel::row_merge::MergedPayload`]), so it walks what the whole payload holds and answers as it would, and a part whose keys do not strictly ascend or whose rows are not its count exits 1 naming the part. `--segments=` without `--base-rows=` is a usage error. `--order=` holds every configuration's rules in the order the emitter ships them, written as a settlement TSV whose provenance column names the table rules each row was folded from, and `--order-rules=` is how many rules it holds: an order that parses to any other count exits 1 naming both, so an order that ends short at a line boundary is refused instead of walked as a shorter one. `--order=` and `--context=` may name `/dev/fd/N`, a pipe the process inherits from a caller that writes into it, as `kernel_exec.replay_emitted` hands both; the table, the order and the context are each read once, front to back, in that order, before the windows. `--context=` holds the configuration's marker renames, deep classes, and foreign labels (the bare runes, marker copies and locked copies its rows never carry, as `emit_gsub.emitted_context_tsv` lists them), one `rename`, `class`, or `foreign` record per line. `--table=` is the configuration's own settlement TSV, read only to name the table's rule in a disagreement. Each row is renamed through the configuration's marker renames, and the first emitted rule for its input that matches it must give the row's outcome, on the row itself and on every continuation of a `#NA` it leaves open after a letter. A clean run writes one `{"config":…,"rows":…,"checked_per_member":…,"open_rows":…,"continued":…}` line to stdout, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class matched only part of their deep class, `open_rows` the rows that leave a slot open after a letter, and `continued` those whose continuations the walk searched because their deciding rule constrains the open slot or a later one. A row for which the shipped order gives a different outcome exits 1 with a message naming the configuration, the row, the continuation, the emitted rule that fired, and the table's rule; so does a row that carries a foreign label. No spec is read: the tables already hold the settled answers, and the walk checks that the shipped lookup reproduces them.
 //!
 //! Concurrency is per configuration. `build-tables` and `replay-strings` run at most `--threads` configurations at once: one when the flag is absent, and never more than the machine's available parallelism or the number of configurations. When the set includes `default` and `--no-default-memo-sharing` is not given, `build-tables` enumerates `default` first, beside the configurations `--scratch-beside-default=` starts from scratch, and then runs the other configurations at that width, with `default`'s fold preparation in one of the worker slots, and holds every configuration's prepared product until the exchange ends. [`ams_kernel::fanout`] explains why the output bytes do not depend on the schedule and why one configuration's worklist stays sequential. Peak memory grows roughly linearly with the width, because each configuration in flight holds its whole working set, so a machine with less memory than cores should pass a smaller `--threads`.
@@ -33,14 +33,13 @@ use std::time::{Duration, Instant};
 use ams_kernel::emit::json_string;
 use ams_kernel::engine::{Engine, EngineModes, GroupedSweeps, MemoCeilings, TraceCeiling};
 use ams_kernel::fixpoint::{EnumerationModes, TABLE_MEMO_CEILINGS, TABLE_TRACE_CEILING};
-use ams_kernel::hash::Eviction;
 use ams_kernel::index::SpecIndex;
 use ams_kernel::memo::{SNAPSHOT_CACHE_BLOCKS, SnapshotPacking};
 use ams_kernel::model::Sym;
 use ams_kernel::stream::DEFAULT_CONFIG;
 use ams_kernel::{artifacts, cases, emit, fanout, guard, parse, row_merge, shipped_order};
 
-const USAGE: &str = "usage: ams-kernel spec-echo <spec>\n       ams-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--trace-memo-buckets=N] [--trace-memo-entries=N] [--trace-memo-policy=clear|half] [--no-trace-memo-skip] [--snapshot-cache-blocks=N] [--snapshot-restart-records=R] [--no-snapshot-filter] [--no-grouped-sweeps | --check-grouped-sweeps] [--previous=<config>=<base>:N,<segment>:N] [--windows=<config>=<path>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--last=U+E650] [--memo-dir=<dir> | --memo-file=<path> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --order-rules=N --context=<context.tsv> [--base-rows=N [--segments=<segment>:N,<segment>:N]] [--timings]";
+const USAGE: &str = "usage: ams-kernel spec-echo <spec>\n       ams-kernel settle-cases <spec> <cases> [--features=a,b] [--settled-only] [--candidacy-prospect] [--follower-prefer-slots-off]\n       ams-kernel guard-sweep <spec> [--config=default|ss03+ss05]\n       ams-kernel build-tables <spec> <outdir> --configs=default,ss03 --inputs=<stamp> [--threads=N] [--no-default-memo-sharing] [--no-verdict-sharing] [--scratch-beside-default=N] [--prospect-memo-buckets=N] [--candidates-memo-buckets=N] [--trace-memo-buckets=N] [--no-trace-memo-skip] [--snapshot-cache-blocks=N] [--no-snapshot-filter] [--no-grouped-sweeps | --check-grouped-sweeps] [--previous=<config>=<base>:N,<segment>:N] [--windows=<config>=<path>] [--candidacy-prospect] [--follower-prefer-slots-off] [--deep-classes-off] [--timings] [--cache-stats]\n       ams-kernel replay-strings <spec> <outdir> --configs=default,ss03 --max-length=N [--families=qsPea,qsTea] [--last=U+E650] [--memo-file=<path> | --memo-windows=N] [--threads=N] [--candidacy-prospect] [--follower-prefer-slots-off] [--timings] [--cache-stats]\n       ams-kernel replay-emitted <windows> --config=default --table=<settlement.tsv> --order=<order.tsv> --order-rules=N --context=<context.tsv> [--base-rows=N [--segments=<segment>:N,<segment>:N]] [--timings]";
 
 /// The flags and positionals a command line named, before the subcommand checks its positional count. The three mode flags are written as negations because the default modes turn all three on.
 struct Flags<'a> {
@@ -53,7 +52,6 @@ struct Flags<'a> {
     max_length: Option<usize>,
     families: Option<Vec<&'a str>>,
     last: Option<i64>,
-    memo_dir: Option<&'a str>,
     memo_file: Option<&'a str>,
     memo_windows: Option<usize>,
     timings: bool,
@@ -64,11 +62,8 @@ struct Flags<'a> {
     prospect_memo_buckets: Option<usize>,
     candidates_memo_buckets: Option<usize>,
     trace_memo_buckets: Option<usize>,
-    trace_memo_entries: Option<usize>,
-    trace_memo_policy: Option<Eviction>,
     trace_memo_skip: bool,
     snapshot_cache_blocks: Option<usize>,
-    snapshot_restart_records: Option<usize>,
     snapshot_filter: bool,
     grouped_sweeps: GroupedSweeps,
     table: Option<&'a str>,
@@ -98,13 +93,13 @@ struct Vocabulary {
     inputs: bool,
     /// `--timings` and `--cache-stats`, the two stderr diagnostics.
     timings: bool,
-    /// The string replay's `--max-length=`, `--families=`, `--last=`, `--memo-dir=`, `--memo-file=`, and `--memo-windows=`: how deep to walk, which runes' texts to walk, which symbol they end in, where to write each walk's window memo, as a directory or as one walk's path, and the most windows a walk keeps memoized.
+    /// The string replay's `--max-length=`, `--families=`, `--last=`, `--memo-file=`, and `--memo-windows=`: how deep to walk, which runes' texts to walk, which symbol they end in, where to write the one walk's window memo, and the most windows a walk keeps memoized.
     max_length: bool,
     /// `--table=`, `--order=`, and `--context=`, the three files of `replay-emitted`, and `--order-rules=`, the order's rule count, which it requires beside the three and `--config=`; and `--base-rows=` and `--segments=`, the windows' base's row count and the segments merged over it.
     emitted: bool,
     /// `--previous=`, one configuration's previous windows rows, which only `build-tables` merges against, and `--windows=`, the path one configuration's window file goes to, which only `build-tables` writes.
     previous: bool,
-    /// The table build's memo flags. `--no-default-memo-sharing` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it, and `--no-verdict-sharing` reads its windows but has `default` publish no liveness verdicts. `--scratch-beside-default=` names at most how many of the heaviest deltas enumerate from scratch beside `default`, `--prospect-memo-buckets=` and `--candidates-memo-buckets=` set the ceilings on each engine's prospect and candidate memos, and `--trace-memo-buckets=`, `--trace-memo-entries=`, `--trace-memo-policy=` and `--no-trace-memo-skip` the ceiling on the trace memo of each engine whose memo no other reads, and `--snapshot-cache-blocks=`, `--snapshot-restart-records=` and `--no-snapshot-filter` how `default`'s snapshot is packed and how many of its decoded blocks each delta caches, and `--no-grouped-sweeps` and `--check-grouped-sweeps` whether the fourth-slot prospect probes group their sweeps, which they do unless `--no-grouped-sweeps` is given ([`ams_kernel::fanout::MemoSharing`]).
+    /// The table build's memo flags. `--no-default-memo-sharing` enumerates every configuration from scratch instead of reading `default`'s finished memo for the windows a configuration shares with it, and `--no-verdict-sharing` reads its windows but has `default` publish no liveness verdicts. `--scratch-beside-default=` names at most how many of the heaviest deltas enumerate from scratch beside `default`, `--prospect-memo-buckets=` and `--candidates-memo-buckets=` set the ceilings on each engine's prospect and candidate memos, and `--trace-memo-buckets=` and `--no-trace-memo-skip` the ceiling on the trace memo of each engine whose memo no other reads, and `--snapshot-cache-blocks=` and `--no-snapshot-filter` how many of `default`'s snapshot's decoded blocks each delta caches and whether the snapshot is packed with a filter, and `--no-grouped-sweeps` and `--check-grouped-sweeps` whether the fourth-slot prospect probes group their sweeps, which they do unless `--no-grouped-sweeps` is given ([`ams_kernel::fanout::MemoSharing`]).
     memo_flags: bool,
     /// `--settled-only`: make each case result the settled record as seven tab-separated fields instead of the whole trace. Only `settle-cases` returns a trace.
     settled: bool,
@@ -141,7 +136,7 @@ const TABLES_FLAGS: Vocabulary = Vocabulary {
     settled: false,
     stdin: false,
 };
-/// The string replay accepts the fan-out's configuration flags, both stderr diagnostics, and its own six. It has no grain flag, because it settles single windows, and no stamp, because the one file it writes (the window memo, under `--memo-dir=` or at `--memo-file=`) is a build input and not an artifact.
+/// The string replay accepts the fan-out's configuration flags, both stderr diagnostics, and the walk's own flags (`Vocabulary::max_length`). It has no grain flag, because it settles single windows, and no stamp, because the one file it writes (the window memo at `--memo-file=`) is a build input and not an artifact.
 const REPLAY_FLAGS: Vocabulary = Vocabulary {
     grain: false,
     features: false,
@@ -242,7 +237,6 @@ struct ReplayPlan<'a> {
     max_length: usize,
     families: Option<Vec<&'a str>>,
     last: Option<i64>,
-    memo_dir: Option<&'a str>,
     memo_file: Option<&'a str>,
     memo_windows: Option<usize>,
     threads: Option<usize>,
@@ -331,7 +325,7 @@ fn usage() -> ExitCode {
 
 /// Scans the arguments for every subcommand, returning `None` on a usage error. A flag outside `vocabulary` is unknown, and a value flag given twice is a usage error.
 ///
-/// An empty `--features=` is a usage error, not the no-feature configuration: `kernel_exec` omits the flag when no feature is active, so an empty value means the two sides disagree about the flags. An empty `--configs=` is a usage error because a run needs at least one configuration. A count (`--threads=`, `--max-length=`, `--memo-windows=`, `--scratch-beside-default=`, `--prospect-memo-buckets=`, `--candidates-memo-buckets=`, `--trace-memo-buckets=`, `--trace-memo-entries=`, `--snapshot-restart-records=`) must be ASCII digits with a positive value that fits in `usize`, so `+3`, which `usize`'s parser would accept, is rejected. `--order-rules=` and `--base-rows=` are row counts and `--snapshot-cache-blocks=` a cache's size, so they are held to the same spelling but may be zero. A part list (`--segments=`, and `--previous=` after its configuration token and `=`) is kept as written here and parsed by the subcommand's plan, `<path>:<rows>` items joined by commas ([`ams_kernel::row_merge::parse_parts`]), and `--previous=` may be given once a configuration. A code point (`--last=`) has the one spelling [`codepoint_flag`] reads, and `--trace-memo-policy=` is `clear` or `half`.
+/// An empty `--features=` is a usage error, not the no-feature configuration: `kernel_exec` omits the flag when no feature is active, so an empty value means the two sides disagree about the flags. An empty `--configs=` is a usage error because a run needs at least one configuration. A count (`--threads=`, `--max-length=`, `--memo-windows=`, `--scratch-beside-default=`, `--prospect-memo-buckets=`, `--candidates-memo-buckets=`, `--trace-memo-buckets=`) must be ASCII digits with a positive value that fits in `usize`, so `+3`, which `usize`'s parser would accept, is rejected. `--order-rules=` and `--base-rows=` are row counts and `--snapshot-cache-blocks=` a cache's size, so they are held to the same spelling but may be zero. A part list (`--segments=`, and `--previous=` after its configuration token and `=`) is kept as written here and parsed by the subcommand's plan, `<path>:<rows>` items joined by commas ([`ams_kernel::row_merge::parse_parts`]), and `--previous=` may be given once a configuration. A code point (`--last=`) has the one spelling [`codepoint_flag`] reads.
 fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut positionals: Vec<&str> = Vec::new();
     let mut features: Option<Vec<&str>> = None;
@@ -342,7 +336,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut max_length: Option<usize> = None;
     let mut families: Option<Vec<&str>> = None;
     let mut last: Option<i64> = None;
-    let mut memo_dir: Option<&str> = None;
     let mut memo_file: Option<&str> = None;
     let mut memo_windows: Option<usize> = None;
     let mut timings = false;
@@ -353,11 +346,8 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
     let mut prospect_memo_buckets: Option<usize> = None;
     let mut candidates_memo_buckets: Option<usize> = None;
     let mut trace_memo_buckets: Option<usize> = None;
-    let mut trace_memo_entries: Option<usize> = None;
-    let mut trace_memo_policy: Option<Eviction> = None;
     let mut trace_memo_skip = true;
     let mut snapshot_cache_blocks: Option<usize> = None;
-    let mut snapshot_restart_records: Option<usize> = None;
     let mut snapshot_filter = true;
     let mut grouped_sweeps = GroupedSweeps::On;
     let mut table: Option<&str> = None;
@@ -413,24 +403,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             trace_memo_buckets = Some(count.parse::<usize>().ok().filter(|count| *count > 0)?);
-        } else if vocabulary.memo_flags
-            && let Some(count) = argument.strip_prefix("--trace-memo-entries=")
-        {
-            if trace_memo_entries.is_some() || !count.bytes().all(|byte| byte.is_ascii_digit()) {
-                return None;
-            }
-            trace_memo_entries = Some(count.parse::<usize>().ok().filter(|count| *count > 0)?);
-        } else if vocabulary.memo_flags
-            && let Some(policy) = argument.strip_prefix("--trace-memo-policy=")
-        {
-            if trace_memo_policy.is_some() {
-                return None;
-            }
-            trace_memo_policy = Some(match policy {
-                "clear" => Eviction::Clear,
-                "half" => Eviction::HalfDrop,
-                _ => return None,
-            });
         } else if vocabulary.memo_flags && argument == "--no-trace-memo-skip" {
             trace_memo_skip = false;
         } else if vocabulary.memo_flags
@@ -440,16 +412,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
                 return None;
             }
             snapshot_cache_blocks = Some(count.parse::<usize>().ok()?);
-        } else if vocabulary.memo_flags
-            && let Some(count) = argument.strip_prefix("--snapshot-restart-records=")
-        {
-            if snapshot_restart_records.is_some()
-                || !count.bytes().all(|byte| byte.is_ascii_digit())
-            {
-                return None;
-            }
-            snapshot_restart_records =
-                Some(count.parse::<usize>().ok().filter(|count| *count > 0)?);
         } else if vocabulary.memo_flags && argument == "--no-snapshot-filter" {
             snapshot_filter = false;
         } else if vocabulary.memo_flags && argument == "--no-grouped-sweeps" {
@@ -586,13 +548,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
             }
             last = Some(codepoint_flag(codepoint)?);
         } else if vocabulary.max_length
-            && let Some(dir) = argument.strip_prefix("--memo-dir=")
-        {
-            if dir.is_empty() || memo_dir.is_some() {
-                return None;
-            }
-            memo_dir = Some(dir);
-        } else if vocabulary.max_length
             && let Some(path) = argument.strip_prefix("--memo-file=")
         {
             if path.is_empty() || memo_file.is_some() {
@@ -624,7 +579,6 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         max_length,
         families,
         last,
-        memo_dir,
         memo_file,
         memo_windows,
         timings,
@@ -635,11 +589,8 @@ fn scan_flags(rest: &[String], vocabulary: Vocabulary) -> Option<Flags<'_>> {
         prospect_memo_buckets,
         candidates_memo_buckets,
         trace_memo_buckets,
-        trace_memo_entries,
-        trace_memo_policy,
         trace_memo_skip,
         snapshot_cache_blocks,
-        snapshot_restart_records,
         snapshot_filter,
         grouped_sweeps,
         table,
@@ -727,7 +678,7 @@ fn config_requests(tokens: Vec<&str>) -> Option<Vec<ConfigRequest<'_>>> {
     Some(configs)
 }
 
-/// `--inputs=` is required: a persisted enumeration is accepted or rejected on its stamp, and a default stamp would let a table built from older runes pass as current. A `--previous=` or a `--windows=` that names a configuration `--configs=` does not is a usage error. A memo ceiling that is not a power of two of at least eight buckets is a usage error ([`MemoCeilings::new`]), and so is a trace ceiling that does not give each of the trace memo's shards at least eight ([`TraceCeiling::new`]) or an entry count that gives a shard none or passes what the buckets hold ([`TraceCeiling::holding`]), and so is a snapshot restart count that does not divide a block's 512 records ([`SnapshotPacking::new`]).
+/// `--inputs=` is required: a persisted enumeration is accepted or rejected on its stamp, and a default stamp would let a table built from older runes pass as current. A `--previous=` or a `--windows=` that names a configuration `--configs=` does not is a usage error. A memo ceiling that is not a power of two of at least eight buckets is a usage error ([`MemoCeilings::new`]), and so is a trace ceiling that does not give each of the trace memo's shards at least eight ([`TraceCeiling::new`]).
 fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
     let flags = scan_flags(rest, TABLES_FLAGS)?;
     let [spec, outdir] = flags.positionals.as_slice() else {
@@ -745,20 +696,7 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
         flags
             .trace_memo_buckets
             .unwrap_or(TABLE_TRACE_CEILING.buckets()),
-        flags
-            .trace_memo_policy
-            .unwrap_or(TABLE_TRACE_CEILING.eviction()),
         TABLE_TRACE_CEILING.skip_concrete_deep() && flags.trace_memo_skip,
-    )?;
-    let trace_ceiling = match flags.trace_memo_entries {
-        Some(entries) => trace_ceiling.holding(entries)?,
-        None => trace_ceiling,
-    };
-    let snapshot_packing = SnapshotPacking::new(
-        flags
-            .snapshot_restart_records
-            .unwrap_or(SnapshotPacking::BLOCK_RECORDS),
-        flags.snapshot_filter,
     )?;
     let configs = config_requests(flags.configs?)?;
     if flags
@@ -811,7 +749,7 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
         scratch_beside_default: flags.scratch_beside_default.unwrap_or(0),
         memo_ceilings,
         trace_ceiling,
-        snapshot_packing,
+        snapshot_packing: SnapshotPacking::new(flags.snapshot_filter),
         snapshot_cache_blocks: flags.snapshot_cache_blocks.unwrap_or(SNAPSHOT_CACHE_BLOCKS),
         grouped_sweeps: flags.grouped_sweeps,
         simulated_prospect: flags.simulated_prospect,
@@ -822,17 +760,13 @@ fn plan_tables(rest: &[String]) -> Option<TablesPlan<'_>> {
     })
 }
 
-/// `--max-length=` is required because the caller records the depth the walk covered. `--memo-windows=` with `--memo-dir=` or `--memo-file=` is rejected: a walk that released its memo holds only the windows it settled since the release, so the file would be missing windows the build's settle memo needs. `--memo-file=` beside `--memo-dir=`, or for a run that names more than one configuration, is rejected too, since it names one walk's memo.
+/// `--max-length=` is required because the caller records the depth the walk covered. `--memo-windows=` with `--memo-file=` is rejected: a walk that released its memo holds only the windows it settled since the release, so the file would be missing windows the build's settle memo needs. `--memo-file=` for a run that names more than one configuration is rejected too, since it names one walk's memo.
 fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
     let flags = scan_flags(rest, REPLAY_FLAGS)?;
     let [spec, outdir] = flags.positionals.as_slice() else {
         return None;
     };
-    let filed = flags.memo_dir.is_some() || flags.memo_file.is_some();
-    if flags.memo_windows.is_some() && filed {
-        return None;
-    }
-    if flags.memo_dir.is_some() && flags.memo_file.is_some() {
+    if flags.memo_windows.is_some() && flags.memo_file.is_some() {
         return None;
     }
     let configs = config_requests(flags.configs?)?;
@@ -846,7 +780,6 @@ fn plan_replay(rest: &[String]) -> Option<ReplayPlan<'_>> {
         max_length: flags.max_length?,
         families: flags.families,
         last: flags.last,
-        memo_dir: flags.memo_dir,
         memo_file: flags.memo_file,
         memo_windows: flags.memo_windows,
         threads: flags.threads,
@@ -1096,11 +1029,7 @@ fn replay_strings(plan: &ReplayPlan<'_>) -> Result<(), String> {
         text_set,
         workers,
         report,
-        match (plan.memo_dir, plan.memo_file) {
-            (Some(dir), _) => Some(fanout::MemoPath::Under(Path::new(dir))),
-            (None, Some(path)) => Some(fanout::MemoPath::At(Path::new(path))),
-            (None, None) => None,
-        },
+        plan.memo_file.map(Path::new),
     )
     .map_err(|error| format!("{}: {error}", plan.spec))?;
     let mut lines: Vec<String> = Vec::with_capacity(answers.len());
@@ -1338,7 +1267,6 @@ mod tests {
         max_length: usize,
         families: Option<Vec<String>>,
         last: Option<i64>,
-        memo_dir: Option<String>,
         memo_file: Option<String>,
         memo_windows: Option<usize>,
         threads: Option<usize>,
@@ -1361,7 +1289,6 @@ mod tests {
             max_length: plan.max_length,
             families: plan.families.as_deref().map(owned),
             last: plan.last,
-            memo_dir: plan.memo_dir.map(str::to_owned),
             memo_file: plan.memo_file.map(str::to_owned),
             memo_windows: plan.memo_windows,
             threads: plan.threads,
@@ -1372,7 +1299,7 @@ mod tests {
         })
     }
 
-    /// The replay takes configurations and mode flags as the fan-out does, requires a maximum length, and accepts a family list, a last symbol, a memo directory, and a memo ceiling.
+    /// The replay takes configurations and mode flags as the fan-out does, requires a maximum length, and accepts a family list, a last symbol, a memo file, and a memo ceiling.
     #[test]
     fn a_replay_names_its_configurations_its_max_length_and_its_families() {
         let plan = replayed(&[
@@ -1394,7 +1321,7 @@ mod tests {
         );
         assert_eq!(plan.threads, Some(2));
         assert!(plan.simulated_prospect && plan.follower_prefer_slots && plan.timings);
-        assert_eq!(plan.memo_dir, None);
+        assert_eq!(plan.memo_file, None);
         let whole = replayed(&["spec.json", "out", "--configs=default", "--max-length=4"])
             .expect("no family list walks every text");
         assert_eq!(whole.families, None);
@@ -1426,17 +1353,7 @@ mod tests {
         ])
         .expect("a memo ceiling holds each walk's memos to that many windows");
         assert_eq!(ceilinged.memo_windows, Some(2_500_000));
-        assert_eq!(ceilinged.memo_dir, None);
-        let filed = replayed(&[
-            "spec.json",
-            "out",
-            "--configs=default",
-            "--max-length=4",
-            "--memo-dir=memos",
-        ])
-        .expect("a memo directory files each walk's window memo");
-        assert_eq!(filed.memo_dir, Some("memos".to_owned()));
-        assert_eq!(filed.memo_file, None);
+        assert_eq!(ceilinged.memo_file, None);
         let piped = replayed(&[
             "spec.json",
             "out",
@@ -1446,11 +1363,10 @@ mod tests {
         ])
         .expect("a memo file names where the one walk's window memo goes");
         assert_eq!(piped.memo_file, Some("/dev/fd/7".to_owned()));
-        assert_eq!(piped.memo_dir, None);
+        assert_eq!(piped.memo_windows, None);
         for refused in [
             &["--memo-file="][..],
             &["--memo-file=a", "--memo-file=b"],
-            &["--memo-file=a", "--memo-dir=d"],
             &["--memo-file=a", "--memo-windows=5"],
         ] {
             let mut words = vec!["spec.json", "out", "--configs=default", "--max-length=4"];
@@ -1480,7 +1396,7 @@ mod tests {
         assert!(!pinned.simulated_prospect && !pinned.follower_prefer_slots);
     }
 
-    /// The replay rejects a missing, repeated, or non-positive maximum length; an empty or repeated family list or memo directory; a last symbol that is repeated or not `U+` and four to six uppercase hexadecimal digits; a memo ceiling that is not a positive count, is repeated, or is given with a memo directory; a missing configuration set or output directory; and the flags it does not accept (the grain flag, the stamp, and a feature list). No other subcommand accepts the replay's own flags.
+    /// The replay rejects a missing, repeated, or non-positive maximum length; an empty or repeated family list; a last symbol that is repeated or not `U+` and four to six uppercase hexadecimal digits; a memo ceiling that is not a positive count, is repeated, or is given with a memo file; a missing configuration set or output directory; and the flags it does not accept (the grain flag, the stamp, and a feature list). No other subcommand accepts the replay's own flags.
     #[test]
     fn a_replay_without_a_max_length_or_with_a_flag_it_does_not_spell_is_refused() {
         assert!(replayed(&["spec.json", "out", "--configs=default"]).is_none());
@@ -1514,27 +1430,6 @@ mod tests {
                 "--max-length=4",
                 "--families=qsPea",
                 "--families=qsTea"
-            ])
-            .is_none()
-        );
-        assert!(
-            replayed(&[
-                "spec.json",
-                "out",
-                "--configs=default",
-                "--max-length=4",
-                "--memo-dir="
-            ])
-            .is_none()
-        );
-        assert!(
-            replayed(&[
-                "spec.json",
-                "out",
-                "--configs=default",
-                "--max-length=4",
-                "--memo-dir=a",
-                "--memo-dir=b"
             ])
             .is_none()
         );
@@ -1607,7 +1502,7 @@ mod tests {
                 "--configs=default",
                 "--max-length=4",
                 "--memo-windows=5",
-                "--memo-dir=d"
+                "--memo-file=d"
             ])
             .is_none(),
             "a released memo is not the whole memo, so a ceiling files none"
@@ -1629,7 +1524,7 @@ mod tests {
         }
         assert!(cased(&["spec.json", "cases.txt", "--max-length=4"]).is_none());
         assert!(tabled(&["spec.json", "out", "--configs=default", "--families=qsPea"]).is_none());
-        assert!(tabled(&["spec.json", "out", "--configs=default", "--memo-dir=memos"]).is_none());
+        assert!(tabled(&["spec.json", "out", "--configs=default", "--memo-file=memo"]).is_none());
         assert!(tabled(&["spec.json", "out", "--configs=default", "--memo-windows=5"]).is_none());
         assert!(tabled(&["spec.json", "out", "--configs=default", "--last=U+E650"]).is_none());
         assert!(cased(&["spec.json", "cases.txt", "--memo-windows=5"]).is_none());

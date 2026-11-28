@@ -294,7 +294,7 @@ class TestTheInvocationInterface:
                 symbols=47,
             ),
             lambda: kernel_exec.replay_strings(
-                SPEC, tmp_path, ["default"], max_length=4, families=None, threads=1, memo_dir=tmp_path
+                SPEC, tmp_path, ["default"], max_length=4, families=None, threads=1
             ),
             lambda: kernel_exec.replay_strings(
                 SPEC,
@@ -2035,46 +2035,30 @@ class TestTheStringReplay:
         for refused in ("", alphabet[:2]):
             with pytest.raises(ValueError, match="one symbol"):
                 walk(last=refused)
-        with pytest.raises(ValueError, match="memo directory or a last symbol"):
-            kernel_exec.replay_strings(
-                SPEC,
-                tables_dir,
-                ["default"],
-                max_length=3,
-                families=None,
-                threads=1,
-                last=alphabet[0],
-                memo_dir=tables_dir,
-            )
 
-    def test_a_memo_directory_files_one_window_memo_per_configuration(self, tables_dir, tmp_path):
-        """`memo_dir` is passed as `--memo-dir=`, and each configuration's window memo is written under it with the head `conform.absorb_replay_memo` reads. The counts match a walk without `memo_dir`, and that walk writes no memo beside the tables."""
+    def test_the_builds_walk_hands_each_configuration_its_window_memo(self, tables_dir):
+        """`replay_memo_walk` hands each configuration's reader that configuration's window memo, under the head `conform.absorb_replay_memo` reads, whose row count is the walk's window count. The counts match a walk through `replay_strings`, which writes no memo, and neither walk leaves a memo beside the tables."""
         answered = kernel_exec.replay_strings(
-            SPEC,
-            tables_dir,
-            conform.SETTLEMENT_CONFIGS,
-            max_length=3,
-            families=None,
-            threads=2,
-            memo_dir=tmp_path,
-        )
-        assert answered == kernel_exec.replay_strings(
             SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, max_length=3, families=None, threads=2
         )
         for config in conform.SETTLEMENT_CONFIGS:
-            dump = kernel_exec.replay_memo_dump(tmp_path, config)
-            assert dump == tmp_path / f"replay-windows-{config}.bin" and dump.is_file()
-            with dump.open("rb") as handle:
-                marker, _, head = handle.readline().decode().rstrip("\n").partition("\t")
+            walked = kernel_exec.replay_memo_walk(
+                kernel_exec._spec_dump(SPEC),
+                tables_dir,
+                config,
+                max_length=3,
+                symbols=len(conform.spec_alphabet(SPEC)),
+                read=lambda source: source.read(),
+            )
+            marker, _, head = walked.memo.split(b"\n", 1)[0].decode().partition("\t")
             assert marker == f"# {kernel_exec.REPLAY_MEMO_FORMAT}"
             assert json.loads(head)["config"] == config
-            assert json.loads(head)["rows"] == answered[config]["windows"]
+            assert json.loads(head)["rows"] == walked.counts["windows"]
+            assert walked.counts == answered[config]
         assert not list(tables_dir.glob("replay-windows-*.bin"))
 
-    def test_the_builds_walk_reads_its_window_memo_from_a_pipe_as_a_memo_directory_files_it(
-        self, tables_dir, tmp_path, monkeypatch
-    ):
-        """`replay_memo_walk`, the build's walk of one configuration, names its window memo to the crate as `--memo-file=` on a pipe the crate inherits, never as `--memo-dir=`: while the walk's reader reads, nothing stands in the tables directory at the configuration's memo path (`replay_memo_dump`) or as a FIFO, and what the reader receives is byte for byte the memo a walk with `memo_dir` files there, beside the same counts."""
+    def test_the_builds_walk_reads_its_window_memo_from_a_pipe(self, tables_dir, monkeypatch):
+        """`replay_memo_walk`, the build's walk of one configuration, names its window memo to the crate as `--memo-file=` on a pipe the crate inherits: while the walk's reader reads, nothing stands in the tables directory at the configuration's memo path (`replay_memo_dump`) or as a FIFO, and the reader receives the memo from its head line on, beside the counts a walk without a memo answers."""
         reaped = kernel_exec._run_kernel_reaped
         arguments: list[list[str]] = []
         monkeypatch.setattr(
@@ -2103,20 +2087,16 @@ class TestTheStringReplay:
             symbols=len(conform.spec_alphabet(SPEC)),
             read=read,
         )
-        filed = kernel_exec.replay_strings(
-            SPEC, tables_dir, ["ss03"], max_length=3, families=None, threads=1, memo_dir=tmp_path
-        )
-        walk, _filed = arguments
+        bare = kernel_exec.replay_strings(SPEC, tables_dir, ["ss03"], max_length=3, families=None, threads=1)
+        walk, _bare = arguments
         (memo_flag,) = [argument for argument in walk if argument.startswith("--memo-")]
         assert memo_flag.startswith("--memo-file=/dev/fd/"), memo_flag
         assert seen == [[]]
-        assert walked.memo and walked.memo == kernel_exec.replay_memo_dump(tmp_path, "ss03").read_bytes()
-        assert walked.counts == filed["ss03"]
+        assert walked.memo.startswith(f"# {kernel_exec.REPLAY_MEMO_FORMAT}\t".encode())
+        assert walked.counts == bare["ss03"]
 
-    def test_a_memo_ceiling_reaches_the_verb_and_moves_only_the_settle_count(
-        self, tables_dir, tmp_path, monkeypatch
-    ):
-        """`memo_windows` is passed as `--memo-windows=`. A capped walk covers the same texts and skips as the uncapped walk and settles more windows, because a window met again after the memo is released is settled again. A ceiling together with a memo directory, or a ceiling below one window, raises `ValueError` before any process starts, so nothing is written to the directory."""
+    def test_a_memo_ceiling_reaches_the_verb_and_moves_only_the_settle_count(self, tables_dir, monkeypatch):
+        """`memo_windows` is passed as `--memo-windows=`. A capped walk covers the same texts and skips as the uncapped walk and settles more windows, because a window met again after the memo is released is settled again. A ceiling below one window raises `ValueError` before any process starts."""
         uncapped = kernel_exec.replay_strings(
             SPEC, tables_dir, conform.SETTLEMENT_CONFIGS, max_length=3, families=None, threads=1
         )
@@ -2140,22 +2120,10 @@ class TestTheStringReplay:
 
         monkeypatch.setattr(kernel_exec, "_run_kernel", spawned)
         monkeypatch.setattr(kernel_exec, "_run_kernel_reaped", spawned)
-        with pytest.raises(ValueError, match="not both"):
-            kernel_exec.replay_strings(
-                SPEC,
-                tables_dir,
-                ["default"],
-                max_length=3,
-                families=None,
-                threads=1,
-                memo_dir=tmp_path,
-                memo_windows=1,
-            )
         with pytest.raises(ValueError, match="at least one window"):
             kernel_exec.replay_strings(
                 SPEC, tables_dir, ["default"], max_length=3, families=None, threads=1, memo_windows=0
             )
-        assert not list(tmp_path.iterdir())
 
     def test_a_table_edited_behind_the_engine_is_refused_naming_the_text(self, tables_dir, tmp_path):
         """The refusal reaches `on_peak` with nothing, since only a clean walk is a reading of the replay's cost."""
@@ -2265,7 +2233,6 @@ class TestTheReplayStage:
             families,
             threads,
             timings=False,
-            memo_dir=None,
             on_peak=None,
         ):
             asked.append((tuple(configs), max_length, families, threads))
@@ -2311,7 +2278,6 @@ class TestTheReplayStage:
             families,
             threads,
             timings=False,
-            memo_dir=None,
             on_peak=None,
         ):
             if on_peak is not None:
@@ -2544,7 +2510,6 @@ class TestTheReplayStage:
             families,
             threads,
             timings=False,
-            memo_dir=None,
             on_peak=None,
         ):
             asked.append(threads)
@@ -2592,10 +2557,9 @@ class TestTheReplayStage:
             families,
             threads,
             timings=False,
-            memo_dir=None,
             on_peak=None,
         ):
-            asked.append((families, memo_dir))
+            asked.append(families)
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
         monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
@@ -2617,7 +2581,7 @@ class TestTheReplayStage:
         digests["qsPea"] = "d-qsPea-2"
         edited = run_build.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
         assert edited["families"] and "qsPea" in edited["families"]
-        assert asked[-1] == (edited["families"], None)
+        assert asked[-1] == edited["families"]
 
         restamped = replace(memos["ss03"], stamp="another")
         assert conform._write_settle_memo_base(restamped, *conform._memo_columns([]))
@@ -2804,15 +2768,14 @@ class TestTheReplayStage:
             families,
             threads,
             timings=False,
-            memo_dir=None,
             on_peak=None,
         ):
-            asked.append((families, memo_dir))
+            asked.append(families)
             return {config: {"texts": 1, "windows": 1, "skipped": 0} for config in configs}
 
         monkeypatch.setattr(kernel_exec, "replay_strings", replay_strings)
         summary = run_build.run_replay_strings(SPEC, tmp_path, None)
-        assert asked == [(None, None)]
+        assert asked == [None]
         assert summary["structure"] is None and summary["runes"] == {}
         assert run_build.read_replay_record(tmp_path) is None
 

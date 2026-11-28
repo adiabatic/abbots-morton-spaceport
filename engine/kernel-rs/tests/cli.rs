@@ -1021,33 +1021,18 @@ fn trace_evictions(stderr: &str, token: &str) -> u64 {
         .expect("as a count")
 }
 
-/// Holding the trace memo to a ceiling changes no file. Table builds at [`SMALL_TRACE_CEILING`], clearing a full shard, half-dropping it, or storing every window it settles, and at an entry count between two powers of two, five entries a shard under the default buckets, half-dropping a shard that reaches it, write the tables and digests of a build at the default ceiling, which the fixture never reaches, with `ss03` started from scratch beside `default`, where no engine reads another's memo and both are held to the ceiling, and with `ss03` as a delta, where `default` keeps every window for it to read. The cache stats count each configuration's evictions on its `memo_clears` line: none at the default ceiling and none for `default` while a delta reads its memo, some for every other engine at the small ceiling, whose `trace_cache` capacity never passes the 112 entries that ceiling holds, the room of eight buckets a shard, the smallest table that holds five. Every build runs at [`SMALL_SNAPSHOT_CACHE`]. A trace ceiling that is not a power of two of at least 128, an entry count under one a shard or over what the buckets hold, a policy other than `clear` or `half`, a value flag given twice, and any of the four flags on `replay-strings` are usage errors.
+/// Holding the trace memo to a ceiling changes no file. Table builds at [`SMALL_TRACE_CEILING`], clearing a full shard, and at that ceiling storing every window it settles, write the tables and digests of a build at the default ceiling, which the fixture never reaches, with `ss03` started from scratch beside `default`, where no engine reads another's memo and both are held to the ceiling, and with `ss03` as a delta, where `default` keeps every window for it to read. The cache stats count each configuration's evictions on its `memo_clears` line: none at the default ceiling and none for `default` while a delta reads its memo, some for every other engine at the small ceiling, whose `trace_cache` capacity never passes the 112 entries that ceiling holds, the room of eight buckets a shard. Every build runs at [`SMALL_SNAPSHOT_CACHE`]. A trace ceiling that is not a power of two of at least 128, the ceiling given twice, and either trace memo flag on `replay-strings` are usage errors.
 #[test]
 fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_unheld_one_files() {
     let root = scratch("cli-trace-ceiling");
     let spec = spec_at(&root);
     let beside = "--scratch-beside-default=1";
-    let arms: [(&str, &[&str]); 6] = [
+    let arms: [(&str, &[&str]); 4] = [
         ("default-ceiling", &[beside]),
-        (
-            "clear",
-            &[SMALL_TRACE_CEILING, "--trace-memo-policy=clear", beside],
-        ),
-        (
-            "half",
-            &[SMALL_TRACE_CEILING, "--trace-memo-policy=half", beside],
-        ),
+        ("small-ceiling", &[SMALL_TRACE_CEILING, beside]),
         (
             "store-all",
             &[SMALL_TRACE_CEILING, "--no-trace-memo-skip", beside],
-        ),
-        (
-            "entries",
-            &[
-                "--trace-memo-entries=80",
-                "--trace-memo-policy=half",
-                beside,
-            ],
         ),
         ("delta", &[SMALL_TRACE_CEILING]),
     ];
@@ -1121,32 +1106,12 @@ fn a_table_build_holding_its_trace_memos_to_a_small_ceiling_files_the_bytes_an_u
         let flag = format!("--trace-memo-buckets={value}");
         assert_eq!(misuse(&[&flag]), Some(2), "{flag}");
     }
-    for (buckets, entries) in [("128", "15"), ("128", "113"), ("128", "0"), ("128", "+80")] {
-        let buckets = format!("--trace-memo-buckets={buckets}");
-        let entries = format!("--trace-memo-entries={entries}");
-        assert_eq!(
-            misuse(&[&buckets, &entries]),
-            Some(2),
-            "{buckets} {entries}"
-        );
-    }
-    for value in ["", "drop", "Clear"] {
-        let flag = format!("--trace-memo-policy={value}");
-        assert_eq!(misuse(&[&flag]), Some(2), "{flag}");
-    }
-    for twice in [
-        SMALL_TRACE_CEILING,
-        "--trace-memo-entries=80",
-        "--trace-memo-policy=half",
-    ] {
-        assert_eq!(misuse(&[twice, twice]), Some(2), "{twice} given twice");
-    }
-    for flag in [
-        SMALL_TRACE_CEILING,
-        "--trace-memo-entries=80",
-        "--trace-memo-policy=half",
-        "--no-trace-memo-skip",
-    ] {
+    assert_eq!(
+        misuse(&[SMALL_TRACE_CEILING, SMALL_TRACE_CEILING]),
+        Some(2),
+        "{SMALL_TRACE_CEILING} given twice"
+    );
+    for flag in [SMALL_TRACE_CEILING, "--no-trace-memo-skip"] {
         let output = run(&[
             "replay-strings",
             word(&spec),
@@ -1174,18 +1139,14 @@ fn stat_field(stderr: &str, token: &str, name: &str, field: &str) -> u64 {
         .expect("as a count")
 }
 
-/// How `default` packs its snapshot and how `ss03` caches it change no file: table builds with no cache, under which each get decodes its block in place, with no cache and a whole record every four inside a block, with no filter, and at a 455-block cache, the default, which holds every block, write the tables and digests of a build at [`SMALL_SNAPSHOT_CACHE`]. The cache stats show each packing: `default`'s `snapshot` line counts its windows in the blocks of 512 they fill and a filter only where one is built, and `ss03`'s `shared_memo_store` line answers no get from a cache it lacks, none from a filter it lacks, and decodes no block twice at a cache that holds them all. A restart count that does not divide 512, a cache size that is not a count, a value flag given twice, and any of the three flags on `replay-strings` are usage errors.
+/// How `default` packs its snapshot and how `ss03` caches it change no file: table builds with no cache, under which each get decodes its block in place, with no filter, and at a 455-block cache, the default, which holds every block, write the tables and digests of a build at [`SMALL_SNAPSHOT_CACHE`]. The cache stats show each packing: `default`'s `snapshot` line counts its windows in the blocks of 512 they fill and a filter only where one is built, and `ss03`'s `shared_memo_store` line answers no get from a cache it lacks, none from a filter it lacks, and decodes no block twice at a cache that holds them all. A cache size that is not a count, the cache size given twice, and either snapshot flag on `replay-strings` are usage errors.
 #[test]
 fn a_table_build_under_any_snapshot_packing_files_the_bytes_a_small_cache_files() {
     let root = scratch("cli-snapshot-packing");
     let spec = spec_at(&root);
-    let arms: [(&str, &[&str]); 5] = [
+    let arms: [(&str, &[&str]); 4] = [
         ("small-cache", &[SMALL_SNAPSHOT_CACHE]),
         ("no-cache", &["--snapshot-cache-blocks=0"]),
-        (
-            "restarts",
-            &["--snapshot-cache-blocks=0", "--snapshot-restart-records=4"],
-        ),
         ("no-filter", &[SMALL_SNAPSHOT_CACHE, "--no-snapshot-filter"]),
         ("default-cache", &[]),
     ];
@@ -1220,7 +1181,7 @@ fn a_table_build_under_any_snapshot_packing_files_the_bytes_a_small_cache_files(
         assert!(store("gets") > 0, "{arm}: {stderr}");
         assert_eq!(store("filtered") > 0, arm != "no-filter", "{arm}: {stderr}");
         match arm {
-            "no-cache" | "restarts" => {
+            "no-cache" => {
                 assert_eq!((store("cached"), store("cache_bytes")), (0, 0), "{arm}")
             }
             "default-cache" => assert!(store("decoded") <= blocks, "{arm}: {stderr}"),
@@ -1258,22 +1219,16 @@ fn a_table_build_under_any_snapshot_packing_files_the_bytes_a_small_cache_files(
         arguments.extend(flags);
         run(&arguments).status.code()
     };
-    for value in ["", "0", "3", "1024", "+4", "4.0"] {
-        let flag = format!("--snapshot-restart-records={value}");
-        assert_eq!(misuse(&[&flag]), Some(2), "{flag}");
-    }
     for value in ["", "+2", "2.0", "-1"] {
         let flag = format!("--snapshot-cache-blocks={value}");
         assert_eq!(misuse(&[&flag]), Some(2), "{flag}");
     }
-    for twice in [SMALL_SNAPSHOT_CACHE, "--snapshot-restart-records=4"] {
-        assert_eq!(misuse(&[twice, twice]), Some(2), "{twice} given twice");
-    }
-    for flag in [
-        SMALL_SNAPSHOT_CACHE,
-        "--snapshot-restart-records=4",
-        "--no-snapshot-filter",
-    ] {
+    assert_eq!(
+        misuse(&[SMALL_SNAPSHOT_CACHE, SMALL_SNAPSHOT_CACHE]),
+        Some(2),
+        "{SMALL_SNAPSHOT_CACHE} given twice"
+    );
+    for flag in [SMALL_SNAPSHOT_CACHE, "--no-snapshot-filter"] {
         let output = run(&[
             "replay-strings",
             word(&spec),
@@ -1609,9 +1564,9 @@ fn a_shipped_order_walk_answers_a_tables_rows_from_a_file_or_stdin() {
     assert_eq!(with_mode_flag.status.code(), Some(2));
 }
 
-/// The replay's window memo through the binary: `--memo-dir=` writes one `replay-windows-<config>.bin` per configuration with the head `replay::MEMO_FORMAT` names. The answer lines are the bytes the same walk prints without the flag, a walk without the flag writes no memo, a timed run reports the memo phase beside the walk, and a directory the walk cannot write into fails the run naming the configuration.
+/// The replay's window memo through the binary: `--memo-file=` writes the memo of the walk's one configuration with the head `replay::MEMO_FORMAT` names, for each configuration of the fixture. The answer lines are the bytes the same walk prints without the flag, a walk without the flag writes no memo, a timed run reports the memo phase beside the walk, and a path the walk cannot create fails the run naming the configuration.
 #[test]
-fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
+fn a_replay_with_a_memo_file_files_its_configurations_window_memo() {
     let root = scratch("cli-replay-memo");
     let spec = spec_at(&root);
     let outdir = root.join("tables");
@@ -1623,41 +1578,42 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         "--inputs=cli-stamp",
     ]);
     assert!(built.status.success(), "{}", stderr_of(&built));
-    let bare = run(&[
-        "replay-strings",
-        word(&spec),
-        word(&outdir),
-        "--configs=default,ss03",
-        "--max-length=3",
-    ]);
-    assert!(bare.status.success(), "{}", stderr_of(&bare));
-    assert!(
-        std::fs::read_dir(&outdir)
-            .expect("the tables directory lists")
-            .all(|entry| !entry
-                .expect("an entry")
-                .file_name()
-                .to_string_lossy()
-                .starts_with("replay-windows-")),
-        "a walk without the flag writes no memo"
-    );
     let memos = root.join("memos");
     std::fs::create_dir_all(&memos).expect("the memo directory is makeable");
-    let memo_flag = format!("--memo-dir={}", word(&memos));
-    let filed = run(&[
-        "replay-strings",
-        word(&spec),
-        word(&outdir),
-        "--configs=default,ss03",
-        "--max-length=3",
-        &memo_flag,
-        "--timings",
-    ]);
-    assert!(filed.status.success(), "{}", stderr_of(&filed));
-    assert_eq!(filed.stdout, bare.stdout, "the answer lines are unchanged");
     for token in CONFIGS {
-        let path = memos.join(format!("replay-windows-{token}.bin"));
-        let bytes = std::fs::read(&path).expect("each configuration's memo is written");
+        let configs = format!("--configs={token}");
+        let bare = run(&[
+            "replay-strings",
+            word(&spec),
+            word(&outdir),
+            &configs,
+            "--max-length=3",
+        ]);
+        assert!(bare.status.success(), "{}", stderr_of(&bare));
+        assert!(
+            std::fs::read_dir(&outdir)
+                .expect("the tables directory lists")
+                .all(|entry| !entry
+                    .expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("replay-windows-")),
+            "a walk without the flag writes no memo"
+        );
+        let path = memos.join(format!("{token}.bin"));
+        let memo_flag = format!("--memo-file={}", word(&path));
+        let filed = run(&[
+            "replay-strings",
+            word(&spec),
+            word(&outdir),
+            &configs,
+            "--max-length=3",
+            &memo_flag,
+            "--timings",
+        ]);
+        assert!(filed.status.success(), "{}", stderr_of(&filed));
+        assert_eq!(filed.stdout, bare.stdout, "the answer lines are unchanged");
+        let bytes = std::fs::read(&path).expect("the configuration's memo is written");
         let head = bytes
             .split(|byte| *byte == b'\n')
             .next()
@@ -1670,16 +1626,20 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
             )),
             "{head}"
         );
+        let phases: Vec<String> = stderr_of(&filed)
+            .lines()
+            .map(|line| timing_phase(line).to_owned())
+            .collect();
+        assert!(
+            phases
+                .iter()
+                .any(|phase| *phase == format!("replay_memo[{token}]"))
+                && phases
+                    .iter()
+                    .any(|phase| *phase == format!("replay[{token}]")),
+            "{phases:?}"
+        );
     }
-    let phases: Vec<String> = stderr_of(&filed)
-        .lines()
-        .map(|line| timing_phase(line).to_owned())
-        .collect();
-    assert!(
-        phases.iter().any(|phase| phase == "replay_memo[default]")
-            && phases.iter().any(|phase| phase == "replay[default]"),
-        "{phases:?}"
-    );
 
     let blocker = root.join("blocker");
     std::fs::write(&blocker, "not a directory\n").expect("writable");
@@ -1687,13 +1647,13 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
         "replay-strings",
         word(&spec),
         word(&outdir),
-        "--configs=default,ss03",
+        "--configs=default",
         "--max-length=3",
-        &format!("--memo-dir={}", word(&blocker.join("inside"))),
+        &format!("--memo-file={}", word(&blocker.join("inside"))),
     ]);
     assert_eq!(refused.status.code(), Some(1), "{}", stderr_of(&refused));
     assert!(
-        stderr_of(&refused).contains("default:") || stderr_of(&refused).contains("ss03:"),
+        stderr_of(&refused).contains("default:"),
         "the refusal names the configuration: {}",
         stderr_of(&refused)
     );
@@ -1703,9 +1663,9 @@ fn a_replay_with_a_memo_directory_files_one_window_memo_per_configuration() {
     );
 }
 
-/// The window memo at `--memo-file=`, as `run_build` reads it: a walk naming one configuration writes at that path byte for byte the memo `--memo-dir=` files for it, with the same answer lines, and nothing else beside it. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.replay_memo_walk` hands one; here it is the walk's standard error, which a clean walk without `--timings` leaves otherwise empty, and the pipe carries the memo's bytes. A reader that closes the pipe once the memo has begun, at a depth whose memo is more than a pipe holds, leaves the walk answered: the run exits 0 with the answer lines of a walk that writes no memo. `--memo-file=` for a run naming two configurations, beside `--memo-dir=` or `--memo-windows=`, given twice, or with an empty path, is a usage error that writes nothing to stdout and nothing at the path.
+/// The window memo at `--memo-file=`, as `run_build` reads it: a walk naming one configuration writes its memo at that path, with the answer lines of a walk that writes none, and nothing else beside it. The path may name `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.replay_memo_walk` hands one; here it is the walk's standard error, which a clean walk without `--timings` leaves otherwise empty, and the pipe carries byte for byte the memo the walk writes at a path. A reader that closes the pipe once the memo has begun, at a depth whose memo is more than a pipe holds, leaves the walk answered: the run exits 0 with the answer lines of a walk that writes no memo. `--memo-file=` for a run naming two configurations, beside `--memo-windows=`, given twice, or with an empty path, is a usage error that writes nothing to stdout and nothing at the path.
 #[test]
-fn a_replay_memo_written_at_a_memo_file_is_the_memo_a_memo_directory_files() {
+fn a_replay_memo_written_at_a_memo_file_is_the_memo_its_pipe_carries() {
     let root = scratch("cli-replay-memo-file");
     let spec = spec_at(&root);
     let outdir = root.join("tables");
@@ -1732,19 +1692,20 @@ fn a_replay_memo_written_at_a_memo_file_is_the_memo_a_memo_directory_files() {
             .output()
             .expect("the binary this crate just built runs")
     };
-    let files = root.join("files");
-    std::fs::create_dir_all(&files).expect("the memo directory is makeable");
-    let filed = replay(&[&format!("--memo-dir={}", word(&files))]);
-    assert!(filed.status.success(), "{}", stderr_of(&filed));
-    let written = std::fs::read(files.join("replay-windows-default.bin")).expect("the memo file");
+    let bare = replay(&[]);
+    assert!(bare.status.success(), "{}", stderr_of(&bare));
 
     let at = root.join("at");
     std::fs::create_dir_all(&at).expect("the directory is makeable");
     let memo = at.join("memo.bin");
     let named = replay(&[&format!("--memo-file={}", word(&memo))]);
     assert!(named.status.success(), "{}", stderr_of(&named));
-    assert_eq!(named.stdout, filed.stdout, "the answer lines are unchanged");
-    assert_eq!(std::fs::read(&memo).expect("the memo file"), written);
+    assert_eq!(named.stdout, bare.stdout, "the answer lines are unchanged");
+    let written = std::fs::read(&memo).expect("the memo file");
+    assert!(
+        written.starts_with(b"# "),
+        "the memo begins with its head line"
+    );
     let beside: Vec<String> = std::fs::read_dir(&at)
         .expect("the directory lists")
         .map(|entry| {
@@ -1764,7 +1725,7 @@ fn a_replay_memo_written_at_a_memo_file_is_the_memo_a_memo_directory_files() {
     let through = replay(&["--memo-file=/dev/fd/2"]);
     assert!(through.status.success(), "{}", stderr_of(&through));
     assert_eq!(
-        through.stdout, filed.stdout,
+        through.stdout, bare.stdout,
         "the answer lines are unchanged"
     );
     assert_eq!(through.stderr, written, "the pipe carries the memo's bytes");
@@ -1798,7 +1759,6 @@ fn a_replay_memo_written_at_a_memo_file_is_the_memo_a_memo_directory_files() {
     };
     let refusals = [
         two,
-        arguments_for("4", &[&to, &format!("--memo-dir={}", word(&files))]),
         arguments_for("4", &[&to, "--memo-windows=5"]),
         arguments_for("4", &[&to, &to]),
         arguments_for("4", &["--memo-file="]),
@@ -2033,7 +1993,7 @@ fn a_replay_narrowed_to_a_last_symbol_walks_the_texts_ending_in_it() {
     );
 }
 
-/// The memo ceiling through the binary: a walk that releases its memo before every text reports the same texts and skipped counts as the uncapped walk for every configuration, and settles more windows. A ceiling together with a memo directory is a usage error that writes nothing to stdout and no memo file.
+/// The memo ceiling through the binary: a walk that releases its memo before every text reports the same texts and skipped counts as the uncapped walk for every configuration, and settles more windows. A ceiling together with a memo file, for a walk of one configuration, is a usage error that writes nothing to stdout and no memo file.
 #[test]
 fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
     let root = scratch("cli-replay-ceiling");
@@ -2080,7 +2040,15 @@ fn a_replay_with_a_memo_ceiling_answers_the_texts_an_uncapped_walk_answers() {
 
     let memos = root.join("memos");
     std::fs::create_dir_all(&memos).expect("the memo directory is makeable");
-    let both = replay(&["--memo-windows=1", &format!("--memo-dir={}", word(&memos))]);
+    let both = run(&[
+        "replay-strings",
+        word(&spec),
+        word(&outdir),
+        "--configs=default",
+        "--max-length=4",
+        "--memo-windows=1",
+        &format!("--memo-file={}", word(&memos.join("memo.bin"))),
+    ]);
     assert_eq!(both.status.code(), Some(2), "{}", stderr_of(&both));
     assert!(
         both.stdout.is_empty(),

@@ -1,6 +1,7 @@
-"""Tests for the row diff the table-diff corpus reads its evidence from (`engine/review/tablediff.py`): added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, the table widths and gzipped tables the loaders read, the byte comparison that passes over an unchanged table, and the settled configurations the diff reads. `engine/test_review_diff_units.py` covers the units the corpus makes of the rows, and `engine/test_review_snapshot.py` the snapshot. The tables the tests read are synthetic, written inline."""
+"""Tests for the row diff the table-diff corpus reads its evidence from (`engine/review/tablediff.py`): added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, the row width and gzipped tables the loaders read, the byte comparison that passes over an unchanged table, and the settled configurations the diff reads. `engine/test_review_diff_units.py` covers the units the corpus makes of the rows, and `engine/test_review_snapshot.py` the snapshot. The tables the tests read are synthetic, written inline."""
 
 import gzip
+from pathlib import Path
 
 import pytest
 
@@ -8,20 +9,20 @@ from engine.pipeline import conform
 from engine.review import tablediff
 
 SETTLEMENT_OLD = """# settlement table, config default
-input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance
-qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.sole.en-y5\t-\tglyph_data/runes/qsIt.yaml:policy.extend[0]
-qsMay\tqsPea.full.ex-y0\tqsIt\t-\tqsMay.loop.en-y0\t-\t
-qsPea\tspace uni200C\t-\t-\tqsPea.full\t-\told-pointer
-qsTea\tqsOy.sole.ex-y0\t-\t-\tqsTea.full.en-y0\t-\t
+input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance
+qsIt\tqsTea.half.ex-y5\t-\t-\t-\t-\tqsIt.sole.en-y5\t-\tglyph_data/runes/qsIt.yaml:policy.extend[0]
+qsMay\tqsPea.full.ex-y0\tqsIt\t-\t-\t-\tqsMay.loop.en-y0\t-\t
+qsPea\tspace uni200C\t-\t-\t-\t-\tqsPea.full\t-\told-pointer
+qsTea\tqsOy.sole.ex-y0\t-\t-\t-\t-\tqsTea.full.en-y0\t-\t
 """
 
 SETTLEMENT_NEW = """# settlement table, config default
-input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance
-qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.sole.en-y5.en-ext-1\t-\tglyph_data/runes/qsIt.yaml:policy.extend[0]
-qsOy\t-\t-\t-\tqsOy.sole\t-\t
-qsPea\tspace\t-\t-\tqsPea.full\t-\tnew-pointer
-qsPea\tuni200C\t-\t-\tqsPea.full.locked\t-\tnew-pointer
-qsTea\tqsOy.sole.ex-y0\t-\t-\tqsTea.full.en-y0\t-\t
+input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance
+qsIt\tqsTea.half.ex-y5\t-\t-\t-\t-\tqsIt.sole.en-y5.en-ext-1\t-\tglyph_data/runes/qsIt.yaml:policy.extend[0]
+qsOy\t-\t-\t-\t-\t-\tqsOy.sole\t-\t
+qsPea\tspace\t-\t-\t-\t-\tqsPea.full\t-\tnew-pointer
+qsPea\tuni200C\t-\t-\t-\t-\tqsPea.full.locked\t-\tnew-pointer
+qsTea\tqsOy.sole.ex-y0\t-\t-\t-\t-\tqsTea.full.en-y0\t-\t
 """
 
 JOINS_OLD = """# join table, config default
@@ -36,6 +37,25 @@ qsIt.sole\tqsIt.sole\tbreak\t0
 qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t1
 qsOy.sole.ex-y0\tqsTea.full.en-y0\ty0\t0
 """
+
+
+def diff_dirs(old_dir: Path, new_dir: Path, config: str = "default") -> list[tablediff.DiffEntry]:
+    """Diff one configuration's settlement and join tables in two directories, as `build.config_diffs` diffs a snapshot's against a build's, a missing table reading as one with no rows."""
+
+    def rows(path: Path, loader):
+        return loader(path) if path.exists() else {}
+
+    settlement = tablediff.diff_settlement(
+        rows(old_dir / f"settlement-{config}.tsv", tablediff.load_settlement),
+        rows(new_dir / f"settlement-{config}.tsv", tablediff.load_settlement),
+        config,
+    )
+    joins = tablediff.diff_joins(
+        rows(old_dir / f"joins-{config}.tsv", tablediff.load_joins),
+        rows(new_dir / f"joins-{config}.tsv", tablediff.load_joins),
+        config,
+    )
+    return [*settlement, *joins]
 
 
 @pytest.fixture()
@@ -53,7 +73,7 @@ def table_dirs(tmp_path):
 
 def test_diff_classifies_buckets(table_dirs):
     old_dir, new_dir = table_dirs
-    entries = tablediff.diff_dirs(old_dir, new_dir)
+    entries = diff_dirs(old_dir, new_dir)
     by_bucket = {}
     for entry in entries:
         by_bucket.setdefault(entry.bucket, []).append(entry)
@@ -80,7 +100,7 @@ def test_diff_classifies_buckets(table_dirs):
 
 def test_regrouped_pairs_removals_with_additions_sharing_input(table_dirs):
     old_dir, new_dir = table_dirs
-    entries = tablediff.diff_dirs(old_dir, new_dir)
+    entries = diff_dirs(old_dir, new_dir)
     regrouped = [entry for entry in entries if entry.bucket == "regrouped"]
     assert len(regrouped) == 1
     entry = regrouped[0]
@@ -102,11 +122,11 @@ def test_provenance_only_demotion(tmp_path):
     new_dir = tmp_path / "new"
     old_dir.mkdir()
     new_dir.mkdir()
-    base = "qsIt\t-\t-\t-\tqsIt.sole\t-\t{pointer}\n"
-    header = "# settlement table, config default\ninput\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance\n"
+    base = "qsIt\t-\t-\t-\t-\t-\tqsIt.sole\t-\t{pointer}\n"
+    header = "# settlement table, config default\ninput\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance\n"
     (old_dir / "settlement-default.tsv").write_text(header + base.format(pointer="old"))
     (new_dir / "settlement-default.tsv").write_text(header + base.format(pointer="new"))
-    entries = tablediff.diff_dirs(old_dir, new_dir)
+    entries = diff_dirs(old_dir, new_dir)
     assert [entry.bucket for entry in entries] == ["provenance-only"]
     entry = entries[0]
     assert isinstance(entry, tablediff.SettlementDiffEntry)
@@ -115,49 +135,37 @@ def test_provenance_only_demotion(tmp_path):
     assert entry.old.outcome == entry.new.outcome
 
 
-def test_load_settlement_widths_round_trip(tmp_path):
-    def load(body):
-        path = tmp_path / "settlement-default.tsv"
-        path.write_text(body)
-        return tablediff.load_settlement(path)
-
-    seven = load(
-        "input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance\n"
-        "qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.sole.en-y5\t-\t\n"
-    )
-    eight = load(
-        "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\toutcome\tjoint\tprovenance\n"
-        "qsIt\tqsTea.half.ex-y5\t-\t-\t-\tqsIt.sole.en-y5\t-\t\n"
-    )
-    nine = load(
+def test_load_settlement_reads_every_lookahead_and_refuses_a_narrower_row(tmp_path):
+    """A settlement row has the nine columns the build writes; each lookahead column is its own key slot, and a row with fewer columns is refused rather than read with its slots shifted."""
+    path = tmp_path / "settlement-default.tsv"
+    path.write_text(
+        "# settlement table, config default\n"
         "input\tbacktrack\tlookahead1\tlookahead2\tlookahead3\tlookahead4\toutcome\tjoint\tprovenance\n"
         "qsIt\tqsTea.half.ex-y5\t-\t-\t-\tqsLow\tqsIt.sole.en-y5\t-\t\n"
     )
-
-    legacy = tablediff.SettlementKey("default", "qsIt", frozenset({"qsTea.half.ex-y5"}), None, None, None)
-    assert list(seven) == [legacy]
-    assert list(eight) == [legacy]
-    assert next(iter(seven)).look4 is None
-    assert next(iter(eight)).look4 is None
-
-    with_look4 = tablediff.SettlementKey(
-        "default", "qsIt", frozenset({"qsTea.half.ex-y5"}), None, None, None, frozenset({"qsLow"})
+    assert list(tablediff.load_settlement(path)) == [
+        tablediff.SettlementKey(
+            "default", "qsIt", frozenset({"qsTea.half.ex-y5"}), None, None, None, frozenset({"qsLow"})
+        )
+    ]
+    path.write_text(
+        "input\tbacktrack\tlookahead1\tlookahead2\toutcome\tjoint\tprovenance\n"
+        "qsIt\tqsTea.half.ex-y5\t-\t-\tqsIt.sole.en-y5\t-\t\n"
     )
-    assert list(nine) == [with_look4]
-    assert with_look4 != legacy
-    assert next(iter(nine)).look4 == frozenset({"qsLow"})
+    with pytest.raises(ValueError, match="7 fields, not 9"):
+        tablediff.load_settlement(path)
 
 
 def test_self_diff_is_empty(table_dirs):
     """A directory diffed against itself gives no entries."""
     old_dir, _new_dir = table_dirs
-    assert tablediff.diff_dirs(old_dir, old_dir) == []
+    assert diff_dirs(old_dir, old_dir) == []
 
 
 def test_diff_is_deterministic(table_dirs):
     old_dir, new_dir = table_dirs
-    first = tablediff.diff_dirs(old_dir, new_dir)
-    second = tablediff.diff_dirs(old_dir, new_dir)
+    first = diff_dirs(old_dir, new_dir)
+    second = diff_dirs(old_dir, new_dir)
     assert [(e.bucket, e.table, e.key.label()) for e in first] == [
         (e.bucket, e.table, e.key.label()) for e in second
     ]
@@ -188,18 +196,3 @@ def test_a_gzipped_table_reads_as_the_plain_one_and_compares_by_its_rows(tmp_pat
 def test_the_settled_configurations_match_the_builds():
     """The review package cannot import `conform`, so `tablediff.SETTLED_CONFIGS` restates the build's settled configurations; this ties the two lists together."""
     assert tablediff.SETTLED_CONFIGS == conform.SETTLEMENT_CONFIGS
-
-
-def test_a_diff_ignores_tables_of_a_configuration_outside_the_settled_set(table_dirs):
-    """Tables left under the name of a configuration the build does not settle, on either side, add no entries to a diff that takes its configurations from the directories."""
-    old_dir, new_dir = table_dirs
-    for unsettled in ("ss02+ss03", *conform.OVERLAY_CONFIGS):
-        assert unsettled not in conform.SETTLEMENT_CONFIGS
-        (old_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_OLD)
-        (old_dir / f"joins-{unsettled}.tsv").write_text(JOINS_OLD)
-        (new_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_NEW)
-        (new_dir / f"joins-{unsettled}.tsv").write_text(JOINS_NEW)
-    (new_dir / "settlement-ss02.tsv").write_text(SETTLEMENT_NEW)
-    (new_dir / "joins-ss02.tsv").write_text(JOINS_NEW)
-    assert tablediff.table_configs(old_dir) == tablediff.table_configs(new_dir) == ["default"]
-    assert {entry.config for entry in tablediff.diff_dirs(old_dir, new_dir)} == {"default"}

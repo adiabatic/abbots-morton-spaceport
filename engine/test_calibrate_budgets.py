@@ -111,14 +111,6 @@ def test_a_conform_sweep_pool_record_goes_to_the_sweep_row_only():
     assert crossed == []
 
 
-def test_the_conform_sweep_row_also_reads_the_journals_conform_belt_records(tmp_path):
-    """Older journal lines name the conformance sweep's pool `conform-belt`. `load_pool_records` reads them under the current name, so the conform-sweep row keeps its measured history."""
-    path = _journal(tmp_path, [_pool("conform-belt", [390_000_000]), _pool("conform-sweep", [420_000_000])])
-    pools = cb.load_pool_records(path)
-    observed, _, _ = cb.observations(_unit("conform-sweep"), pools, {}, host=HOST, recent=20)
-    assert sorted(item.peak_bytes for item in observed) == [390_000_000, 420_000_000]
-
-
 def test_a_conform_step_peak_is_never_read_as_a_sweep_worker():
     """`reap_peak_rss_bytes` takes the max over gate:conform's process tree, so the step peak measures one process, not the pool. No row reads it."""
     steps = {"r1": [_step("gate:conform", 3_000_000_000)]}

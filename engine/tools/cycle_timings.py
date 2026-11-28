@@ -54,27 +54,6 @@ CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
 OUTPUT_COUNTS_ENV = "AMS_OUTPUT_COUNTS"
 OUTPUT_OUTCOMES = ("changed", "written", "kept")
 OUTPUT_REWRITTEN = "rewritten"
-STEP_NAME_ALIASES = {
-    "plumbing": "verdict-update",
-    "surface-build": "corpus-build",
-    "surface-promote": "corpus-promote",
-    "census": "review-facts",
-    "echo-fill": "duplicate-fill",
-    "echo-merge": "duplicate-merge",
-    "run_m1": "build",
-    "run_m1:gates-only": "build:gates-only",
-    "run_m1:kern-only": "build:kern-only",
-    "gate:rebuild-contracts": "gate:engine-contracts",
-}
-POOL_UNIT_ALIASES = {
-    "conform-belt": "conform-sweep",
-    "run-m1-parent": "build-parent",
-    "rebuild-contracts": "engine-contracts",
-}
-# The names older check lines give a check, read under the check's current name (`load_checks`, `readback_readings`).
-CHECK_NAME_ALIASES = {"run_m1": "build", "rebuild-contracts": "engine-contracts"}
-# The names older run lines' plan blocks give a field, read under the field's current name (`write_class`).
-PLAN_FIELD_ALIASES = {"skip_run_m1": "skip_run_build"}
 AFTER_JOIN_STEPS = frozenset({"job-costs", "job-costs-diff"})
 HEAVY_GATE_STEPS = frozenset({"gate:make-test", "gate:conform", "gate:engine-contracts"})
 CRITICAL_PATH_SHAPE_STEPS = ("build", "corpus-build", "gate:make-test")
@@ -86,7 +65,6 @@ PASS_WRITE_CEILING_BYTES: dict[str, int | None] = {
     "gates-only": None,
     "kern-only": None,
     "corpus-only": None,
-    "verdict-only": None,
     "tests-only": None,
     "nothing": None,
 }
@@ -355,7 +333,7 @@ def previous_pass_alphabet(host: str, runs: Iterable[Mapping]) -> Mapping | None
 def write_class(run: Mapping, steps: Iterable[Mapping], previous: Mapping | None = None) -> str | None:
     """Return the write class of one cycle pass, the first of `PASS_WRITE_CEILING_BYTES`'s classes that applies, from its run line, its step lines and `previous`, the `alphabet` record of this host's latest pass that finished ok (`previous_pass_alphabet`), or None when none does. A pass is checked against the class of change it is, because a pass writes in proportion to what it changes.
 
-    `letter-batch` comes first: the run line's `alphabet` record (`alphabet_record`) and `previous` name different alphabets, as they do across an `ALPHABET` edit. The record is the build's alphabet as the pass found it. A pass without a record, or without a `previous`, takes its class from the rules below. The step lines' phase entries come next. `full-replay`: a `[t] replay_strings` line says the string replay walked every text (`scope=full`), as after a crate or structure edit. `narrowed`: it walked only the changed runes' texts (`scope=narrowed`), as after a rune edit. The run line's plan block decides the rest. `gates-only`: a gates-only rerun (`rerun_gates_only`). `kern-only`: a kern-only rebuild (`rerun_kern_only`). On a pass that skipped run_build, `corpus-only` when the corpus moved (a corpus build, a promotion or an assets refresh), `verdict-only` when a verdict-update step ran (a step only older run lines name), `tests-only` when the only heavy work was a test gate (`HEAVY_GATE_STEPS`), and `nothing` when no heavy gate ran either (gate:js and the job-costs steps run on every pass). None: a run line without a plan block, or a pass that is no letter batch and ran run_build whose lines name no replay scope, because it stopped before the replay or predates the token.
+    `letter-batch` comes first: the run line's `alphabet` record (`alphabet_record`) and `previous` name different alphabets, as they do across an `ALPHABET` edit. The record is the build's alphabet as the pass found it. A pass without a record, or without a `previous`, takes its class from the rules below. The step lines' phase entries come next. `full-replay`: a `[t] replay_strings` line says the string replay walked every text (`scope=full`), as after a crate or structure edit. `narrowed`: it walked only the changed runes' texts (`scope=narrowed`), as after a rune edit. The run line's plan block decides the rest. `gates-only`: a gates-only rerun (`rerun_gates_only`). `kern-only`: a kern-only rebuild (`rerun_kern_only`). On a pass that skipped run_build, `corpus-only` when the corpus moved (a corpus build, a promotion or an assets refresh), `tests-only` when the only heavy work was a test gate (`HEAVY_GATE_STEPS`), and `nothing` when no heavy gate ran either (gate:js and the job-costs steps run on every pass). None: a run line without a plan block, or a pass that is no letter batch and ran run_build whose lines name no replay scope, because it stopped before the replay or predates the token.
     """
     current = _alphabet_digest(run.get("alphabet"))
     if current is not None and _alphabet_digest(previous) not in (None, current):
@@ -374,7 +352,6 @@ def write_class(run: Mapping, steps: Iterable[Mapping], previous: Mapping | None
     plan = run.get("plan")
     if not isinstance(plan, Mapping):
         return None
-    plan = {PLAN_FIELD_ALIASES.get(key, key): value for key, value in plan.items()}
     if plan.get("rerun_gates_only") is True:
         return "gates-only"
     if plan.get("rerun_kern_only") is True:
@@ -383,8 +360,6 @@ def write_class(run: Mapping, steps: Iterable[Mapping], previous: Mapping | None
         return None
     if plan.get("skip_corpus") is False or plan.get("promote_corpus") or plan.get("refresh_assets") is True:
         return "corpus-only"
-    if "verdict-update" in names:
-        return "verdict-only"
     if names & HEAVY_GATE_STEPS:
         return "tests-only"
     return "nothing"
@@ -701,7 +676,7 @@ class CycleTimings:
 
 
 def load_journal(path: Path) -> tuple[dict[str, dict], dict[str, list[dict]], list[str]]:
-    """Return the run lines by run id, the step lines by run id, and the run ids in first-seen order. Only "run" and "step" lines are read. Check lines are skipped even when they name a run, because a check is not a subprocess, its seconds may duplicate a step line's, and it must not create a run entry; `load_checks` reads them. Malformed lines are skipped, because concurrent writers can leave a torn line and one bad line must not make the history unreadable. A step line whose name is a key of `STEP_NAME_ALIASES`, the name older lines give a step, is read under the step's current name, so `--by-step` and `calibrate_budgets` count its history as one step."""
+    """Return the run lines by run id, the step lines by run id, and the run ids in first-seen order. Only "run" and "step" lines are read. Check lines are skipped even when they name a run, because a check is not a subprocess, its seconds may duplicate a step line's, and it must not create a run entry; `load_checks` reads them. Malformed lines are skipped, because concurrent writers can leave a torn line and one bad line must not make the history unreadable."""
     runs: dict[str, dict] = {}
     steps: dict[str, list[dict]] = {}
     order: list[str] = []
@@ -726,9 +701,6 @@ def load_journal(path: Path) -> tuple[dict[str, dict], dict[str, list[dict]], li
         if entry.get("kind") == "run":
             runs[run_id] = entry
         else:
-            name = entry.get("name")
-            if isinstance(name, str) and name in STEP_NAME_ALIASES:
-                entry["name"] = STEP_NAME_ALIASES[name]
             steps[run_id].append(entry)
     return runs, steps, order
 
@@ -752,7 +724,7 @@ def load_runs(path: Path) -> list[dict]:
 
 
 def load_checks(path: Path) -> list[dict]:
-    """Return every kind:"check" line in the journal in file order, with or without a run. Malformed lines are skipped, and a missing journal reads as no checks. A line whose check is a key of `CHECK_NAME_ALIASES`, the name older lines give a check, is read under the check's current name."""
+    """Return every kind:"check" line in the journal in file order, with or without a run. Malformed lines are skipped, and a missing journal reads as no checks."""
     records: list[dict] = []
     if not path.exists():
         return records
@@ -765,15 +737,12 @@ def load_checks(path: Path) -> list[dict]:
         except ValueError:
             continue
         if isinstance(entry, dict) and entry.get("kind") == "check":
-            check = entry.get("check")
-            if isinstance(check, str) and check in CHECK_NAME_ALIASES:
-                entry["check"] = CHECK_NAME_ALIASES[check]
             records.append(entry)
     return records
 
 
 def load_pool_records(path: Path) -> list[dict]:
-    """Return every kind:"pool" line in the journal in file order. Pool lines carry no run id, so `load_journal` does not read them. Malformed lines are skipped, because concurrent writers can leave a torn line, and a missing journal reads as no records. A line whose unit is a key of `POOL_UNIT_ALIASES`, the name older lines give a pool, is read under the pool's current name, so `calibrate_budgets` counts its history as one pool."""
+    """Return every kind:"pool" line in the journal in file order. Pool lines carry no run id, so `load_journal` does not read them. Malformed lines are skipped, because concurrent writers can leave a torn line, and a missing journal reads as no records."""
     records: list[dict] = []
     if not path.exists():
         return records
@@ -786,9 +755,6 @@ def load_pool_records(path: Path) -> list[dict]:
         except ValueError:
             continue
         if isinstance(entry, dict) and entry.get("kind") == "pool":
-            unit = entry.get("unit")
-            if isinstance(unit, str) and unit in POOL_UNIT_ALIASES:
-                entry["unit"] = POOL_UNIT_ALIASES[unit]
             records.append(entry)
     return records
 
@@ -947,7 +913,7 @@ def render_by_outcome(checks: list[dict]) -> list[str]:
         name = str(entry.get("check", "?"))
         tally = counts.setdefault(name, {"green": 0, "red": 0, "skipped": 0})
         totals[name] = totals.get(name, 0) + 1
-        outcome = entry.get("outcome", entry.get("verdict"))
+        outcome = entry.get("outcome")
         if isinstance(outcome, str) and outcome in tally:
             tally[outcome] += 1
         histogram = histograms.setdefault(name, {})
@@ -1135,15 +1101,11 @@ def readback_readings(path: Path) -> list[dict]:
             continue
         name = entry.get("name")
         check_name = entry.get("check")
-        step = (
-            entry.get("kind") == "step"
-            and isinstance(name, str)
-            and STEP_NAME_ALIASES.get(name, name) == "build"
-        )
+        step = entry.get("kind") == "step" and isinstance(name, str) and name == "build"
         check = (
             entry.get("kind") == "check"
             and isinstance(check_name, str)
-            and CHECK_NAME_ALIASES.get(check_name, check_name) == "build"
+            and check_name == "build"
             and entry.get("run") is None
         )
         if not (step or check):
@@ -1271,7 +1233,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--writes",
         action="store_true",
-        help="aggregate the metered run lines by host and write class (letter-batch, full-replay, narrowed, gates-only, corpus-only, verdict-only, nothing): runs, median, largest and latest bytes written, the class's write ceiling and how many runs went over it; run lines from before the write meter, and those whose figure is the device's machine-wide one, are left out",
+        help="aggregate the metered run lines by host and write class (letter-batch, full-replay, narrowed, gates-only, corpus-only, tests-only, nothing): runs, median, largest and latest bytes written, the class's write ceiling and how many runs went over it; run lines from before the write meter, and those whose figure is the device's machine-wide one, are left out",
     )
     args = parser.parse_args(argv)
     runs, steps, order = load_journal(args.journal)

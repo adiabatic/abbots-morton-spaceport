@@ -143,7 +143,7 @@ The store, `verdicts-autosave.json`, is a document of the same format with one m
 
 ### 5.1 Python (`engine/test_review_*.py` and their neighbors, in the contracts lane of `make test-engine`)
 
-No review test reads the live corpus. Every example window comes from the frozen mini bundle under `engine/review/fixtures/mini/` (the `mini_bundle` fixture in `engine/conftest.py`), and the table diffs the tests build are over the pipeline's mini fixture spec (`engine/test_review_diff_units.py`). What the build can check per unit, it checks during the build (`check_unit` and the cross-unit checks in `build.py`), so no test re-checks shipped shards. Each test module's docstring says what it covers and which build-time check covers the rest.
+No review test reads the live corpus. Every example window is shaped in the frozen mini bundle's font under `engine/review/fixtures/mini/`, and the table diffs the tests build are over the pipeline's mini fixture spec (`engine/test_review_diff_units.py`). What the build can check per unit, it checks during the build (`check_unit` and the cross-unit checks in `build.py`), so no test re-checks shipped shards. Each test module's docstring says what it covers and which build-time check covers the rest.
 
 ### 5.2 JavaScript
 

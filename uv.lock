@@ -10,6 +10,7 @@ dependencies = [
     { name = "fonttools" },
     { name = "jsonschema" },
     { name = "pyyaml" },
+    { name = "uharfbuzz" },
 ]
 
 [package.dev-dependencies]
@@ -21,7 +22,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-xdist" },
     { name = "ruamel-yaml" },
-    { name = "uharfbuzz" },
+    { name = "tornado" },
 ]
 
 [package.metadata]
@@ -29,6 +30,7 @@ requires-dist = [
     { name = "fonttools", specifier = ">=4.61.1" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "uharfbuzz", specifier = ">=0.43.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -40,7 +42,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-xdist", specifier = ">=3.6.1" },
     { name = "ruamel-yaml", specifier = ">=0.18.0" },
-    { name = "uharfbuzz", specifier = ">=0.43.0" },
+    { name = "tornado", specifier = ">=6.5" },
 ]
 
 [[package]]

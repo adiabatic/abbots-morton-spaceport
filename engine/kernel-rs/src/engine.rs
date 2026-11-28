@@ -15,7 +15,7 @@ use std::num::NonZeroU16;
 use std::rc::Rc;
 
 use crate::error::SettleError;
-use crate::hash::{Eviction, HashMap, HashSet, ShardCeiling, ShardedMap};
+use crate::hash::{HashMap, HashSet, ShardCeiling, ShardedMap};
 use crate::index::{Ordinal, Read, SpecIndex, StanceId};
 use crate::memo::{
     MemoSnapshot, SharedMemo, SnapshotEntries, SnapshotPacking, SnapshotVerdicts, StoreReader,
@@ -281,50 +281,28 @@ impl MemoCeilings {
     }
 }
 
-/// The ceiling on an engine's trace memo: the buckets its sixteen shards' tables may reach together, a power of two that gives each shard at least eight ([`ShardCeiling::accepts`]); the entries they may hold together, what those buckets hold unless [`TraceCeiling::holding`] lowers it; how a shard at that ceiling makes room ([`Eviction`]); and whether the memo leaves out the windows with a concrete third slot and a known fourth ([`TraceKey::concrete_deep_slots`]). A shard keeps the windows whose first slot alone is known ([`TraceKey::first_slot_only`]) through every eviction while they fill less than half its table. The memo stays a pure cache: a window it forgot or never stored is settled again, firing the pointers and journaling the delta it fired the first time, so no trace, fired set or table changes, and the cost is the second settlement.
+/// The ceiling on an engine's trace memo: the buckets its sixteen shards' tables may reach together, a power of two that gives each shard at least eight ([`ShardCeiling::accepts`]), at which a shard whose next insert would double its table clears itself first ([`ShardCeiling`]); and whether the memo leaves out the windows with a concrete third slot and a known fourth ([`TraceKey::concrete_deep_slots`]). A shard keeps the windows whose first slot alone is known ([`TraceKey::first_slot_only`]) through every eviction while they fill less than half its table. The memo stays a pure cache: a window it forgot or never stored is settled again, firing the pointers and journaling the delta it fired the first time, so no trace, fired set or table changes, and the cost is the second settlement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TraceCeiling {
     buckets: usize,
-    entries: usize,
-    eviction: Eviction,
     skip_concrete_deep: bool,
 }
 
 impl TraceCeiling {
-    /// A ceiling of `buckets` buckets, made room under by `eviction`, leaving out the windows with concrete deep slots when `skip_concrete_deep` is set, or `None` unless [`ShardCeiling::accepts`] the bucket count.
-    pub const fn new(buckets: usize, eviction: Eviction, skip_concrete_deep: bool) -> Option<Self> {
+    /// A ceiling of `buckets` buckets, leaving out the windows with concrete deep slots when `skip_concrete_deep` is set, or `None` unless [`ShardCeiling::accepts`] the bucket count.
+    pub const fn new(buckets: usize, skip_concrete_deep: bool) -> Option<Self> {
         if !ShardCeiling::accepts(buckets) {
             return None;
         }
         Some(Self {
             buckets,
-            entries: ShardCeiling::entries(buckets),
-            eviction,
             skip_concrete_deep,
         })
-    }
-
-    /// This ceiling held to `entries` entries over all the shards, below what its buckets hold, for a ceiling between two powers of two, or `None` unless [`ShardCeiling::holding`] accepts the count.
-    pub const fn holding(self, entries: usize) -> Option<Self> {
-        if !ShardCeiling::holding(self.buckets, entries) {
-            return None;
-        }
-        Some(Self { entries, ..self })
     }
 
     /// The ceiling in buckets, over all the shards.
     pub const fn buckets(self) -> usize {
         self.buckets
-    }
-
-    /// The ceiling in entries, over all the shards.
-    pub const fn entries(self) -> usize {
-        self.entries
-    }
-
-    /// How a shard at the ceiling makes room.
-    pub const fn eviction(self) -> Eviction {
-        self.eviction
     }
 
     /// Whether the memo leaves out the windows with a concrete third slot and a known fourth.
@@ -1211,18 +1189,11 @@ impl TraceMemo {
     fn within(ceiling: Option<TraceCeiling>) -> Self {
         Self {
             bound: ceiling.map(|ceiling| TraceBound {
-                shards: ShardCeiling::new(ceiling.buckets, ceiling.entries, ceiling.eviction),
+                shards: ShardCeiling::new(ceiling.buckets),
                 skip_concrete_deep: ceiling.skip_concrete_deep,
             }),
             ..Self::default()
         }
-    }
-
-    /// What the entries' tables hold room for: their capacities, each shard's as of its last growth or rehash in a memo held to a ceiling, since a half-drop's tombstones leave `capacity()` short of the table.
-    fn level(&self) -> usize {
-        self.bound
-            .as_ref()
-            .map_or_else(|| self.entries.capacity(), |bound| bound.shards.level())
     }
 
     /// Record one settled window: the trace's settled record and notes stored in the pools, the ranking stored separately when the trace has one, and the ids of the delta and read set the capture journaled. A memo held to a ceiling stores nothing for a window its ceiling leaves out, and returns whether a shard made room for the entry.
@@ -1252,10 +1223,10 @@ impl TraceMemo {
         if let Some(ranking) = &trace.ranking {
             self.rankings.insert(key, ranking.clone());
         }
-        match self.bound.as_mut() {
+        match self.bound.as_ref() {
             Some(bound) => {
                 self.entries
-                    .insert_within(key, entry, &mut bound.shards, TraceKey::first_slot_only)
+                    .insert_within(key, entry, bound.shards, TraceKey::first_slot_only)
             }
             None => {
                 self.entries.insert(key, entry);
@@ -1558,7 +1529,7 @@ impl<'i> Engine<'i> {
         self.candidates_clears
     }
 
-    /// How many times a shard of the trace memo has made room at its ceiling, by a clear or a half-drop.
+    /// How many times a shard of the trace memo has made room at its ceiling, by a clear.
     pub fn trace_memo_evictions(&self) -> u64 {
         self.trace_evictions
     }
@@ -1670,7 +1641,7 @@ impl<'i> Engine<'i> {
             out.push(CacheSize::of(
                 "trace_cache",
                 memo.entries.len(),
-                memo.level(),
+                memo.entries.capacity(),
             ));
             out.push(CacheSize::of(
                 "trace_settled",
@@ -7849,7 +7820,7 @@ mod tests {
         }
     }
 
-    /// A trace ceiling forgets windows without moving one. Under each eviction, a trace-memo engine over the mini spec whose trace memo is held to 2^11 buckets, 112 entries a shard, and one whose memo keeps every window settle the same windows in the same order: first every left, input and first slot of [`ceiling_windows`] with the other three slots unknown, then those windows themselves. Both give every window the same trace, the capped engine's fired delta and read set are the other's wherever its memo still holds the window, and both end with the same fired set. The capped engine makes room and its tables never pass the entries the ceiling holds; it holds none of the windows with a concrete third slot and a known fourth, and still holds every window whose first slot alone is known, a tier that fills less than half of each shard here.
+    /// A trace ceiling forgets windows without moving one. A trace-memo engine over the mini spec whose trace memo is held to 2^11 buckets, 112 entries a shard, and one whose memo keeps every window settle the same windows in the same order: first every left, input and first slot of [`ceiling_windows`] with the other three slots unknown, then those windows themselves. Both give every window the same trace, the capped engine's fired delta and read set are the other's wherever its memo still holds the window, and both end with the same fired set. The capped engine makes room and its tables never pass the entries the ceiling holds; it holds none of the windows with a concrete third slot and a known fourth, and still holds every window whose first slot alone is known, a tier that fills less than half of each shard here.
     #[test]
     fn a_trace_ceiling_forgets_windows_and_moves_none() {
         const TRACE_BUCKETS: usize = 1 << 11;
@@ -7868,74 +7839,66 @@ mod tests {
             }
         }
         windows.extend(deep);
-        for eviction in [Eviction::Clear, Eviction::HalfDrop] {
-            let engine = |trace_ceiling| {
-                Engine::with_modes(
-                    &index,
-                    [ss03],
-                    EngineModes {
-                        trace_memo: true,
-                        explain_ranking: false,
-                        trace_ceiling,
-                        ..EngineModes::default()
-                    },
-                )
-            };
-            let mut capped = engine(Some(
-                TraceCeiling::new(TRACE_BUCKETS, eviction, true).expect("a ceiling"),
-            ));
-            let mut unbounded = engine(None);
-            for (left, token, slots) in &windows {
-                let (token, slots) = (*token, *slots);
-                let window = format!("{eviction:?} {left:?} {token:?} {slots:?}");
-                let ours = capped.transition_trace(left, token, slots);
+        let engine = |trace_ceiling| {
+            Engine::with_modes(
+                &index,
+                [ss03],
+                EngineModes {
+                    trace_memo: true,
+                    explain_ranking: false,
+                    trace_ceiling,
+                    ..EngineModes::default()
+                },
+            )
+        };
+        let mut capped = engine(Some(
+            TraceCeiling::new(TRACE_BUCKETS, true).expect("a ceiling"),
+        ));
+        let mut unbounded = engine(None);
+        for (left, token, slots) in &windows {
+            let (token, slots) = (*token, *slots);
+            let window = format!("{left:?} {token:?} {slots:?}");
+            let ours = capped.transition_trace(left, token, slots);
+            assert_eq!(
+                ours,
+                unbounded.transition_trace(left, token, slots),
+                "{window}"
+            );
+            if ours.is_ok()
+                && let Some(delta) = capped.trace_delta(left, token, slots)
+            {
                 assert_eq!(
-                    ours,
-                    unbounded.transition_trace(left, token, slots),
+                    Some(delta),
+                    unbounded.trace_delta(left, token, slots),
                     "{window}"
                 );
-                if ours.is_ok()
-                    && let Some(delta) = capped.trace_delta(left, token, slots)
-                {
-                    assert_eq!(
-                        Some(delta),
-                        unbounded.trace_delta(left, token, slots),
-                        "{window}"
-                    );
-                    assert_eq!(
-                        capped.trace_reads(left, token, slots),
-                        unbounded.trace_reads(left, token, slots),
-                        "{window}"
-                    );
-                }
-            }
-            assert_eq!(capped.fired(), unbounded.fired(), "{eviction:?}");
-            assert_eq!(unbounded.trace_memo_evictions(), 0);
-            let held = capped.trace_cache.as_ref().expect("a trace memo");
-            let every = unbounded.trace_cache.as_ref().expect("a trace memo");
-            let keys: Vec<TraceKey> = every
-                .entries
-                .clone()
-                .into_shards()
-                .flat_map(|shard| shard.into_keys())
-                .collect();
-            assert!(capped.trace_memo_evictions() > 0, "{eviction:?}");
-            assert!(
-                held.level() <= ShardCeiling::entries(TRACE_BUCKETS),
-                "{eviction:?}"
-            );
-            let pinned = keys.iter().filter(|key| key.first_slot_only());
-            let deep = keys.iter().filter(|key| key.concrete_deep_slots());
-            assert!(pinned.clone().count() > 0 && deep.clone().count() > 0);
-            for key in pinned {
-                assert!(held.entries.contains_key(key), "{eviction:?} kept {key:?}");
-            }
-            for key in deep {
-                assert!(
-                    !held.entries.contains_key(key),
-                    "{eviction:?} left out {key:?}"
+                assert_eq!(
+                    capped.trace_reads(left, token, slots),
+                    unbounded.trace_reads(left, token, slots),
+                    "{window}"
                 );
             }
+        }
+        assert_eq!(capped.fired(), unbounded.fired());
+        assert_eq!(unbounded.trace_memo_evictions(), 0);
+        let held = capped.trace_cache.as_ref().expect("a trace memo");
+        let every = unbounded.trace_cache.as_ref().expect("a trace memo");
+        let keys: Vec<TraceKey> = every
+            .entries
+            .clone()
+            .into_shards()
+            .flat_map(|shard| shard.into_keys())
+            .collect();
+        assert!(capped.trace_memo_evictions() > 0);
+        assert!(held.entries.capacity() <= ShardCeiling::entries(TRACE_BUCKETS));
+        let pinned = keys.iter().filter(|key| key.first_slot_only());
+        let deep = keys.iter().filter(|key| key.concrete_deep_slots());
+        assert!(pinned.clone().count() > 0 && deep.clone().count() > 0);
+        for key in pinned {
+            assert!(held.entries.contains_key(key), "kept {key:?}");
+        }
+        for key in deep {
+            assert!(!held.entries.contains_key(key), "left out {key:?}");
         }
     }
 
@@ -10169,7 +10132,7 @@ mod tests {
             .into_iter()
             .filter(|(key, _)| *key != ranked_key)
             .collect();
-        memo.entries = SnapshotEntries::pack(kept, SnapshotPacking::for_test(1, 1, true, 64))
+        memo.entries = SnapshotEntries::pack(kept, SnapshotPacking::for_test(1, true, 64))
             .expect("the records pack");
         let mut engine = Engine::with_modes(&index, no_features(), modes);
         engine.attach_shared_memos(

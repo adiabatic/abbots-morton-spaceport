@@ -167,7 +167,6 @@ const REJECT_MENU_CHOICES = [
 ];
 const NEITHER_MENU_CHOICES = [
   { action: 'neither-no-comment', key: 'c', label: 'no comment', note: null },
-  { action: 'neither-ss10', key: 'd', label: 'Under ss10 these must be fully isolated; old font joins them, new font ligates them — both wrong', note: 'Under ss10 these must be fully isolated; old font joins them, new font ligates them — both wrong' },
   { action: 'neither-comment', key: 'x', label: 'write a comment', note: null },
 ];
 

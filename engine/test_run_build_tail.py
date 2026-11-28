@@ -1134,7 +1134,6 @@ class TestTheTailWidth:
             families,
             threads,
             timings=False,
-            memo_dir=None,
             on_peak=None,
         ):
             widths.append(threads)

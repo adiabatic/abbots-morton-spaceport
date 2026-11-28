@@ -12,12 +12,12 @@ A small hand-written table-diff corpus that the Python contract tests and the re
 
 ## `mini/` — the frozen mini bundle
 
-A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `engine/out/`. The module docstring of `mini/regenerate.py` says what the bundle holds, why it is regenerated whole, and how `pin.json` pins the spec its font was built from. The docstrings in `mini/pin.py` say how `materialize` writes that spec out of git and how `_preserve_authored_outgoing` adapts a pinned schema to the current loader.
+A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `engine/out/`. The module docstring of `mini/regenerate.py` says what the bundle holds and what it checks before it freezes the live build's font.
 
-Every test that needs real build output reads the bundle instead of the live `engine/out/`, so it runs at full xdist width. The readers are tests that need a real font, or a font and a spec that match each other. Each one reaches the bundle through the `mini_bundle` fixture in `engine/conftest.py` or through its own path to `engine/review/fixtures/mini/`, so this search lists every test module that reads it:
+Every test that needs a real font reads the bundle's instead of the live `engine/out/`, so it runs at full xdist width. Each one reaches the bundle through its own path to `engine/review/fixtures/mini/`, so this search lists every test module that reads it:
 
 ```zsh
-git grep -l -E '/ "mini"|fixtures/mini|mini_bundle' -- 'engine/test_*.py'
+git grep -l -E '/ "mini"|fixtures/mini' -- 'engine/test_*.py' 'engine/review/jstests/*.test.js'
 ```
 
 After a fresh `run_build`, regenerate the whole bundle with:

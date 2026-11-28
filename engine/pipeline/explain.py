@@ -2,7 +2,7 @@
 
 Usage: uv run python -m engine.pipeline.explain E665:E670:E665 --features ss03
 
-Sequence positions are separated by colons. Each is a hex codepoint (E665, 0xE665, U+E665), a qs-name (qsMay), or a boundary token name (`space`, `zwnj`, `namer-dot`), in any mix. The CLI loads the rune files through spec_load, and if loading raises it prints a notice and uses the hand-built fixtures spec.
+Sequence positions are separated by colons. Each is a hex codepoint (E665, 0xE665, U+E665), a qs-name (qsMay), or a boundary token name (`space`, `zwnj`, `namer-dot`), in any mix. The CLI loads the rune files through spec_load.
 
 `kernel_exec.settle_sequences` does the settling. This module tokenizes, forms the ligatures against the crate's formation guard, and renders the returned traces. `explain_many` takes a batch because the review corpus explains thousands of units, and `settle_sequences` batches them into few kernel processes.
 """
@@ -191,24 +191,15 @@ def parse_sequence(spec: ResolvedSpec, text: str) -> list[int]:
     return codepoints
 
 
-def _load_spec() -> tuple[ResolvedSpec, str | None]:
-    try:
-        from pathlib import Path
+def _load_spec() -> ResolvedSpec:
+    from pathlib import Path
 
-        from engine.pipeline import spec_load  # noqa: PLC0415
+    from engine.pipeline import spec_load  # noqa: PLC0415
 
-        repo = Path(__file__).resolve().parents[2]
-        spec = spec_load.load_spec(
-            repo / "glyph_data" / "runes", repo / "glyph_data" / "script.yaml", repo / "engine" / "schema"
-        )
-        return spec, None
-    except Exception as error:  # noqa: BLE001 — the fixtures fallback is deliberate
-        from engine.pipeline import fixtures
-
-        return (
-            fixtures.mini_spec(),
-            f"spec_load unavailable ({type(error).__name__}: {error}); using the hand-built fixtures spec",
-        )
+    repo = Path(__file__).resolve().parents[2]
+    return spec_load.load_spec(
+        repo / "glyph_data" / "runes", repo / "glyph_data" / "script.yaml", repo / "engine" / "schema"
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -227,9 +218,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
     features = frozenset(tag for chunk in args.features for tag in chunk.split(",") if tag)
-    spec, notice = _load_spec()
-    if notice:
-        print(f"note: {notice}")
+    spec = _load_spec()
     report = explain(spec, parse_sequence(spec, args.sequence), features)
     print(report.render())
 

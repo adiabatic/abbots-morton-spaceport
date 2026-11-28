@@ -10,7 +10,7 @@ The autouse fixture `_redirect_cycle_writes` points every cycle write under `tmp
 
 This file imports only leaf modules, and must keep doing so; `engine.tools.cycle_paths` says why. The redirect therefore patches that module, the leaf the cycle driver (`engine.tools.artifact_cycle`) reads its paths from at call time. The recorder's helpers come from `engine.tools.closure_record` and not from `contracts_closure`, which imports the driver. The fixtures below load review-tree modules through `announced_import`, which imports the module at fixture setup and adds it to the closure of every test that requests the fixture. `engine/test_contracts_closure.py` checks both conftests' direct imports.
 
-Tests about the review corpus's code read the frozen mini bundle under `engine/review/fixtures/mini/`, never today's corpus. Besides allowing full width, this means an example window that no longer shows the property it was chosen for fails the bundle's regeneration, which names the window, instead of failing a test after a later rune edit. The bundle's spec and corpus are built once a run, under the run's base temporary directory, and every xdist worker reads that one copy (`build_once`).
+Tests that need a real font read the frozen mini bundle under `engine/review/fixtures/mini/`, a copy of one build's font, never today's corpus or build, which also lets them run at full width.
 """
 
 import functools
@@ -561,21 +561,3 @@ def _build_once(
 def build_once(tmp_path_factory, pytestconfig) -> Callable[[str, Callable[[Path], object]], Path]:
     """Return `_build_once` bound to the run's temp-path factory and config, so a fixture calls `build_once(name, build)`. A test module requests this fixture instead of importing the function: pytest loads this file as the module `conftest`, so `import engine.conftest` executes a second copy whose audit guard pytest never configured, and a build through that copy would record an empty closure and replay none. `_build_once` refuses to run in such a copy."""
     return functools.partial(_build_once, tmp_path_factory, pytestconfig)
-
-
-@dataclass(frozen=True)
-class MiniBundle:
-    """The spec root materialized from the frozen mini bundle's pin."""
-
-    spec_root: Path
-
-
-@pytest.fixture(scope="session")
-def mini_bundle(build_once) -> MiniBundle:
-    """Materialize the spec the mini bundle's font was built from, once a run (`build_once`). The spec comes out of git from the tree and blob shas `engine/review/fixtures/mini/pin.json` records, so a test reads the spec the frozen font was built from, whatever the working tree's runes say.
-
-    The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs.
-    """
-    pin = announced_import("engine.review.fixtures.mini.pin")
-    spec_root = build_once("mini-spec", pin.materialize)
-    return MiniBundle(spec_root=spec_root)

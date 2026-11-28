@@ -12,7 +12,7 @@ Start here:
 - `cycle_timings.py` (`make cycle-timings`): summarizes the recorded step timings and check results
 - `calibrate_budgets.py` (`make job-costs`): checks the checked-in per-worker memory peaks against the peaks recorded in the timings journal
 - `deep_sweep.py` (`make conform-deep`): gate:conform run to a longer maximum length on demand
-- `memory_series.py` (`make memory-series`): measures what the table build, the string replay or the settle-memo absorbs hold and write at each of several alphabet cuts, one build at a time, into `engine/memory-series.txt`
+- `memory_series.py` (`make memory-series`): measures what the table build or the string replay holds and writes at each of several alphabet cuts, one build at a time, into `engine/memory-series.txt`
 - `build_fonts.py` (`make all`): publishes the six fonts into `site/`, Mono and Junior built from the runes and Senior copied from the build under `engine/out/build/`, which `--build` runs first when it is stale; the font suite's session runs it without `--build` before it checks the fonts
 - `release_fonts.py` (`make draft-release`): uploads the six fonts in `site/` and their manifest to a draft GitHub release, which a push of the release tag publishes (HACKING.md § Cutting a release); its `verify` subcommand is the release workflow's check of the fonts it downloads, and its `--rehearse` form uploads them to a rehearsal draft instead, which the workflow's rehearsal runs on without deploying or publishing (HACKING.md § Rehearsing the release path)
 - `fault_kit.py`: re-injects the fault kit's rows (`engine/perf/faults.yaml`) into its own tree, `var/perf/kit/`, each on its own small alphabet, and checks that their gates still catch them (`doc/perf-check.md`)

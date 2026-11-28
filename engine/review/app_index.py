@@ -18,7 +18,7 @@ import io
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import BinaryIO
 
 from engine.review import shards
 from engine.review.audit import MACHINE_CHECKS
@@ -285,35 +285,3 @@ def artifact_is_current(corpus: Path, name: str, fmt: str) -> bool:
 def outputs_not_current(corpus: Path) -> list[str]:
     """Name each sidecar a finished build leaves beside its manifest that is missing or does not describe it (`artifact_is_current`). The manifest does not name them and the build writes them after it, last, so a corpus is one a build finished only when this is empty. This is the one check of a finished corpus: the cycle's corpus skip and its promotion of a staged corpus, `make verdict-ready`'s freshness row and the land's refusal of an unfinished corpus all read it."""
     return [name for name, fmt in ARTIFACTS if not artifact_is_current(Path(corpus), name, fmt)]
-
-
-def load_rows(corpus: Path, name: str) -> list[dict[str, Any]] | None:
-    """Every line after the header of one sidecar (the app index's rows, or the locator's block table), or None if it is missing or unreadable. This is for tests and tools that want the whole list; the app reads the index line by line."""
-    path = artifact_path(corpus, name)
-    if not path.is_file():
-        return None
-    try:
-        with gzip.open(path, "rt", encoding="utf-8") as stream:
-            next(stream)
-            return [json.loads(line) for line in stream]
-    except OSError, EOFError, ValueError, StopIteration:
-        return None
-
-
-def load_locator_rows(corpus: Path) -> list[dict[str, Any]] | None:
-    """Every row of the locator's rows file in file order, or None if it is missing or unreadable. `gzip` reads the members back to back as one stream; the app instead fetches one member at a time by the table's spans."""
-    path = artifact_path(corpus, LOCATOR_ROWS_NAME)
-    if not path.is_file():
-        return None
-    try:
-        with gzip.open(path, "rt", encoding="utf-8") as stream:
-            return [json.loads(line) for line in stream]
-    except OSError, EOFError, ValueError:
-        return None
-
-
-def locator_block_bytes(corpus: Path, block: Mapping[str, Any]) -> bytes:
-    """The bytes of one block as the app's Range request reads them: that slice of the rows file."""
-    with open(artifact_path(corpus, LOCATOR_ROWS_NAME), "rb") as rows:
-        rows.seek(block["byte_start"])
-        return rows.read(block["byte_length"])

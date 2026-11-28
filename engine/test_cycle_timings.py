@@ -486,7 +486,6 @@ def _phases(*lines):
         ({"rerun_gates_only": True}, _phases("[t] defect_gates 0.1s"), "gates-only"),
         ({"skip_run_build": True, "skip_corpus": False}, [], "corpus-only"),
         ({"skip_run_build": True, "skip_corpus": True, "refresh_assets": True}, [], "corpus-only"),
-        ({"skip_run_build": True, "skip_corpus": True}, [{"name": "verdict-update"}], "verdict-only"),
         ({"skip_run_build": True, "skip_corpus": True}, [{"name": "gate:js"}], "nothing"),
         (
             {"skip_run_build": True, "skip_corpus": True},
@@ -929,92 +928,6 @@ def test_load_journal_tolerates_junk_and_orphan_steps(tmp_path):
     assert set(runs) == {"r2"}
     assert [step["name"] for step in steps["r1"]] == ["a", "b"]
     assert steps["r2"] == []
-
-
-def test_load_journal_reads_a_plumbing_step_as_the_verdict_update(tmp_path):
-    """Older lines name the verdict-update step `plumbing`; `--by-step` counts them with the `verdict-update` lines as one step."""
-    path = tmp_path / "j.ndjson"
-    path.write_text(
-        "\n".join(
-            [
-                json.dumps({"kind": "step", "run": "r1", "name": "plumbing", "host": "h", "elapsed_s": 1.0}),
-                json.dumps(
-                    {"kind": "step", "run": "r2", "name": "verdict-update", "host": "h", "elapsed_s": 3.0}
-                ),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    _, steps, order = ct.load_journal(path)
-    assert [step["name"] for run in order for step in steps[run]] == ["verdict-update", "verdict-update"]
-    rows = [line for line in ct.render_by_step(steps, order, []) if line.startswith("verdict-update")]
-    assert len(rows) == 1 and rows[0].split()[2] == "2"
-
-
-def test_the_journal_reads_the_older_build_and_suite_names_under_the_current_ones(tmp_path):
-    """Older lines name the build step `run_m1` (and its reruns `run_m1:gates-only` and `run_m1:kern-only`), the engine suite's step `gate:rebuild-contracts`, the build's check `run_m1`, the suite's check and pool `rebuild-contracts`, the build's own pool `run-m1-parent`, and the plan field `skip_run_m1`. The loaders and `write_class` read each under its current name, so `--by-step`, `--writes` and `make job-costs` count a step's, a check's or a pool's history as one."""
-    path = tmp_path / "j.ndjson"
-    entries = [
-        {"kind": "step", "run": "r1", "name": "run_m1", "host": "h", "elapsed_s": 1.0},
-        {"kind": "step", "run": "r1", "name": "run_m1:gates-only", "host": "h", "elapsed_s": 1.0},
-        {"kind": "step", "run": "r1", "name": "run_m1:kern-only", "host": "h", "elapsed_s": 1.0},
-        {"kind": "step", "run": "r1", "name": "gate:rebuild-contracts", "host": "h", "elapsed_s": 1.0},
-        {"kind": "check", "check": "run_m1", "host": "h", "outcome": "green"},
-        {"kind": "check", "check": "rebuild-contracts", "host": "h", "outcome": "green"},
-        {"kind": "pool", "unit": "run-m1-parent", "host": "h"},
-        {"kind": "pool", "unit": "rebuild-contracts", "host": "h"},
-    ]
-    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8")
-    _, steps, _ = ct.load_journal(path)
-    assert [step["name"] for step in steps["r1"]] == [
-        "build",
-        "build:gates-only",
-        "build:kern-only",
-        "gate:engine-contracts",
-    ]
-    assert [check["check"] for check in ct.load_checks(path)] == ["build", "engine-contracts"]
-    assert [pool["unit"] for pool in ct.load_pool_records(path)] == ["build-parent", "engine-contracts"]
-    assert ct.write_class({"plan": {"skip_run_m1": True, "skip_corpus": True}}, []) == "nothing"
-
-
-def test_load_journal_reads_a_census_step_as_the_review_facts(tmp_path):
-    """Older lines name the review-facts step `census`; `--by-step` counts them with the older `review-facts` lines as one step."""
-    path = tmp_path / "j.ndjson"
-    path.write_text(
-        "\n".join(
-            [
-                json.dumps({"kind": "step", "run": "r1", "name": "census", "host": "h", "elapsed_s": 1.0}),
-                json.dumps(
-                    {"kind": "step", "run": "r2", "name": "review-facts", "host": "h", "elapsed_s": 3.0}
-                ),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    _, steps, order = ct.load_journal(path)
-    assert [step["name"] for run in order for step in steps[run]] == ["review-facts", "review-facts"]
-
-
-def test_load_journal_reads_the_echo_steps_as_the_duplicate_steps(tmp_path):
-    """Older lines name the duplicate fill and merge steps `echo-fill` and `echo-merge`; `--by-step` counts them with the `duplicate-fill` and `duplicate-merge` lines."""
-    path = tmp_path / "j.ndjson"
-    path.write_text(
-        "\n".join(
-            json.dumps({"kind": "step", "run": run, "name": name, "host": "h", "elapsed_s": 1.0})
-            for run, name in (
-                ("r1", "echo-fill"),
-                ("r1", "echo-merge"),
-                ("r2", "duplicate-fill"),
-                ("r2", "duplicate-merge"),
-            )
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    _, steps, order = ct.load_journal(path)
-    assert [step["name"] for run in order for step in steps[run]] == ["duplicate-fill", "duplicate-merge"] * 2
 
 
 def test_main_reports_a_missing_journal(tmp_path, capsys):
@@ -1497,19 +1410,6 @@ def test_main_by_outcome_reads_check_lines_only(tmp_path, capsys):
     assert "gate:conform" not in out
 
 
-def test_main_by_outcome_counts_a_check_line_that_carries_the_older_verdict_key(tmp_path, capsys):
-    path = tmp_path / "j.ndjson"
-    _write_journal(
-        path,
-        [
-            {"kind": "check", "host": "h1", "check": "make-test", "verdict": "red"},
-            {"kind": "check", "host": "h1", "check": "make-test", "outcome": "green"},
-        ],
-    )
-    assert ct.main(["--journal", str(path), "--by-outcome"]) == 0
-    assert re.search(r"^make-test\s+2\s+1\s+1\s+0$", capsys.readouterr().out, re.MULTILINE)
-
-
 def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_policy_and_shape(
     tmp_path, capsys
 ):
@@ -1559,7 +1459,7 @@ def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_
             "queue",
             151,
             "absent",
-            [("corpus-build", 0, 120), ("verdict-update", 120, 150), ("gate:js", 0, 40)],
+            [("corpus-build", 0, 120), ("land", 120, 150), ("gate:js", 0, 40)],
         ),
     ]
     path = tmp_path / "j.ndjson"
@@ -1600,7 +1500,7 @@ def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_
             "gate:make-test",
             "1",
         ],
-        ["h1", "queue", "corpus-build", "1", "110.0s", "151.0s", "unrecorded", "verdict-update", "1"],
+        ["h1", "queue", "corpus-build", "1", "110.0s", "151.0s", "unrecorded", "land", "1"],
     ]
 
 
@@ -1634,7 +1534,7 @@ def test_critical_path_ranks_overlapping_build_lane_steps_by_their_ends(tmp_path
             },
         ]
 
-    overlapping = [("corpus-build", 0, 300), ("verdict-update", 270, 290), ("gate:engine-contracts", 0, 250)]
+    overlapping = [("corpus-build", 0, 300), ("assets-refresh", 270, 290), ("gate:engine-contracts", 0, 250)]
     path = tmp_path / "j.ndjson"
     _write_journal(path, [*run("staged", overlapping), *run("landed", [*overlapping, ("land", 300, 303)])])
     runs, steps, _ = ct.load_journal(path)

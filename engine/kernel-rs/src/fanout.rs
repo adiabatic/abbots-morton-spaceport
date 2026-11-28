@@ -977,7 +977,7 @@ pub struct ReplayAnswer {
     pub timed: Vec<String>,
 }
 
-/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two engine mode flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo`, each passing walk writes its window memo where it says ([`MemoPath`], [`replay::Replay::write_window_memo`]), for `run_build` a pipe its absorb worker reads; a reader that closes it early leaves the walk's answer standing. A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the `replay-strings` CLI rejects `--memo-dir` and `--memo-file` with `--memo-windows`, so no command line can request that.
+/// Replays every configuration's persisted rules over `text_set`, at most `workers` at a time. Each configuration reads `<outdir>/settlement-<config>.tsv` back, walks the text set, and checks the rules' first-match result against the engine's own settlement, window by window. The engine gets the enumeration's two engine mode flags but not `deep_classes`, since a replay settles single windows, which have no grain. With a `memo` path, which the `replay-strings` CLI names only for a run of one configuration (`--memo-file=`), the passing walk writes its window memo there ([`replay::Replay::write_window_memo`]). The path may be `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.replay_memo_walk` hands one for `run_build`'s absorb worker to read; a reader that closes it early leaves the walk's answer standing. A walk that fails writes nothing. A walk that released its memo under the text set's ceiling fails instead of writing, and the CLI rejects `--memo-file` with `--memo-windows`, so no command line can request that.
 #[allow(clippy::too_many_arguments)]
 pub fn run_configs_replay(
     index: &SpecIndex,
@@ -987,33 +987,12 @@ pub fn run_configs_replay(
     text_set: replay::TextSet<'_>,
     workers: usize,
     report: Report,
-    memo: Option<MemoPath<'_>>,
+    memo: Option<&Path>,
 ) -> Result<Vec<ReplayAnswer>, String> {
     claim_all(configs, workers, |config| {
         run_config_replay(index, config, modes, outdir, text_set, report, memo)
             .map_err(|error| format!("{}: {error}", config.token))
     })
-}
-
-/// Where one configuration's window memo is written under `memo_dir`. `kernel_exec.replay_memo_dump` builds the same path.
-pub fn replay_memo_path(memo_dir: &Path, token: &str) -> PathBuf {
-    memo_dir.join(format!("replay-windows-{token}.bin"))
-}
-
-/// Where a replay's walks write their window memos: each configuration's under a directory (`--memo-dir=`, [`replay_memo_path`]), or the one configuration's at a path the caller named (`--memo-file=`), which may be `/dev/fd/N`, a pipe the process inherits, as `kernel_exec.replay_memo_walk` hands one.
-#[derive(Clone, Copy, Debug)]
-pub enum MemoPath<'a> {
-    Under(&'a Path),
-    At(&'a Path),
-}
-
-impl MemoPath<'_> {
-    fn of(self, token: &str) -> PathBuf {
-        match self {
-            MemoPath::Under(memo_dir) => replay_memo_path(memo_dir, token),
-            MemoPath::At(path) => path.to_path_buf(),
-        }
-    }
 }
 
 /// Replays one configuration: reads its rules back and walks its text set, a unit a last symbol unless the text set names one ([`replay::Replay::walk_texts`]). When asked, it returns the cache stats' `[c]` lines and a `replay[<config>]` timing line. With a `memo`, the walk files every window it settles in its row store ([`replay::Replay::keep_rows`]) and then writes the window memo from it, timed as `replay_memo[<config>]`; a reader that closes the memo before its end stops the write and not the walk. The walk's clock stops before the cache stats are taken, so the end-of-walk resident-size sample is not counted in the walk's time; the samples a walk with cache stats takes at each unit release and each release under the text set's ceiling are.
@@ -1024,7 +1003,7 @@ pub fn run_config_replay(
     outdir: &Path,
     text_set: replay::TextSet<'_>,
     report: Report,
-    memo: Option<MemoPath<'_>>,
+    memo: Option<&Path>,
 ) -> Result<ReplayAnswer, String> {
     let token = config.token;
     let started = Instant::now();
@@ -1053,7 +1032,7 @@ pub fn run_config_replay(
     }
     if let Some(memo) = memo {
         let started = Instant::now();
-        walk.write_window_memo(&memo.of(token), token, text_set.max_length)?;
+        walk.write_window_memo(memo, token, text_set.max_length)?;
         if report.timings {
             timed.push(timing_line(
                 &format!("replay_memo[{token}]"),

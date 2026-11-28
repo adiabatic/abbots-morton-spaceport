@@ -23,11 +23,10 @@ use crate::types::{AdjustmentToken, PackedKinds, Settled, TransitionTrace};
 /// How many decoded blocks a reading engine's cache holds for each shared memo unless the caller sets another: 455 blocks of [`SnapshotPacking::BLOCK_RECORDS`] thirty-six-byte records, 8.4 MB. `build-tables` takes `--snapshot-cache-blocks=` to set another, zero for no cache. The tables are the same bytes at any size.
 pub const SNAPSHOT_CACHE_BLOCKS: usize = 455;
 
-/// How a snapshot's records are packed at the release ([`SnapshotEntries`]): [`SnapshotPacking::BLOCK_RECORDS`] records a block, a whole record every `restart_records` of them inside a block, and whether a filter is built over the keys. The default is a block's first record alone whole, with the filter. `build-tables` takes `--snapshot-restart-records=` and `--no-snapshot-filter` to set others. The tables are the same bytes under any packing.
+/// How a snapshot's records are packed at the release ([`SnapshotEntries`]): [`SnapshotPacking::BLOCK_RECORDS`] records a block, and whether a filter is built over the keys. The default builds the filter; `build-tables` takes `--no-snapshot-filter` to build none. The tables are the same bytes either way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SnapshotPacking {
     block_records: usize,
-    restart_records: usize,
     filter: bool,
     chunk_bytes: usize,
 }
@@ -38,30 +37,21 @@ impl SnapshotPacking {
     /// The size of the chunks the coded blocks are held in, 16 MiB. macOS's allocator keeps the pages of a freed allocation of 2 MiB or less resident, out of the footprint, until the kernel reclaims them, even with `MallocLargeCache=0` (`kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT`), so smaller chunks would stay in the process's resident size after the snapshot drops, through the rendezvous; a chunk above that size goes back to the system when it is freed.
     const CHUNK_BYTES: usize = 1 << 24;
 
-    /// A packing with a whole record every `restart_records` inside a block, and a filter when `filter` is set, or `None` when `restart_records` does not divide [`SnapshotPacking::BLOCK_RECORDS`].
-    pub fn new(restart_records: usize, filter: bool) -> Option<Self> {
-        (restart_records > 0 && Self::BLOCK_RECORDS % restart_records == 0).then_some(Self {
+    /// A packing with a filter when `filter` is set.
+    pub const fn new(filter: bool) -> Self {
+        Self {
             block_records: Self::BLOCK_RECORDS,
-            restart_records,
             filter,
             chunk_bytes: Self::CHUNK_BYTES,
-        })
+        }
     }
 
     /// A packing of blocks of `block_records` held in chunks of `chunk_bytes`, for a test whose snapshot holds too few records to fill several blocks of the shipped size.
     #[cfg(test)]
-    pub(crate) fn for_test(
-        block_records: usize,
-        restart_records: usize,
-        filter: bool,
-        chunk_bytes: usize,
-    ) -> Self {
-        assert!(
-            block_records <= Self::BLOCK_RECORDS && block_records.is_multiple_of(restart_records)
-        );
+    pub(crate) fn for_test(block_records: usize, filter: bool, chunk_bytes: usize) -> Self {
+        assert!((1..=Self::BLOCK_RECORDS).contains(&block_records));
         Self {
             block_records,
-            restart_records,
             filter,
             chunk_bytes,
         }
@@ -70,20 +60,19 @@ impl SnapshotPacking {
 
 impl Default for SnapshotPacking {
     fn default() -> Self {
-        Self::new(Self::BLOCK_RECORDS, true).expect("a block's length divides itself")
+        Self::new(true)
     }
 }
 
 /// `default`'s finished trace memo as the release packs it ([`SnapshotEntries::release`]): every record sorted by [`TraceKey`]'s derived order and coded in blocks, a fence a block, and a negative filter over the keys.
 ///
-/// A block's first record is whole: the key's nine byte fields in field order (each optional ordinal as its value or zero, the extension as a signed byte), its kinds word, the entry's settled, notes, delta and reads ids as varints, and its packed byte. Each later record is a header byte, whose low four bits count the leading byte fields its key shares with the previous key and whose high four bits flag which of the four ids equal the previous entry's, then the byte fields past the shared ones, the kinds word, the ids not flagged as varints, and the packed byte. A packing with restart points also codes every `restart_records`-th record of a block whole and starts the block with their two-byte offsets. Blocks are held in chunks of [`SnapshotPacking::CHUNK_BYTES`], none straddling two, so the release never holds a doubling buffer beside the records it drains.
+/// A block's first record is whole: the key's nine byte fields in field order (each optional ordinal as its value or zero, the extension as a signed byte), its kinds word, the entry's settled, notes, delta and reads ids as varints, and its packed byte. Each later record is a header byte, whose low four bits count the leading byte fields its key shares with the previous key and whose high four bits flag which of the four ids equal the previous entry's, then the byte fields past the shared ones, the kinds word, the ids not flagged as varints, and the packed byte. Blocks are held in chunks of [`SnapshotPacking::CHUNK_BYTES`], none straddling two, so the release never holds a doubling buffer beside the records it drains.
 ///
-/// A fence is twenty-four bytes: its block's first key and where the block starts. A lookup tests the filter, which answers most absent keys with no decode; binary-searches the fences for the one block that could hold the key; and finds the key in that block as the reader's cache holds it decoded, or, with no cache, decodes the block in place from the nearest whole record at or before the key. The filter is a blocked Bloom filter of ten bits a key, 512-bit blocks and seven probes keyed on [`SnapshotEntries::hash`], `engine/pipeline/row_delta.py`'s shape. The hash never stands in for equality: a key the filter admits is answered only by comparing whole keys.
+/// A fence is twenty-four bytes: its block's first key and where the block starts. A lookup tests the filter, which answers most absent keys with no decode; binary-searches the fences for the one block that could hold the key; and finds the key in that block as the reader's cache holds it decoded, or, with no cache, decodes the block in place from its first record until it reaches the key. The filter is a blocked Bloom filter of ten bits a key, 512-bit blocks and seven probes keyed on [`SnapshotEntries::hash`], `engine/pipeline/row_delta.py`'s shape. The hash never stands in for equality: a key the filter admits is answered only by comparing whole keys.
 #[derive(Debug, Default)]
 pub(crate) struct SnapshotEntries {
     records: usize,
     block_records: usize,
-    restart_records: usize,
     fences: Box<[Fence]>,
     chunks: Vec<Vec<u8>>,
     filter: Box<[FilterBlock]>,
@@ -166,7 +155,6 @@ impl SnapshotEntries {
         let mut last: Option<&TraceKey> = None;
         for held in records.chunks(packing.block_records) {
             block.clear();
-            block.resize(2 * ((held.len() - 1) / packing.restart_records), 0);
             let mut previous: Option<([u8; KEY_BYTES], [u32; 4])> = None;
             for (at, (key, entry)) in held.iter().enumerate() {
                 if last == Some(key) {
@@ -187,13 +175,7 @@ impl SnapshotEntries {
                 }
                 let fields = key_bytes(key)?;
                 let ids = entry_ids(entry);
-                if at % packing.restart_records == 0 {
-                    if at > 0 {
-                        let offset = u16::try_from(block.len())
-                            .expect("a block of 512 records codes in fewer than 65,536 bytes");
-                        let slot = 2 * (at / packing.restart_records - 1);
-                        block[slot..slot + 2].copy_from_slice(&offset.to_le_bytes());
-                    }
+                if at == 0 {
                     block.extend_from_slice(&fields);
                     block.extend_from_slice(&key.kinds.word().to_le_bytes());
                     for id in ids {
@@ -254,7 +236,6 @@ impl SnapshotEntries {
         Ok(Self {
             records: count,
             block_records: packing.block_records,
-            restart_records: packing.restart_records,
             fences: fences.into_boxed_slice(),
             chunks,
             filter: filter.into_boxed_slice(),
@@ -318,7 +299,7 @@ impl SnapshotEntries {
         }
     }
 
-    /// Block `block`'s bytes, from its restart offsets on to the end of its chunk.
+    /// Block `block`'s bytes, from its first record on to the end of its chunk.
     fn block_bytes(&self, block: usize) -> &[u8] {
         let at = self.fences[block].at;
         &self.chunks[(at >> Fence::CHUNK_SHIFT) as usize][(at & Fence::OFFSET_MASK) as usize..]
@@ -326,11 +307,9 @@ impl SnapshotEntries {
 
     /// Every record of block `block`, decoded in order and handed to `put`.
     fn decode_block(&self, block: usize, mut put: impl FnMut((TraceKey, TraceEntry))) {
-        let bytes = self.block_bytes(block);
-        let len = self.block_len(block);
-        let mut cursor = Cursor::at(bytes, 2 * ((len - 1) / self.restart_records));
-        for at in 0..len {
-            if at % self.restart_records == 0 {
+        let mut cursor = Cursor::new(self.block_bytes(block));
+        for at in 0..self.block_len(block) {
+            if at == 0 {
                 cursor.whole();
             } else {
                 cursor.next();
@@ -339,36 +318,12 @@ impl SnapshotEntries {
         }
     }
 
-    /// The entry under `key` in block `block`, decoded in place with no cache: the restart points are binary-searched on their whole records' keys, and the records from the last one at or before `key` are decoded until one reaches it.
+    /// The entry under `key` in block `block`, decoded in place with no cache: the records from the block's first on are decoded until one reaches `key`.
     fn find_in_place(&self, block: usize, key: &TraceKey) -> Option<TraceEntry> {
-        let bytes = self.block_bytes(block);
         let len = self.block_len(block);
-        let restarts = (len - 1) / self.restart_records;
-        let start = |restart: usize| {
-            if restart == 0 {
-                2 * restarts
-            } else {
-                usize::from(u16::from_le_bytes([
-                    bytes[2 * restart - 2],
-                    bytes[2 * restart - 1],
-                ]))
-            }
-        };
-        let (mut low, mut high) = (0, restarts);
-        while low < high {
-            let middle = (low + high).div_ceil(2);
-            let mut cursor = Cursor::at(bytes, start(middle));
-            cursor.whole();
-            if cursor.key() <= *key {
-                low = middle;
-            } else {
-                high = middle - 1;
-            }
-        }
-        let mut cursor = Cursor::at(bytes, start(low));
+        let mut cursor = Cursor::new(self.block_bytes(block));
         cursor.whole();
-        let end = ((low + 1) * self.restart_records).min(len);
-        let mut at = low * self.restart_records;
+        let mut at = 0;
         loop {
             match cursor.key().cmp(key) {
                 std::cmp::Ordering::Equal => return Some(cursor.entry()),
@@ -376,7 +331,7 @@ impl SnapshotEntries {
                 std::cmp::Ordering::Less => {}
             }
             at += 1;
-            if at == end {
+            if at == len {
                 return None;
             }
             cursor.next();
@@ -485,11 +440,11 @@ struct Cursor<'a> {
 }
 
 impl<'a> Cursor<'a> {
-    /// A cursor at `at` in `bytes`, before a whole record.
-    fn at(bytes: &'a [u8], at: usize) -> Self {
+    /// A cursor at the start of `bytes`, before a whole record.
+    fn new(bytes: &'a [u8]) -> Self {
         Self {
             bytes,
-            at,
+            at: 0,
             fields: [0; KEY_BYTES],
             kinds: 0,
             ids: [0; 4],
@@ -1003,7 +958,7 @@ mod tests {
         near
     }
 
-    /// The packed store answers the map it was packed from by the whole key: every present key gets its entry and every near neighbor misses, at caches of 0, 1, 2 and 455 blocks, under the shipped packing, with the filter off, with restart points every eight records, and at blocks of sixteen records held in chunks of 64 bytes, with restarts every four records, so that records cross block and chunk boundaries and each lookup path runs: a fence search, the filter's negative answer, a decode in place from a restart point, a cached block and an eviction. A one-record store answers its one key, and an empty one answers nothing. The counts show which path answered: the filter answers some gets absent only when it is built, no get is cached without a cache, every block is decoded at most once when the cache holds them all, and a cache smaller than the store decodes more blocks than it holds. A cache holds its blocks, the shipped packing's short last block among them, in the one allocation it reserves, which never grows.
+    /// The packed store answers the map it was packed from by the whole key: every present key gets its entry and every near neighbor misses, at caches of 0, 1, 2 and 455 blocks, under the shipped packing, with the filter off, and at blocks of sixteen records held in chunks of 64 bytes, with the filter on and off, so that records cross block and chunk boundaries and each lookup path runs: a fence search, the filter's negative answer, a decode in place, a cached block and an eviction. A one-record store answers its one key, and an empty one answers nothing. The counts show which path answered: the filter answers some gets absent only when it is built, no get is cached without a cache, every block is decoded at most once when the cache holds them all, and a cache smaller than the store decodes more blocks than it holds. A cache holds its blocks, the shipped packing's short last block among them, in the one allocation it reserves, which never grows.
     #[test]
     fn a_packed_store_answers_the_map_it_was_packed_from_by_the_whole_key() {
         assert_eq!(std::mem::size_of::<(TraceKey, TraceEntry)>(), 36);
@@ -1028,11 +983,9 @@ mod tests {
         );
         let packings = [
             SnapshotPacking::default(),
-            SnapshotPacking::new(SnapshotPacking::BLOCK_RECORDS, false).expect("it divides"),
-            SnapshotPacking::new(8, true).expect("eight divides 512"),
-            SnapshotPacking::for_test(16, 16, true, 64),
-            SnapshotPacking::for_test(16, 4, false, 64),
-            SnapshotPacking::for_test(16, 4, true, 64),
+            SnapshotPacking::new(false),
+            SnapshotPacking::for_test(16, true, 64),
+            SnapshotPacking::for_test(16, false, 64),
         ];
         for packing in packings {
             let entries =
@@ -1103,9 +1056,6 @@ mod tests {
                 assert_eq!(empty.get(&key, &mut reader), None);
             }
         }
-        assert!(SnapshotPacking::new(0, true).is_none());
-        assert!(SnapshotPacking::new(3, true).is_none());
-        assert!(SnapshotPacking::new(1024, true).is_none());
         assert!(SnapshotEntries::default().lookup(&keys[0]).is_none());
     }
 

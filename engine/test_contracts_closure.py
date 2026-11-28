@@ -1020,7 +1020,7 @@ CONFTEST_EDGES = {
 
 
 class TestTheConftestsStayLeaves:
-    """`closure_of` adds both conftests' static import closures to every test's closure. If a conftest reached engine/pipeline/ or engine/review/ through any chain of imports, that tree would be in every closure and no pipeline edit could let a test be skipped. The conftests import only the leaf modules in `CONFTEST_EDGES`; fixtures that need review-tree modules, the mini bundle's pin among them, load them through `announced_import`."""
+    """`closure_of` adds both conftests' static import closures to every test's closure. If a conftest reached engine/pipeline/ or engine/review/ through any chain of imports, that tree would be in every closure and no pipeline edit could let a test be skipped. The conftests import only the leaf modules in `CONFTEST_EDGES`; fixtures that need review-tree modules load them through `announced_import`."""
 
     @pytest.mark.parametrize("conftest", cc.CONFTEST_PATHS)
     def test_neither_conftest_reaches_the_pipeline(self, conftest):

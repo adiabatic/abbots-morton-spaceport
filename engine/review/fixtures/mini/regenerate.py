@@ -2,16 +2,9 @@
 
 The bundle gives the contracts lane a frozen workload without reading `engine/out/`. The tests that read it (the ink comparator's readings of a placed run, the conformance sweep's comparisons) make claims about the code that reads a workload, not about the current build, so a frozen one tests them as well as the live one and takes seconds instead of minutes.
 
-The bundle holds:
+The bundle holds `Senior-Regular.otf`, a copy of the live build's font.
 
-- `Senior-Regular.otf`, a copy of the live build's font.
-- `pin.json`, the tree and blob shas of `pin.PINNED_PATHS` at the commit this ran on.
-
-Both must be regenerated together. A font from one build beside a pin from another would make a test report disagreements caused by the bundle and not by the code.
-
-The pin replaces a checked-in copy of the spec. The `mini_bundle` fixture in `engine/conftest.py` writes the pinned objects out of git, once a test run, into a temporary directory that a test passes as its spec root. So a test that re-derives settlement re-derives the settlement the font was built under, a rune edit cannot make the bundle stale, and there is no second copy of the runes in the tree to edit by mistake.
-
-Two checks make HEAD safe to pin. The pinned paths must be clean, so HEAD's bytes are the working tree's. The live build's recorded `data` fingerprint must equal the one the tree hashes to now, so the frozen font was built under that spec. If either fails, the pin could name a spec no build ran, and a content-addressed pin cannot detect that later.
+Two checks make the live font safe to freeze. A passing `run_build` must have recorded the inputs of `engine/out/build`, and its recorded `data` fingerprint must equal the one the tree hashes to now, so the frozen font is a passing build of the spec on disk.
 
 Run it after `run_build` has written a fresh `engine/out/build`:
 
@@ -27,7 +20,6 @@ REPO_ROOT = HERE.parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 from engine.pipeline import fingerprint  # noqa: E402
-from engine.review.fixtures.mini import pin  # noqa: E402
 
 LIVE = REPO_ROOT / "engine" / "out" / "build"
 FILES = ("Senior-Regular.otf",)
@@ -37,12 +29,6 @@ def main() -> int:
     absent = [name for name in FILES if not (LIVE / name).is_file()]
     if absent:
         print(f"the live build has no {', '.join(absent)} under {LIVE}; run run_build first", file=sys.stderr)
-        return 1
-    dirty = pin.dirty_paths()
-    if dirty:
-        print("the pin names committed objects; commit (or stash) these first:", file=sys.stderr)
-        for line in dirty:
-            print(line, file=sys.stderr)
         return 1
     recorded = fingerprint.read_stage_a(LIVE)
     if recorded is None:
@@ -59,8 +45,7 @@ def main() -> int:
         return 1
     for name in FILES:
         shutil.copyfile(LIVE / name, HERE / name)
-    record = pin.write_pin()
-    print(f"{', '.join(FILES)} copied, spec pinned at {record['head'][:12]}", flush=True)
+    print(f"{', '.join(FILES)} copied", flush=True)
     return 0
 
 

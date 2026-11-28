@@ -75,7 +75,7 @@ def test_an_overlay_configuration_explains_the_bare_stream_without_the_crate(mon
 
 
 def test_cli_prints_the_rust_backed_report(monkeypatch, capsys):
-    monkeypatch.setattr(explain_module, "_load_spec", lambda: (SPEC, None))
+    monkeypatch.setattr(explain_module, "_load_spec", lambda: SPEC)
     explain_module.main(["qsMay:qsIt"])
     output = capsys.readouterr().out
     assert output.startswith("sequence E665:E670")
